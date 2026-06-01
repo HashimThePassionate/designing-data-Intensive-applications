@@ -513,3 +513,83 @@ Aakhir mein writer batata hai ke aaj kal "Hybrid" approach famous hai. Lekin kuc
 * **Major Cloud Risks:** Vendor lock-in, loss of control, aur lack of operational transparency.
 
 ---
+
+## Cloud Native System Architecture
+
+Cloud computing ne sirf software khareedne ya bechne ka (economic) model hi nahi badla, balkay usne technical level par software banane ka tareeqa bhi puri tarah tabdeel kar diya hai. Yahan writer **"Cloud Native"** ka concept pesh karta hai.
+
+Cloud Native ka matlab yeh nahi hai ke aapne bas apna purana MySQL uthaya aur AWS ke server (IaaS) par install kar diya. Isay Cloud Native nahi kehte, yeh sirf "lift-and-shift" hai.
+Cloud Native architecture aisi software engineering hai jismein system shuru din se is niyyat ke sath banaya jata hai ke wo cloud ke underlying faidon (jaise auto-scaling, distributed object storage, aur infinite compute) ka faida utha sakay.
+Aise systems same hardware par behtar perform karte hain, node fail hone par milliseconds mein recover karte hain, aur traditional databases ke muqable mein kahin zyada bada data handle kar sakte hain.
+
+**Table 1-2. Examples of self-hosted and cloud native database systems**
+
+| Category | Self-hosted systems | Cloud native systems |
+| --- | --- | --- |
+| **Operational/OLTP** | MySQL, PostgreSQL, MongoDB | AWS Aurora, Azure SQL DB Hyperscale, Google Cloud Spanner |
+| **Analytical/OLAP** | Teradata, ClickHouse, Spark | Snowflake, Google BigQuery, Azure Synapse Analytics |
+
+*(Note: MySQL ya PostgreSQL jese systems originally single server ke liye design thay. AWS Aurora jese systems bahar se PostgreSQL jese lagte hain, lekin unka andar ka cloud native architecture bilkul mukhtalif hai.)*
+
+### Layering of cloud services
+
+Traditional in-house ya bare-metal systems (jaise MySQL) bohat seedhi demands rakhte hain: Unhe ek OS (Linux), apni hard drive (filesystem) par direct read/write access, aur basic TCP/IP network chahiye hota hai. Cloud mein IaaS (Virtual Machines/EC2) yahi environment faraham karta hai.
+
+Lekin asli Cloud Native systems aisi "layering" par banaye jate hain jahan wo lower-level cloud services ko combine kar ke high-level product banate hain.
+Misal ke taur par:
+
+* **S3 (Object Storage) The Foundation:** AWS S3 ya Cloudflare R2 aam file systems ki tarah nahi hote jahan aap C: drive mein ja kar file modify kar lein. Inki API sirf basic operations deti hai (file upload karo, download karo). Lekin iska sub se bara faida yeh hai ke yeh underlying machines ko bilkul chupa deta hai. Agar backend par 10 hard drives jal bhi jayein, toh apka S3 par para data kabhi loose nahi hoga.
+* **The Upper Layers:** Ab **Snowflake** (Cloud OLAP) jese systems isi S3 storage layer ke upar apni compute aur query engine layer banate hain taake data securely store bhi ho aur us par analytics bhi chalti rahe.
+
+Architecture rule of thumb: Hamesha higher-level abstractions (bane banaye managed tools) use karein agar aapka use-case unse match karta hai. Agar na kare, toh phir aapko lower-level cloud services (S3, EC2) mila kar apna custom tool banana hoga.
+
+### Separation of storage and compute
+
+Yeh poore section ka sab se ahem architectural concept hai jo Cloud Native databases (jaise Aurora ya Snowflake) aur traditional databases (jaise MySQL) mein line draw karta hai.
+
+**Traditional Approach (Coupled Architecture):**
+Purane tareeqe mein CPU, RAM, aur Hard Disk (Storage) teeno ek hi machine ke andar band (coupled) hotay hain. Agar hard disk kharab hone ka dar ho toh OS level par RAID (Redundant Array of Independent Disks) laga kar data ki copies rakhi jati hain.
+Cloud ke VM (EC2) instances par bhi local disks lagi hoti hain, lekin cloud native systems inhe data hamesha ke liye save karne ke maqsad se use nahi karte. Wo in local disks ko sirf **Temporary Cache** maante hain. Kyun ke agar kal ko traffic badhi aur humein chotay server ko band kar ke bada server (upgrade) lagana pada, toh us chotay server ki local disk ka sara data chala jayega (ephemeral disk).
+
+**The Virtual Disk Problem (EBS):**
+Iska ek hal AWS EBS (Elastic Block Store) jaisi Virtual Disks hain. Yeh real time mein chote server se nikal kar naye bare server mein network ke zariye attach ki ja sakti hain. Lekin yahan catch hai: Yeh virtual disks andar se actually network calls karti hain (Har disk I/O operation ek network call hai). Is network latency (delay) ki wajah se database ki speed slow ho jati hai aur network glitches isay buri tarah mutasir karte hain.
+
+**The Cloud Native Solution (Disaggregation):**
+Isliye modern cloud native databases (jaise AWS Aurora) ne "Compute" aur "Storage" ko bilkul alag (disaggregate) kar diya hai.
+
+1. **Compute Nodes (App / Query Engine):** Yeh servers sirf CPU aur RAM hain. Yeh query ko process karte hain. Inke pas apni koi permanent hard drive nahi hoti. Yeh scale up ya down hote hain bina data transfer kiye.
+2. **Storage Nodes / Object Storage:** Database apne chhote data chunks (jaise rows/columns) ko S3 jese massive object stores ya specialized distributed storage layer mein save karta hai.
+
+Jab Storage aur Compute alag hote hain toh aap CPU nodes jitne marzi badha lein (Compute Scaling), aapka Storage independently alag se scale hota rahega bina kisi maslay ke.
+
+**Multitenancy:**
+Cloud native architecture ka aakhri pehlu Multitenancy hai. Iska matlab hai ek hi hardware aur ek hi database engine ke upar bohot si alag alag companies (tenants) ka data process ho raha hota hai. Architecture itna tight banaya jata hai ke Tenant A ka load Tenant B ki performance ya security ko mutasir nahi karta (Noisy Neighbor problem solve ki jati hai). Is se hardware ka best utilization hota hai.
+
+---
+
+### 💻 Mockup System Design & Interview Scenario
+
+**Scenario:** Aap ek SaaS company ke architect hain jo 10,000 mukhtalif clinics ko unka record maintain karne ki service deti hai. Database architecture purana hai jahan "Compute" aur "Storage" ek hi server mein coupled hain. Traffic peak times mein server overload hota hai, aur scaling karne mein 1 ghanta lagta hai kyun ke data (2 TB) naye server mein copy karna parta hai. Aap is architecture ko "Cloud Native" principles use kar ke kaise modern banayenge?
+
+**Architectural Redesign Strategy:**
+
+1. Hum monolithic database ko aisi architecture mein migrate karenge jahan Compute (Query execution) aur Storage (Data persistence) bilkul alag hon (e.g., AWS Aurora).
+2. Hum Cloud Storage layer (S3) ka istemal backups aur data redundancy ke liye karenge taake local RAID par depend na karna pare.
+
+**Architectural Flow (Plaintext Diagram):**
+
+<div align="center">
+  <img src="./images/06.jpg" width="600"/>
+</div>
+
+**Interview Trade-Off Questions:**
+
+* **Question:** *Separation of Storage and Compute (Disaggregation) ka sab se bada nuqsan (cons) kya hai?*
+* **Answer:** Network Overhead. Kyun ke ab CPU aur Disk ek server mein nahi hain, isliye har baar data fetch karne ke liye network par aana parta hai. Agar network layer slow hui toh pure database ki latency (delay) barh jayegi.
+
+
+* **Question:** *Multitenancy architecture mein "Noisy Neighbor" problem kya hoti hai aur Cloud Native systems isay kaise deal karte hain?*
+* **Answer:** Jab bohot saare customers ek hi shared cloud server par hon, toh agar ek customer achanak bohot heavy query chala de aur sara CPU kha jaye, toh baki customers ki app slow ho jati hai (Noisy Neighbor). Cloud Native architectures strict "Resource Quotas" aur "Rate Limiting" enforce karte hain taake kisi bhi ek tenant ko CPU ya memory ka ek makhsoos hissa se zyada use karne ki ijazat na milay.
+
+
+---
