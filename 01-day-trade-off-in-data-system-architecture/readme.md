@@ -1,4 +1,83 @@
 # Trade-offs in Data Systems Architecture
+<details open>
+<summary><h2>📚 Table of Contents</h2></summary>
+
+### 1. System Architecture Fundamentals
+- [**System Architecture Mein Trade-Offs Ki Haqeeqat**](#system-architecture-mein-trade-offs-ki-haqeeqat)
+  - [Single-Node Se Distributed Systems Ka Safar](#single-node-se-distributed-systems-ka-safar)
+  - [Compute-Intensive vs. Data-Intensive Applications](#compute-intensive-vs-data-intensive-applications)
+  - [Data Infrastructure Ke Standard Building Blocks](#data-infrastructure-ke-standard-building-blocks)
+    - [Application Code: System Ka "Glue"](#application-code-system-ka-glue)
+  - [Organizational Challenges: Ek Dataset, Mukhtalif Maqasid](#organizational-challenges-ek-dataset-mukhtalif-maqasid)
+  - [Terminology: Frontends aur Backends Ka Architectural View](#terminology-frontends-aur-backends-ka-architectural-view)
+  - [💻 Mockup System Design & Interview Scenario](#-mockup-system-design--interview-scenario)
+  - [📌 Quick Revision Hints](#-quick-revision-hints)
+
+### 2. Operational Versus Analytical Systems
+- [**Operational Versus Analytical Systems**](#operational-versus-analytical-systems)
+  - [Characterizing Transaction Processing and Analytics](#characterizing-transaction-processing-and-analytics)
+  - [💻 Interview & Mockup System Design Scenario](#-interview--mockup-system-design-scenario)
+  - [📌 Quick Revision Hints](#-quick-revision-hints-1)
+
+### 3. Data Warehousing
+- [**Data Warehousing**](#data-warehousing)
+  - [From data warehouse to data lake](#from-data-warehouse-to-data-lake)
+  - [Beyond the data lake](#beyond-the-data-lake)
+  - [💻 Mockup System Design & Interview Scenario](#-mockup-system-design--interview-scenario-1)
+
+### 4. Systems of Record and Derived Data
+- [**Systems of Record and Derived Data**](#systems-of-record-and-derived-data)
+  - [Systems of record](#systems-of-record)
+  - [Derived data systems](#derived-data-systems)
+  - [Architectural Flow: Operational vs Analytical Mapping](#architectural-flow-operational-vs-analytical-mapping)
+  - [The "Tool vs Usage" Principle](#the-tool-vs-usage-principle)
+  - [The Synchronization Challenge (Data Pipelines)](#the-synchronization-challenge-data-pipelines)
+  - [💻 Mockup System Design & Interview Scenario](#-mockup-system-design--interview-scenario-2)
+
+### 5. Cloud Versus Self-Hosting
+- [**Cloud Versus Self-Hosting**](#cloud-versus-self-hosting)
+  - [The Spectrum of Outsourcing](#the-spectrum-of-outsourcing-figure-1-2-breakdown)
+  - [Pros and Cons of Cloud Services](#pros-and-cons-of-cloud-services)
+    - [The Cost and Skill Trade-Off](#the-cost-and-skill-trade-off)
+    - [Elasticity and Variable Workloads](#elasticity-and-variable-workloads-cloud-ka-asal-faaida)
+    - [The Disadvantages of Cloud](#the-disadvantages-of-cloud-control-ka-kho-jana)
+  - [💻 Mockup System Design & Interview Scenario](#-mockup-system-design--interview-scenario-3)
+  - [📌 Quick Revision Hints](#-quick-revision-hints-2)
+
+### 6. Cloud Native System Architecture
+- [**Cloud Native System Architecture**](#cloud-native-system-architecture)
+  - [Layering of cloud services](#layering-of-cloud-services)
+  - [Separation of storage and compute](#separation-of-storage-and-compute)
+  - [💻 Mockup System Design & Interview Scenario](#-mockup-system-design--interview-scenario-4)
+
+### 7. Operations in the Cloud Era
+- [**Operations in the Cloud Era**](#operations-in-the-cloud-era)
+  - [The Shift: Machines to Services](#-the-shift-machines-to-services)
+  - [The Bifurcation of Roles](#-the-bifurcation-of-roles-roles-ki-taqseem)
+  - [💻 Mockup System Design & Interview Scenario](#-mockup-system-design--interview-scenario-5)
+
+### 8. Distributed Versus Single-Node Systems
+- [**Distributed Versus Single-Node Systems**](#distributed-versus-single-node-systems)
+- [**Problems with Distributed Systems**](#problems-with-distributed-systems)
+  - [💻 Mockup System Design & Interview Scenario](#-mockup-system-design--interview-scenario-6)
+
+### 9. Microservices and Advanced Architectures
+- [**Microservices and Serverless**](#microservices-and-serverless)
+  - [Serverless (Function as a Service - FaaS)](#serverless-function-as-a-service---faas)
+- [**Cloud Computing Versus Supercomputing (HPC)**](#cloud-computing-versus-supercomputing-hpc)
+  - [💻 Mockup System Design & Interview Scenario](#-mockup-system-design--interview-scenario-7)
+
+### 10. Data Systems, Law, and Society
+- [**Data Systems, Law, and Society**](#data-systems-law-and-society)
+  - [Legal Regulations](#legal-regulations-qanooni-pabandiyan)
+  - [Engineering Challenges due to Laws](#engineering-challenges-due-to-laws)
+  - [The True Cost of Data Storage](#the-true-cost-of-data-storage)
+  - [Data Minimization](#data-minimization-datensparsamkeit)
+  - [💻 Mockup System Design & Interview Scenario](#-mockup-system-design--interview-scenario-8)
+
+</details>
+
+---
 
 ## **System Architecture Mein Trade-Offs Ki Haqeeqat**
 
