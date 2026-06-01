@@ -350,3 +350,78 @@ Is evolution mein do bare concepts ubhar kar aaye hain:
 * *Answer:* Analytics aam taur par internal management ke liye hoti hai. Lekin ML models (jo Data Lake/Warehouse ke data par train hotay hain) ko live app mein end-user tak pohchane ke liye un insights ko wapas OLTP (live systems) mein feed karna zaroori hai. Yahi Reverse ETL ka kaam hai.
 
 ---
+
+# Systems of Record and Derived Data
+
+Pichle section mein humne Operational aur Analytical systems ka farq samjha tha. Ab writer ek aur bohot ahem architectural distinction introduce kar raha hai: **Systems of Record** aur **Derived Data Systems**. Yeh concept kisi bhi system ke andar **"Data Flow"** (data kahan se aata hai aur kahan jata hai) ko samajhne ke liye bunyadi haisiyat rakhta hai.
+
+## Systems of record
+
+Kisi bhi distributed architecture mein ek aisa central database zaroor hota hai jise **"Source of Truth"** (Haqeeqat ka manba) kaha jata hai. Yahi **System of Record** hota hai.
+
+* **Authoritative Data:** Jab bhi application mein koi naya data aata hai (maslan, user naya account banata hai ya order place karta hai), toh wo sab se pehle isi system mein write (save) hota hai.
+* **Normalization (No Duplication):** Yahan data aam taur par normalized form mein rakha jata hai. Iska matlab hai ke ek "fact" (jaise user ka email address) poore database mein sirf ek hi jagah store hoga, taake data mein tazad (inconsistency) paida na ho.
+* **Conflict Resolution:** Distributed systems mein data bikhra hota hai. Agar kabhi kisi doosre system (jaise cache ya search index) aur System of Record ke data mein farq aa jaye (mismatch ho), toh architectural rule yeh kehta hai ke **System of Record wala data hi hamesha 100% correct mana jayega**.
+
+## Derived data systems
+
+Agar aap System of Record ka data utha kar us par koi processing, transformation, ya formatting apply karein, aur usay kisi doosre system mein save kar dein, toh us naye system ko **Derived Data System** kehte hain.
+
+* **Re-creatable (Redundancy):** Derived data asal mein redundant (duplicate) hota hai. Iski sab se bari khasiyat yeh hai ke **agar yeh system puri tarah crash ho jaye ya data delete ho jaye, toh aap System of Record se data dubara padh kar isay scratch se re-create kar sakte hain.**
+* **Performance Optimization:** Ab sawal yeh hai ke duplicate data kyu banaya jaye? Kyun ke System of Record hamesha fast "reads" (data fetch karne) ke liye optimize nahi hota. Derived systems banaye hi isliye jate hain taake read queries ko bijli ki tezi se serve kiya ja sake.
+* **Real-World Architectural Examples:**
+* **Cache (Redis/Memcached):** Yeh sab se classic derived system hai. Agar data cache mein hai toh wahan se serve hoga, warna fallback kar ke original DB (System of Record) se laya jayega.
+* **Search Indexes (Elasticsearch):** Text search ko fast banane ke liye.
+* **Materialized Views / Denormalized Tables:** Jab complex joins ko avoid karne ke liye pre-calculated tables banaye jate hain.
+* **Machine Learning Models:** Jo historical data (source) par train kiye jate hain.
+
+
+
+### Architectural Flow: Operational vs Analytical Mapping
+
+Writer in concepts ko pichle topic se jorta hai:
+
+* **Analytical Systems** (Data Warehouses / Data Lakes) hamesha **Derived Data Systems** hote hain, kyun ke wo apna data khud generate nahi karte, balkay operational systems se extract karte hain.
+* **Operational Systems** (Backend APIs) mein in dono ka mixture hota hai. Aapka main primary database (jaise PostgreSQL) System of Record hota hai, jabke uske aagay laga hua Redis cache aur Elasticsearch index uske Derived systems hote hain.
+
+### The "Tool vs Usage" Principle
+
+Ek bohot deep theoretical point jo writer yahan clear karta hai: **Koi bhi database paidaishi taur par "System of Record" ya "Derived System" nahi hota.**
+Yeh depends karta hai ke aapka software architecture usay **use kaise kar raha hai**.
+
+* Agar aap **Redis** (jo normally ek cache/derived system hai) mein data directly write kar rahe hain aur usay kahin aur save nahi kar rahe, toh us specific use-case ke liye Redis hi aapka System of Record ban jayega.
+* Agar aap **PostgreSQL** (jo normally System of Record hota hai) mein Elasticsearch se processed data rakh rahe hain, toh wo PostgreSQL instance ek Derived System kehlaya jayega.
+
+### The Synchronization Challenge (Data Pipelines)
+
+Distributed architecture ka sab se bara dard-e-sar (headache) yeh hai ke: **Jab System of Record mein data update ho, toh Derived Systems ko fauran kaise pata chalega ke data change ho gaya hai?**
+Aksar databases is assumption par banaye gaye thay ke wo akele kaam karenge, isliye wo doosre systems ko update bhejne mein ache nahi hain. Is maslay ko hal karne ke liye industry mein **Data Pipelines** (jaise Apache Kafka ya Debezium Change Data Capture) ka istemal kiya jata hai jo real-time mein System of Record ke changes ko Derived systems tak propagate karte hain.
+
+---
+
+### 💻 Mockup System Design & Interview Scenario
+
+**Scenario:** Aap ek ride-sharing app (jaise InDrive ya Uber) ka backend design kar rahe hain. Har second hazaron drivers apni GPS location update kar rahe hain, aur riders unhe map par search kar rahe hain.
+
+**Architectural Design:**
+
+* **System of Record:** Hum `Cassandra` ya `PostgreSQL` ko primary database banayenge jahan driver ki exact state, profile aur billing information as a single source of truth save hogi.
+* **Derived Data System (Spatial Index):** Riders ko unke 5km radius mein drivers dikhane ke liye DB queries slow hongi. Isliye hum data ko `Redis Geospatial` ya `Elasticsearch` mein derive karenge. Jab rider app kholda hai, usay drivers System of Record se nahi, balkay Redis (Derived System) se nazar aayenge.
+
+**Architectural Flow (Plaintext Diagram):**
+
+<div align="center">
+  <img src="./images/04.jpg" width="600"/>
+</div>
+
+**Interview Trade-Off Questions:**
+
+* **Question:** *Agar Redis (Derived System) crash ho jaye, toh system recover kaise hoga?*
+* **Answer:** Kyun ke Redis ek derived system hai, iska data loss permanent nahi hota. Hum fauran PostgreSQL (System of Record) par ek batch job chalayenge jo sab active drivers ki current locations ko read karegi aur naye Redis instance mein dubara write (re-hydrate) kar degi. Hmara original data safe rahay ga.
+
+
+* **Question:** *Data pipelines ka hona kyun zaroori hai? Agar backend API khud dono jagah (DB aur Cache) sath write kare toh kya masla hai?*
+* **Answer:** Agar backend DB mein write successful ho jaye aur Cache mein write ke waqt network fail ho jaye, toh System of Record aur Derived Data mein "Inconsistency" aa jayegi. Data pipeline (jaise CDC/Kafka) guarantee karti hai ke agar DB mein data gaya hai, toh wo event eventually Cache tak lazmi pohnchega (Eventual Consistency).
+
+---
+
