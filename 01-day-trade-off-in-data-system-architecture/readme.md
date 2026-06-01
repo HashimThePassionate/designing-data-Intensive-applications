@@ -1,5 +1,6 @@
 # Trade-offs in Data Systems Architecture
-<details open>
+
+<details>
 <summary><h2>📚 Table of Contents</h2></summary>
 
 ### 1. System Architecture Fundamentals
@@ -164,21 +165,9 @@ Agar system ko aglay request ke liye data yaad rakhna hai (state persist karni h
 3. **Order Placement (Stream & DB):** Jab user order place karta hai, toh app code data ko **Main Database (PostgreSQL)** mein write karta hai. Sath hi ek event **Stream (Kafka)** mein bhej deta hai.
 4. **Asynchronous Actions:** Kafka us event ko pakar kar background services (jaise email notification system aur inventory management) ko trigger kar deta hai bina user ko wait karwaye.
 
-```plaintext
-[ Mobile App / Frontend ]
-           | (HTTP / REST API)
-           v
-[ Stateless Backend API Server ] ---> (State Bhool Jata Hai)
-           |
-           +---> [ Cache (Redis) ] --------- (Fast Read: Product Data)
-           |
-           +---> [ Search Index (Elasticsearch) ] -- (Keyword Search)
-           |
-           +---> [ Primary DB (PostgreSQL) ] -- (Source of Truth / Orders)
-           |
-           +---> [ Message Stream (Kafka) ] ---> [ Analytics / Notifications ]
-
-```
+<div align="center">
+  <img src="./images/11.jpg" width="600"/>
+</div>
 
 **Interview Trade-Off Questions:**
 
@@ -233,14 +222,9 @@ Shuruati daur mein database mein "Transaction" ka matlab sirf paiso ka len-den (
 **OLTP (Online Transaction Processing) Ka Flow:**
 Operational systems hamesha "Point Queries" par kaam karte hain. Iska matlab hai wo poore database ko nahi dekhte, balkay ek choti si key (jaise `user_id`) ke zariye sirf ek ya chand records nikalte hain. Inka main pattern data insert, update ya delete karna hota hai. Kyun ke yeh systems live users ke sath interact karte hain, isliye inhe OLTP kehte hain.
 
-```plaintext
-[ Mobile App User ] ---> [ Backend API ] ---> [ Point Query: SELECT * FROM users WHERE id = 123 ]
-                                                    |
-                                                    v
-                                            [ OLTP Database (PostgreSQL/MySQL) ]
-                                            (Optimized for fast, small writes/reads)
-
-```
+<div align="center">
+  <img src="./images/12.jpg" width="600"/>
+</div>
 
 ---
 
@@ -309,24 +293,9 @@ Aaj kal ek teesri kism ka system bhi aam ho gaya hai jise **Product Analytics** 
 
 **Architectural Flow (Plaintext Diagram):**
 
-```plaintext
-[ Live Users (Mobile App) ] 
-            | (Fast Point Queries / Fixed SQL)
-            v
-[ Backend Microservices ] 
-            | (Reads / Writes)
-            v
-[ OLTP Database (PostgreSQL) ] ---> (Data grows in Gigabytes, Holds Latest State)
-            |
-            | (Change Data Capture / ETL Pipeline - e.g., Debezium + Kafka)
-            v
-[ Data Lake / Data Warehouse (OLAP - e.g., Snowflake/BigQuery) ] ---> (Holds Petabytes of History)
-            |
-            | (Heavy Aggregations / Arbitrary Ad-hoc SQL)
-            v
-[ Business Analysts (Tableau / Looker) & Data Scientists ]
-
-```
+<div align="center">
+  <img src="./images/13.jpg" width="600"/>
+</div>
 
 **Interview Questions & Explanations:**
 
