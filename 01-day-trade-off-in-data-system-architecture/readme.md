@@ -76,6 +76,16 @@
   - [Data Minimization](#data-minimization-datensparsamkeit)
   - [💻 Mockup System Design & Interview Scenario](#-mockup-system-design--interview-scenario-8)
 
+### 11. Designing Data-Intensive Applications: Master Revision Guide
+- [**Designing Data-Intensive Applications: Master Revision Guide**](#designing-data-intensive-applications-master-revision-guide)
+  - [1. The Core of System Architecture](#1-the-core-of-system-architecture)
+  - [2. Operational Versus Analytical Systems](#2-operational-versus-analytical-systems)
+  - [3. Data Flow: Warehouses, Lakes & Pipelines](#3-data-flow-warehouses-lakes--pipelines)
+  - [4. Systems of Record vs Derived Data](#4-systems-of-record-vs-derived-data)
+  - [5. Cloud, Self-Hosting & Cloud Native](#5-cloud-self-hosting--cloud-native)
+  - [6. Distributed Systems & Microservices](#6-distributed-systems--microservices)
+  - [7. Operations, Law & Ethics](#7-operations-law--ethics)
+
 </details>
 
 ---
