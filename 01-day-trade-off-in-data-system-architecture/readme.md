@@ -1166,7 +1166,7 @@ Storage ka bill sirf S3 ka bill nahi hota. Usme yeh costs bhi shamil hoti hain:
 Is sab se bachne ka sab se behtareen architectural usool **Data Minimization** hai (Jise German mein *Datensparsamkeit* kehte hain).
 Iska matlab hai: **"Jo data zaroori nahi, usay store hi mat karo."** Yeh concept GDPR ke is usool se perfectly match karta hai ke data sirf ek khaas maqsad ke liye collect kiya jaye, aur kaam pura hone ke baad foran delete kar diya jaye. Agar aapke paas data hoga hi nahi, toh wo leak kaise hoga?
 
-###Industry Standards (Compliance Audits)
+### Industry Standards (Compliance Audits)
 
 Business-to-Business (B2B) duniya mein ab security compliance sab se ahem ho gayi hai:
 
@@ -1200,5 +1200,58 @@ Hum "Big Data" (sab kuch save karne) ki zid ko chorenge aur "Data Minimization" 
 
 * **Question:** *Append-only logs mein data delete karna kyun mushkil hota hai?*
 * **Answer:** Append-only log ka fundamental principle yeh hota hai ke purani entry (file ke shuru mein) kabhi modify nahi hoti, data hamesha file ke aakhir (end) mein likha jata hai taake write speed fast rahay (Sequential I/O). Agar aap beech mein ja kar ek row delete karne ki koshish karenge, toh poori file corrupt ho sakti hai ya aapko file dubara rewrite karni paregi jo ke bohot slow aur mehanga operation hai.
+
+---
+
+## Designing Data-Intensive Applications: Master Revision Guide
+
+Yahan is poori chat ka ek deep aur quick revision section hai. Isay is tarah design kiya gaya hai ke aap system design interview se pehle ya concepts ko mind mein refresh karne ke liye isay taizi se scan kar sakein.
+
+---
+
+## 1. The Core of System Architecture
+
+* **The Golden Rule:** System design mein koi "Perfect Solution" nahi hota, sirf **Trade-Offs** (compromises) hote hain. Aapko read speed, write speed, availability aur consistency ke darmian best balance dhoondna hota hai.
+* **Compute vs Data Intensive:** Aaj kal applications CPU/Processing power ki wajah se fail nahi hotin, balkay heavy data volume aur high concurrency (hazaron users ek sath) ki waja se fail hoti hain (Data-Intensive).
+* **Building Blocks:** Ek complex system in blocks se mil kar banta hai: Database (Storage), Cache (Speed), Search Index (Keyword discovery), Stream Processing (Real-time events), aur Batch Processing (Analytics).
+* **Stateless Backends:** Application servers ko hamesha "Stateless" hona chahiye. Yani wo memory mein data hold na karein, data hamesha peechay database ya cache mein save ho taake servers easily auto-scale ho sakein.
+
+## 2. Operational Versus Analytical Systems
+
+* **OLTP (Operational Systems):** Yeh live apps ke backend hote hain. Yahan **Point Queries** chalti hain (jaise ek user ki profile nikalna). Yeh gigabytes mein hote hain aur current state hold karte hain.
+* **OLAP (Analytical Systems):** Yeh Data Scientists aur Business Analysts ke liye hote hain. Yahan **Heavy Aggregations** (sum, count) chalti hain jo millions of rows scan karti hain. Yeh petabytes mein hote hain aur historical data hold karte hain.
+* **The Rule:** OLAP queries ko kabhi OLTP (live) database par run mat karein, warna live system down ho jayega.
+
+## 3. Data Flow: Warehouses, Lakes & Pipelines
+
+* **Data Silos:** Bikhray hue OLTP databases ka data combine karne ke liye **ETL (Extract, Transform, Load)** pipelines use hoti hain.
+* **Data Warehouse:** Poori company ka saaf (structured) data ek read-only jagah par jama karna taake Business Analysts SQL queries run kar sakein.
+* **Data Lake (The Sushi Principle):** Data Scientists ke liye raw, unstructured data (images, text, JSON) ko baghair kisi schema ke store karna taake ML models train ho sakein. "Raw data is better".
+* **Reverse ETL:** Analytical systems mein banaye gaye ML models (jaise product recommendations) ka output wapas live OLTP systems mein bhejna.
+
+## 4. Systems of Record vs Derived Data
+
+* **System of Record (Source of Truth):** Wo main database jahan data sab se pehle aur sirf ek baar (normalized form mein) save hota hai (e.g., PostgreSQL). Yahan ka data 100% accurate mana jata hai.
+* **Derived Data Systems:** Agar System of Record ka data kisi doosri jagah fast reads ke liye copy ya transform kiya jaye (e.g., Redis Cache, Elasticsearch Index). Agar yeh crash ho jayein, toh inhe Source of Truth se dubara (re-create) kiya ja sakta hai.
+
+## 5. Cloud, Self-Hosting & Cloud Native
+
+* **Build vs Buy:** Jo aapki company ki core competency hai wo khud banayein (in-house), baqi sab vendor/cloud par chor dein.
+* **Self-Hosting:** Predictable aur stable load ke liye bare-metal ya EC2 (IaaS) par khud DB manage karna sasta aur control mein hota hai.
+* **Cloud Services:** Unpredictable aur variable load (jaise Analytics) ke liye best hain, jahan auto-scaling se cost bachti hai. Lekin yahan vendor lock-in aur "Black Box" (no OS control) ka masla hota hai.
+* **Cloud Native Architecture:** Yeh sirf VM par purana DB chalana nahi hai. Iska core concept **"Separation of Storage and Compute"** hai. Compute (CPU) stateless nodes par hota hai aur Storage (Data) S3 jaise distributed object stores par hota hai taake dono independent scale kar sakein.
+
+## 6. Distributed Systems & Microservices
+
+* **Why Distribute?** High Availability, Fault Tolerance, Latency (regional servers), aur Scale out karne ke liye.
+* **The Dark Side:** Network hamesha unreliable hota hai. Timeouts, retries ka masla, aur tracing (Observability) azaab ban jati hai. Single machine hamesha fast aur simple hoti hai agar data fit aa jaye.
+* **Microservices:** Har service ka apna database (DB per service) hona lazmi hai taake teams independent rahin. Yeh technical se zyada "People management" ka hal hai.
+* **Serverless (FaaS):** Infrastructure aur scaling cloud manage karta hai. Aap sirf code execution ke milliseconds ka pay karte hain. Faida: Zero management. Nuqsan: Cold starts aur execution time limits.
+
+## 7. Operations, Law & Ethics
+
+* **Operations Shift:** DBA ki manual job ab SRE/DevOps mein badal chuki hai jahan sab kuch code (Terraform), automation, aur Ephemeral VMs (destroyable servers) se manage hota hai. Cloud mein Capacity Planning asal mein Financial/Cost Planning ban jati hai.
+* **GDPR & Legal Impact:** Qanoon system design ko badal raha hai. "Right to be forgotten" ne immutable logs (append-only) mein deletion ke mushkil engineering challenges paida kar diye hain.
+* **Data Minimization:** Storage sasti zaroor hai, lekin data leak hone par liability, fines aur users ki safety ka risk bohot mehanga hai. Isliye sirf utna data store karein jitni zaroorat ho, aur zaroorat poori hone par usay permanently delete kar dein.
 
 ---
