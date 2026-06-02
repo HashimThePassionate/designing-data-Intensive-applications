@@ -380,8 +380,46 @@ Farz karo aap LinkedIn use kar rahe ho aur aapne ek post share ki.
 **Architectural Flow (Plaintext Diagram):**
 
 <div align="center">
-  <img src="./images/13.jpg" width="600"/>
+  <img src="./images/13.jpg" width="700"/>
 </div>
+
+🌐 1. Live Users & Backend Microservices Layer (The Frontline)
+
+* **[Live Users (Mobile App)] $\rightarrow$ (Fast Point Queries / Fixed SQL):**
+* Yeh top tier hamare 5 million daily active digital wallet users ko represent karta hai jo mobile app se transactions trigger kar rahe hain.
+* Inki requests bohot choti, fixed, aur specific hoti hain—jaise apna current balance check karna ya kisi ko paise bhejna.
+
+* **[Backend Microservices] $\rightarrow$ (Reads / Writes):**
+* Users ki requests direct database par nahi jatin, balkay is middle application layer par aati hain.
+* Is layer ka kaam transactions ko process karna, validation lagana, aur dynamic state requests ko standard Read/Write actions ke tehat niche database node par pass karna hota hai.
+
+💾 2. The Creators: OLTP Database Layer (PostgreSQL)
+
+* **[OLTP Database (PostgreSQL)] $\rightarrow$ (Data grows in Gigabytes, Holds Latest State):**
+* Yeh system ka primary transactional storage engine hai jo system ki absolute live state hold karta hai (jaise kis account mein is waqt kitne paise hain).
+* Isay strictly fast writes aur short indexing operations ke liye clean aur lightweight rakha jata hai, isliye iska size dynamic toor par sirf Gigabytes mein grow karta hai.
+* **The Trade-off Guard:** Is database par heavy reports run karna sakht mana hota hai taake users ki digital wallet transfers line mein lock hokar fail na hoon.
+
+🚰 3. The Sync Conduit: CDC / ETL Pipeline
+
+* **(Change Data Capture / ETL Pipeline - e.g., Debezium + Kafka):**
+* Yeh gray color ka thick physical pipe  mein dono systems ko aapas mein jor raha hai.
+* **CDC (Change Data Capture)** ka sab se bada faida yeh hai ke yeh live database par koi heavy SQL scan query nahi chalata.
+* Yeh chup-chap PostgreSQL ke background transaction write logs (WAL - Write-Ahead Logs) ko track karta hai aur jaise hi koi naye paise bhejta hai, us transaction ki choti si incremental copy real-time mein khinch kar niche analytics systems mein transfer kar deta hai.
+
+📊 4. The Observers: Data Warehouse Layer (OLAP)
+
+* **[Data Lake / Data Warehouse (OLAP - e.g., Snowflake/BigQuery)] $\rightarrow$ (Holds Petabytes of History):**
+* Yeh analytical dunya ka powerhouse hai jahan pichle kai saalon ka poora historical record betha hota hai, isliye iska size **Petabytes** tak chala jata hai.
+* Iski internal storage columnar format mein hoti hai, jo trillions of rows par ek sath mathematics aur fraud patterns dhoondhne ke liye bohot zyada tez hoti hai.
+
+🎛️ 5. The Analysis Consumers (The End-Point Analysts)
+
+* **[Business Analysts (Tableau / Looker) & Data Scientists] $\rightarrow$ (Heavy Aggregations / Arbitrary Ad-hoc SQL):**
+* Sab se niche hamari internal audit, fraud detection, aur BI team bethi hai.
+* Yeh log complex dashboards (Tableau/Looker) connect karte hain aur heavy complex queries chalate hain (jaise *"Pichle 3 saal mein fraud patterns ka trend kya tha?"*).
+* **The Ultimate Architecture Win:** Yeh log jo bhi heavy queries chalayenge, woh direct is Data Warehouse block par chalengi. Is tarah hamara top par betha live user database (`PostgreSQL`) bilkul aaram se safe betha rahega aur user transactions zero lag ke sath smoothly execute hoti rahengi.
+
 
 **Interview Questions & Explanations:**
 
