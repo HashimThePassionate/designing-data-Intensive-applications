@@ -82,7 +82,9 @@
 
 ## **System Architecture Mein Trade-Offs Ki Haqeeqat**
 
-System design ki duniya mein ek universal sach hai: **"Koi perfect solution nahi hota, sirf trade-offs hote hain."** Iska seedha matlab yeh hai ke aap kabhi aisa system nahi bana sakte jo har cheez mein 100% perfect ho. Agar aap read speed fast karenge, toh shayad write speed slow ho jaye. Agar aap data consistency (accuracy) barhayenge, toh system ki availability (uptime) par asar parh sakta hai. Ek architect ka kaam best possible compromise (trade-off) talash karna hai jo us specific application ki zaroorat ko poora kar sake.
+System design ki duniya mein ek universal sach hai: **"Koi perfect solution nahi hota, sirf trade-offs hote hain."**. `System design mein "Trade-offs" ka matlab hota hai "Kuch paane ke liye, kuch khona parta hai.` Iska seedha matlab yeh hai ke aap kabhi aisa system nahi bana sakte jo har cheez mein 100% perfect ho. Agar aap read speed fast karenge, toh shayad write speed slow ho jaye. Agar aap data consistency (accuracy) barhayenge, toh system ki availability (uptime) par asar parh sakta hai. Ek architect ka kaam best possible compromise (trade-off) talash karna hai jo us specific application ki zaroorat ko poora kar sake.
+
+> Ek software architect ka kaam koi jadooyi ya 100% perfect system banana nahi hota, balkay uska asli kaam yeh faisla karna hota hai ke business ki zaroorat ke mutabiq kis cheez ko qurban kar ke kis doosri cheez ko haasil karna hai.
 
 Aaj ke daur mein web apps, SaaS (Software as a Service), aur cloud computing ki wajah se almost har system ek shared infrastructure par chalta hai, jahan hazaron users, devices aur sensors continuously data read aur write kar rahe hote hain. Is scale par architecture ko design karna ek bohot bara challenge ban jata hai.
 
@@ -166,10 +168,42 @@ Agar system ko aglay request ke liye data yaad rakhna hai (state persist karni h
 4. **Asynchronous Actions:** Kafka us event ko pakar kar background services (jaise email notification system aur inventory management) ko trigger kar deta hai bina user ko wait karwaye.
 
 <div align="center">
-  <img src="./images/11.jpg" width="600"/>
+  <img src="./images/11.jpg" width="700"/>
 </div>
 
-**Interview Trade-Off Questions:**
+📱 1. Client Engine (Mobile App / Frontend)
+
+* **The Entry Point:** Sab se upar aapka frontend betha hai. Jab koi user Daraz ya Amazon par click karta hai, toh yeh block **HTTP / REST API** ke zariye backend se rabta karta hai. Iska kaam sirf request bhejna aur response dikhana hai.
+
+⚙️ 2. The Brain: Stateless Backend API Server
+
+* **(State Bhool Jata Hai):** Yeh tumhaari application ka main running code (Python/Go/NodeJS) hai. Isko **Stateless** isliye rakha gaya hai kyunke yeh user ka koi data (jaise login session) apne andar save nahi rakha. Iska sab se bada DevOps faida yeh hai ke agar traffic 100x barh jaye, toh hum is jaise **10 mazeed servers bina kisi problem ke line mein add kar sakte hain (Horizontal Scaling)**. Iska asli kaam traffic ko niche mojud sahi building blocks par route karna hai.
+
+🚀 3. The Read-Speed Tier (Elasticsearch & Redis)
+
+Jab lakhon users products dhoondh rahe hote hain, toh backend in do blocks ko hit karta hai:
+
+* **[Search Index (Elasticsearch)] $\rightarrow$ (Keyword Search):** Jab user search bar mein likhta hai "sports shoes", toh backend query direct database par nahi bhejta. Woh Elasticsearch block par hit karta hai. Yeh aik inverted-index engine hai jo milliseconds mein fuzzy keywords dhoondh kar product IDs return kar deta hai.
+* **[Cache (Redis)] $\rightarrow$ (Fast Read: Product Data):** Jab user specific product page par click karta hai, toh API server database par jaane se pehle Redis (RAM) ka gate khatkhatata hai. Agar data RAM mein betha hai (Cache Hit), toh disk I/O zero ho jata hai aur user ko micro-seconds mein price aur details dikh jati hain.
+
+> *Note on the Image:* Image mein `Primary DB / (Elasticsearch)` ka jo green block hai, woh darasal hamare document/NoSQL catalog store ko zahir kar raha hai jahan se main product static metadata uthaya jata hai.
+
+💾 4. The Source of Truth: Primary DB (PostgreSQL)
+
+* **(Source of Truth / Orders):** Jab user final transaction karta hai (yani click karta hai "Place Order"), toh data integrity sab se ahem hoti hai. Isliye backend direct Relational Database (PostgreSQL) par hit karta hai. PostgreSQL apne strict **ACID transactions** aur row-level locks ke zariye ensure karta hai ke inventory accurate minus ho aur order tables mein data absolute clean write ho.
+
+🌊 5. The Shock Absorber & Async Engine (Kafka)
+
+* **[Message Stream (Kafka)]:** PostgreSQL mein order write karte hi, API server user ko screen par "Order Successful" dikha deta hai aur khud baqi kaam chor kar agla order pakadne chala jata hai. Magar background mein, woh is order ka ek event block token **Kafka** ke pipe mein phair (push) deta hai.
+* **[Analytics / Notifications] Layer:** Kafka ke aage consumer services bethi hain. Yeh block asynchronous tarah se background mein chal raha hota hai. Jaise hi Kafka mein message aata hai, yeh system:
+1. User ko email/SMS notification bhejta hai.
+2. Analytics dashboard ko update karta hai.
+3. Delivery service ko notify karta hai.
+
+
+* **The DevOps Benefit:** Is pattern se main user ko wait nahi karna parta. Email thodi der baad bhi chali jaye toh khair hai, magar checkout screen instant chalni chahiye.
+
+### **Interview Trade-Off Questions:**
 
 * *Question:* Agar Redis (Cache) crash ho jaye toh kya hoga?
 * *Answer:* System down nahi hoga (Availability remain), lekin sara load Primary DB par chala jayega jiski wajah se latency barh jayegi (Performance degradation).
