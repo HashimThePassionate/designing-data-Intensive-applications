@@ -880,7 +880,20 @@ Jab Storage aur Compute alag hote hain toh aap CPU nodes jitne marzi badha lein 
 **Multitenancy:**
 Cloud native architecture ka aakhri pehlu Multitenancy hai. Iska matlab hai ek hi hardware aur ek hi database engine ke upar bohot si alag alag companies (tenants) ka data process ho raha hota hai. Architecture itna tight banaya jata hai ke Tenant A ka load Tenant B ki performance ya security ko mutasir nahi karta (Noisy Neighbor problem solve ki jati hai). Is se hardware ka best utilization hota hai.
 
----
+**Multitenancy definition:** ka asaan matlab yeh hai ke ek hi software ya ek hi hardware resource ko bohot saare alag-alag customers (jinhein **tenants** kehte hain) mil kar share karein, lekin har tenant ka data ek doosre se mukammal taur par alag aur secure rahe.
+
+Isay ek real-world misaal se samjhein:
+
+* **Multitenancy (Apartment Building):** Ek badi building (ek hi infrastructure) mein bohot saare apartments (tenants) hote hain. Building ka pani aur bijli ka main system ek hi hota hai, lekin har tenant ka apna alag ghar, apni chabi, aur apni privacy hoti hai. Ek tenant ke ghar mein kya ho raha hai, yeh doosre ko pata nahi chalta.
+
+### Writer ke Paragraph ki Tafseel
+
+Writer ne multitenancy ko cloud-native architecture ke context mein samjhaya hai:
+
+* **Shared Resources (Aik hi hardware aur DB engine):** Cloud mein har customer (tenant) ke liye alag server lagana bohot mehanga aur inefficient hota hai. Isliye, multitenancy mein ek hi powerful server aur database engine ke oopar bohot saari alag-alag companies ka data process kiya jata hai.
+* **Performance aur Security (Tight Architecture):** Architecture is tarah design kiya jata hai ke Tenant A aur Tenant B ka data ek doosre ke sath mix na ho. Iska maqsad yeh hota hai ke Tenant A ka load (traffic) Tenant B ki performance ya data security ko mutasir na kare.
+* **Noisy Neighbor Problem (Parosi ka shor):** Multitenancy mein sab se bada khatra "Noisy Neighbor" ka hota hai—yani agar Tenant A bohot zyada traffic bhej raha hai, toh Tenant B ki performance down ho sakti hai. Writer kehta hai ke ek kamyab cloud-native architecture is problem ko solve karta hai taake har tenant ko apni performance guarantee miley.
+* **Best Hardware Utilization:** Iska sab se bada faida yeh hai ke hardware ka waste kam hota hai. Ek hi bade hardware par bohot saare tenants ko host karne se resources ka best utilization hota hai, jisse cost kam ho jati hai.
 
 ### 💻 Mockup System Design & Interview Scenario
 
