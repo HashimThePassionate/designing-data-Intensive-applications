@@ -502,6 +502,35 @@ Is evolution mein do bare concepts ubhar kar aaye hain:
 
 ---
 
+🚰 1. DataOps Kya Hai? (DevOps For Data Pipelines)
+
+Jis tarah software engineering mein code ko automate aur deploy karne ke liye hum **DevOps** use karte hain, bilkul isi tarah data pipelines ko automate, test aur monitor karne ke liye **DataOps** ka janam hua hai.
+
+* **Core Responsibility:** Iska maqsad data pipelines mein manual glitchese ko khatam karna hai. DataOps ensure karta hai ke source database se data lake tak jo data aa raha hai, woh bilkul sahi aur accurate format mein ho.
+* **Continuous Testing (Data Quality Check):** DataOps pipelines mein automated tests bethe hote hain (jaise *Great Expectations* framework). Jaise hi pipeline chalti hai, yeh automatically check karta hai ke: *"Kya kisi row mein `User_ID` khali (Null) toh nahi aa gayi? Kya transaction amount negative mein toh nahi chala gaya?"* Agar aisa ho, toh pipeline automatic alert generate kar ke data engineer ko notify kar deti hai.
+* **CI/CD for Data:** Agar analytics engineer dbt (Data Build Tool) mein koi naya transformation logic likhta hai, toh DataOps tool use automated test environment mein run kar ke check karta hai ke kahin purani reports toot (break) toh nahi gaein.
+
+📜 2. Privacy Qawaneen (GDPR Aur CCPA Ka Jhatka)
+
+Yeh dunya ke sab se khatarnak aur strict data privacy laws hain:
+
+* **GDPR (General Data Protection Regulation):** Europe (EU) ka qanoon hai.
+* **CCPA (California Consumer Privacy Act):** America (US State California) ka qanoon hai.
+
+Yeh qawaneen kehte hain ke user ka data uski marzi ke bina aap touch nahi kar sakte, aur isne data lakes aur warehouses ka design poori tarah badal diya hai. Inke do sab se bade challenges aur unke architectural solutions yeh hain:
+
+🅰️ The Right to be Forgotten (Data Delete Karne Ka Haq)
+
+* **The Challenge:** Qanoon kehta hai ke agar koi user aapki app par "Delete My Account" par click kare, toh aapko uska saara data dunya ke har server, backup, data lake aur data warehouse se **permanently delete** karna padega. Traditional Data Lakes (S3 par bethi CSV/Parquet files) mein data read-only hota hai. Kisi specific user ki row delete karne ke liye aapko terabytes ki files dobara rewrite karni parti hain jo bohot mehnga aur slow process hai.
+* **The Solution:** Isko hal karne ke liye modern data architectures mein **Lakehouse Storage Formats (jaise Apache Iceberg, Delta Lake, ya Apache Hudi)** use kiye jate hain. Yeh technologies data lake (S3) ke upar transactional capability (ACID layers) le aati hain, jisse aap pure data lake mein se kisi single user ki row ko milliseconds mein `DELETE` ya `UPDATE` kar sakte hain bina poori file ko chhere.
+
+🄱 Data Masking & PII Security (Sensitive Data Safe Rakhna)
+
+* **The Challenge:** PII (Personally Identifiable Information) jaise user ka phone number, email, ya credit card info—company ke har analyst ya employee ko dikhna qanoonan jurm hai.
+* **The Solution:** Data Engineers pipeline ke andar hi **Dynamic Data Masking** aur **Hashing** implement karte hain. Jab data lake mein store ho raha hota hai, toh raw text cryptography ke zariye encrypt ho jata hai (e.g., `hashim@email.com` badal kar `x89e23#@` ban jata hai). Analysts sirf encrypted patterns analyze kar sakte hain, asli data nahi dekh sakte.
+
+---
+
 ### 💻 Mockup System Design & Interview Scenario
 
 **Scenario:** Aap Uber/Careem jaisi ride-hailing company ke data architect hain. Aapke pas 3 mukhtalif databases hain: (1) Users DB (Rider/Driver details), (2) Trips DB (Rides ki location aur fare), (3) Support DB (Customer complaints). Aapki Management ko ek report chahiye ke "Kin cities mein sab se zyada rides cancel hoti hain aur unki wajah kya hoti hai?" Sath hi Data Science team ko rides ki photos (vehicle condition) aur chat text par Machine Learning lagani hai. In systems ko combine karein.
@@ -511,6 +540,38 @@ Is evolution mein do bare concepts ubhar kar aaye hain:
 <div align="center">
   <img src="./images/02.jpg" width="600"/>
 </div>
+
+🗄️ Layer 1: Sources (OPERATIONAL SYSTEMS - OLTP)
+
+Dunya jahan ka raw data yahan se generate hota hai, jahan different use-cases ke liye alag databases use kiye gaye hain:
+
+* **Users DB (PostgreSQL):** Is relational database mein riders aur drivers ka structured data (IDs, names, ratings) save hota hai jahan strict relations zaroori hain.
+* **Trips DB (Cassandra):** Rides ki live geo-locations aur high-frequency fare data handle karne ke liye Cassandra use kiya gaya hai, jo extreme heavy scale par write operations smoothly manage karta hai.
+* **Support DB + Images/Chat (MongoDB / S3):** Customer ki text complaints, live chat support logs, aur gariyon ki photos (vehicle condition) store karne ke liye NoSQL (MongoDB) aur Amazon S3 object storage lagaya gaya hai jo unstructured data ke liye perfect hain.
+
+🚰 Layer 2: Data Ingestion & Storage (The Lake Landing)
+
+* **Raw Data Extraction / Streaming:** In teeno alag databases se data ko real-time streams ya pipelines ke zariye bina kisi badlao ke khincha jata hai.
+* **AWS DATA LAKE (AWS S3) $\rightarrow$ (Holds Raw Images, Text, Unstructured Data):** **Yahan lagta hai Sushi Principle!** Saara data (SQL rows, JSON logs, binary images) directly kacha (raw) halat mein is saste S3 data lake mein dump kar diya jata hai. Is point se ab do alag-alag raste (paths) nikalte hain:
+
+📊 Layer 3: Path A - The BI Path (For Management Reports)
+
+Management ko pata karna hai ke kis city mein sab se zyada rides cancel hoti hain, toh data is pipeline se guzarta hai:
+
+* **ETL / Clean & Structure:** Data Engineers lake se cancellation logs aur trips data uthate hain, use saaf (clean) karte hain aur tables ki shakal mein dhalte hain.
+* **DATA WAREHOUSE (Snowflake):** Structured data ko Snowflake warehouse mein load kiya jata hai jahan columnar processing ki wajah se heavy historical SQL queries bohot fast chalti hain.
+* **Business Analysts (via Tableau):** Analysts is warehouse par Tableau connect kar ke dashboard tayaar karte hain.
+* **Generates City-wise Cancel Reports:** Management ko unka final answer mil jata hai ke kis city mein kya masla chal raha hai.
+
+🧠 Layer 4: Path B - The Data Science Path (For Machine Learning)
+
+Data scientists ko chat aur photos par ML models chalane hain, unka rasta bilkul decoupled hai:
+
+* **Data Scientists (Python / Spark / MLflow):** Yeh log data warehouse ko touch bhi nahi karte. Yeh direct AWS S3 Data Lake se raw images aur chat text arrays uthate hain, feature engineering karte hain, aur distributed environment (Spark) use kar ke fraud detection ya vehicle condition scoring ke ML models train karte hain.
+* **REVERSE ETL PIPELINE:** Jab ML model prediction tayaar kar leta hai (jaise *"Is driver ki gari ki condition kharab hai"*), toh us insight ko wapas live production app tak bhejna hota hai. Is process ko **Reverse ETL** kehte hain jahan data warehouse/lake se output wapas operational apps mein push kiya jata hai.
+* **Live Recommendations:** Final step mein application real-time action leti hai—jaise kharab vehicle wale driver ko automatic live recommendation ya warning alert send karna.
+
+---
 
 **Interview Trade-Off Questions:**
 
