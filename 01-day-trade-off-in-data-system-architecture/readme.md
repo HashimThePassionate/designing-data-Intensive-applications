@@ -345,6 +345,25 @@ Aaj kal ek teesri kism ka system bhi aam ho gaya hai jise **Product Analytics** 
 * **Traditional OLAP:** (Jaise Snowflake/Redshift) Inme data aam taur par batch ki shakal mein (bulk) laya jata hai aur yeh high-throughput ke liye optimized hote hain.
 * **Real-Time Analytics:** (Jaise Apache Pinot, Apache Druid, ClickHouse) Yeh data ko real-time event streams ke zariye ingest karte hain aur inka maqsad queries ka jawab milliseconds (low-latency) mein dena hota hai.
 
+🧑‍🔬 1. Analytics Engineer (The Role / Insaan)
+
+* **Yeh Kaun Hai?** Yeh dbt (Data Build Tool) aur advanced SQL ka mahir ek engineer hota hai jo company ke andar baith kar data pipelines ke aakhir mein kaam karta hai.
+* **Iska Kaam Kya Hai?** Data Engineer jo raw data warehouse (Snowflake/BigQuery) mein phenkta hai, yeh use saaf karta hai, business logic lagata hai, aur use aasan tables mein dhalta hai.
+* **Yeh Kiske Liye Kaam Karta hai?** **Internal Teams** ke liye. Iska tayaar kiya hua data company ka CEO, managers, aur internal business analysts dekhte hain taake woh faisle kar sakein ke agle mahine sales kaise barhani hai.
+
+⚡ 2. Product Analytics Systems (The Hybrid Technology / Nayi Nasal)
+
+* **Yeh Kya Hai?** Yeh modern, ultra-fast analytical databases hain (jaise ClickHouse, Apache Druid, Apache Pinot) jo aapke application infrastructure ka hissa hote hain.
+* **Iska Kaam Kya Hai?** Yeh real-time event streams (Kafka) se data direct pakadte hain aur heavy calculations kar ke milliseconds mein output dete hain.
+* **Yeh Kiske Liye Kaam Karta hai?** **External Live Users** ke liye. Iska data company ke andar ke log nahi dekhte, balkay aapka live customer dekhta hai app ke andar baddh kar.
+
+📊 Real-World Misal Se Farq Samjho (LinkedIn Framework)
+
+Farz karo aap LinkedIn use kar rahe ho aur aapne ek post share ki.
+
+* **Product Analytics System Ka Kaam:** Jaise hi aap apni profile kholte ho, aapko screen par ek live graph dikhta hai: *"Your post got 5,000 views in the last 2 hours, 40% are software engineers from Dubai."* Yeh analytics live hai, milliseconds mein compute hui hai, aur direct user (aapko) dikh rahi hai. Piche **ClickHouse** ya **Apache Pinot** betha hai jo yeh live aggregations kar raha hai.
+* **Analytics Engineer Ka Kaam:** Piche background mein, LinkedIn ka analytics engineer dbt par baith kar pichle 6 mahine ka raw user behavior data saaf kar raha hoga taake LinkedIn ke higher management ko internal report bhej sake ke: *"Pakistan mein pure saal ke dauran kitne naye users ne premium subscription khareedi."*
+
 ---
 
 ### 💻 Interview & Mockup System Design Scenario
