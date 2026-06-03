@@ -455,3 +455,78 @@ Hum pure response ke liye sab se slow vendor ka wait nahi karenge. Hum aik deadl
 * **SLO vs SLA:** SLO internal engineering ka target hai; SLA customer ke sath legal/financial agreement hai.
 * **Percentile Math Rule:** Percentiles ka simple average nikalna mana hai; aggregation ke liye hamesha histograms ko add karein.
 * **Approximation Libraries:** HdrHistogram, t-digest, aur DDSketch high throughput par low memory mein percentiles calculate karne ke liye best tools hain.
+
+---
+
+## Reliability and Fault Tolerance
+
+Software engineering mein reliability (qabiliyat-e-etmad) ka aam matlab yeh hota hai ke application user ki umeedon ke mutabiq kaam kare, user ki mistakes ya unexpected inputs ko bardasht kare, load barhne par bhi behtar performance de, aur badmashi ya unauthorized access ko rokay.
+
+In sab cheezon ko agar aik jumlay mein jama kiya jaye, toh **Reliability ka matlab hai: "System ka theek tareeqe se kaam jaari rakhna, jabke cheezin kharab ho rahi hon."**
+
+Writer ne yahan kharabiyon ko deep architectural level par samajhne ke liye do bohot ahem terms mein farq wazeh kiya hai:
+
+* **Fault (Nuqs / Khata):** Yeh tab hota hai aur jab system ka koi aik specific component ya purza kaam chor deta hai. Maslan, aik hard drive ka corrupt ho jana, aik server machine ka crash ho jana, ya kisi third-party API ka down ho jana.
+* **Failure (Nakami):** Yeh tab hota hai jab pura system as a whole (majmooi taur par) user ko service dena band kar de—yaani jab system apna SLO (Service Level Objective) poora na kar sakay.
+
+**Fault aur Failure ka Bareek Talluq:**
+Yeh dono darasal aik hi cheez hain, bas inka level mukhtalif hai. Agar aapka system sirf aik hi server par chal raha hai, toh us server ka crash hona aik "Fault" hai, lekin kyun ke koi aur server nahi hai, isliye yeh poore system ka "Failure" ban jayega.
+Lekin agar aapka system distributed hai (multiple nodes hain), toh aik node ka crash hona poore system ke liye sirf aik chota sa "Fault" hai. System is fault ko chupayega aur doosri node par traffic shift kar ke user-facing "Failure" hone se bacha lega.
+
+---
+
+## Fault Tolerance
+
+Aik system ko **Fault-Tolerant** tab kaha jata hai jab wo distributed nodes mein faults aane ke bawajood users ko bina rukawat ke service deta rahay.
+
+* **SPOF (Single Point of Failure):** Agar system ka koi aisa component hai jiske kharab hone se poora system directly baith jata hai (yaani fault directly failure mein badal jata hai), toh usay architecture ki zaban mein SPOF kehte hain. Behtar distributed system design ka maqsad hi SPOFs ko khatam karna hota hai.
+* **Real-World Timeline Example:** Case study ke mutabiq, jab fan-out process chal raha ho (yaani aik post ko lakhon followers ke mailbox cache mein push kiya ja raha ho) aur us dauran worker machine crash ho jaye, toh fault-tolerant system doosri machine ko wohi task assign karega. Yahan challenge yeh hota hai ke naya worker na toh koi post miss kare aur na hi duplicate kare (Is gair-mamooli reliability ko **Exactly-once semantics** kehte hain, jo chapter 12 mein khulegi).
+* **The Boundaries of Fault Tolerance:** Fault tolerance ki hamesha aik hadd (limit) hoti hai. Aap yeh design kar sakte hain ke system aik waqt mein 2 disks ka fail hona bardasht kare, lekin agar saari hard drives aik sath jal jayein, toh dunya ka koi architecture data loss nahi bacha sakta.
+* **Chaos Engineering & Fault Injection:** Distributed systems ko mazeed mazboot banane ka aik ajeeb lekin behtareen tareeqa yeh hai ke aap khud jaan booch kar production environment mein servers ko kill karna shuru kar dein (Fault Injection). Kiun ke aksar bade production crashes poor error-handling code ki wajah se hote hain, isliye Netflix jaise bade platforms production mein randomly live processes ko marnay ke liye automated tools use karte hain. Is software discipline ko **Chaos Engineering** kehte hain.
+
+**Prevention vs Cure (Security vs Infrastructure):**
+Writer wazeh karta hai ke software faults ka toh ilaaj (cure) mumkin hai ke backup node chala di jaye. Lekin **Security** ke mamlaat mein "Prevention" (perhaiz) hi wahid hal hai. Agar hacker ne sensitive data chura kar leak kar diya, toh us nuksan ko rollback ya fault-tolerate nahi kiya ja sakta.
+
+### System Behavior & Data Flow Diagram
+
+Yeh diagram dikhata hai ke kaise aik fault-tolerant cluster node ke crash (fault) ko handle karta hai bina pure system ko down (failure) kiye:
+
+<div align="center">
+  <img src="./images/14.jpg" width="700"/>
+</div>
+
+---
+
+## Mockup System Design & Interview Scenario
+
+**Scenario:** Aap aik Multi-node Distributed Ride-Booking Platform (jaise Uber) ke Architect hain. Aapka system aik asynchronous queue worker network use karta hai jo rides match karta hai. Agar ride-matching worker node chalte chalte crash ho jaye, toh rider ki request hamesha ke liye phans jati hai (SPOF behavior). Isay fault-tolerant banayein.
+
+**Architectural Strategy:**
+Hum single worker queue ko **Distributed Message Broker (Kafka/RabbitMQ) with Acknowledgments** par shift karenge. Jab tak naya worker task mukammal kar ke "ACK" signal nahi bhejega, data queue se delete nahi hoga. Agar node crash hui, toh task auto-rollback ho kar doosri node ko chala jayega.
+
+**Architectural Flow (Plaintext Diagram):**
+
+<div align="center">
+  <img src="./images/15.jpg" width="700"/>
+</div>
+
+**Interview Trade-Off Questions:**
+
+* **Question:** *Agar Worker 1 ne ride match kar li thi lekin ACK bhejne se pehle crash hua, toh Worker 2 wahi ride dobara process karega. Is duplication (At-least-once) ke trade-off ko kaise handle karenge?*
+* **Answer:** Yeh distributed networks ka bohot bada challenge hai. Isay hal karne ke liye hum worker processing ko **Idempotent** banayenge. Har ride request ki aik unique `id` hogi. Worker 2 database mein save karne se pehle check karega ke "Kya is `id` ki ride pehle hi match ho chuki hai?". Agar haan, toh wo request ko duplicate process karne ke bajaye chup-chap drop kar ke ACK bhej dega (Achieving Exactly-once behavior conceptually).
+
+
+* **Question:** *Chaos engineering ka tool (jaise Chaos Monkey) chalane ka kya nuksan ho sakta hai?*
+* **Answer:** Trade-off yeh hai ke agar aapka fault-tolerance mechanism pehle se theek se tested nahi hai, toh Chaos Engineering production mein chote fault ko barha kar real **Failure** paida kar sakti hai jis se real users mutasir honge. Isliye isay hamesha off-peak hours mein aur pehle staging environments mein chalaya jata hai jab tak system architecture par full confidence na aa jaye.
+
+
+
+---
+
+## Quick Revision Hints
+
+* **Reliability:** Cheezon ke kharab hone ke bawajood application ka sahi chalte rehna.
+* **Fault vs Failure:** Fault purzay ki kharabi hai (micro level); Failure pooray system ka service chor dena hai (macro level/SLO breach).
+* **SPOF:** Aik aisa component jiske baithne se poora system fail ho jaye. Distributed design mein SPOFs ko design se nikalna lazmi hai.
+* **Chaos Engineering:** Janb-oogh kar faults paida karna taake error-handling mechanism constantly live test hota rahay.
+* **Security Rule:** Faults ko tolerate (cure) kiya ja sakta hai, lekin security breaches ko sirf prevent kiya ja sakta hai.
