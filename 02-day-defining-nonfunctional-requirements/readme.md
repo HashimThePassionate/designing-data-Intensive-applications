@@ -288,3 +288,89 @@ Hum "Thread/Queue Isolation" technique use karenge. Heavy operations ko light sy
 * **Metric Location:** Response time hamesha client-side par napa jana chahiye taake queueing aur network latency sahi se capture ho sakay.
 
 ---
+
+## Average, Median, and Percentiles
+
+System architecture mein response time ko kabhi bhi ek single number ke taur par nahi dekha jata, balkay yeh values ki aik poori **Distribution** (bikhrao) hoti hai. Jab network delays mein random badlaao aata hai, toh usay hum **Jitter** kehte hain.
+
+### Figure 2-5 Ka Detailed Structural Breakdown
+
+Aapne jo image share ki hai, wo system performance ko samajhne ke liye sab se ahem statistical concept hai. Isme 100 requests (gray bars) ka response time dikhaya gaya hai:
+
+<div align="center">
+  <img src="./images/07.jpg" width="700"/>
+</div>
+
+* **Mean (Average) Ki Kamzori:** Mean nikalne ke liye hum tamam response times ko jama karte hain aur requests ki tadad se divide kar dete hain. Graph mein waazeh nazar aa raha hai ke **Mean ki line Median se upar hai**. Aisa isliye hai kyun ke system mein kuch thori si requests (outliers) bohot slow hoti hain (jaise GC pause ya disk page fault ki wajah se), aur yeh ginti ki slow requests pooray average ko upar khinch leti hain. Isliye Mean aapko kabhi yeh nahi bata sakta ke ek "typical" user ko kitna delay mila.
+* **Median (p50 - Typical User Experience):** Agar aap saari requests ko sab se tez se sab se slow ke order mein sort karlein, toh jo bilkul darmiyan (50th percentile) wali value hogi, wo Median hai. Agar p50 200ms hai, toh iska matlab hai 50% users ko 200ms se kam time mila aur 50% ko us se zyada. Yeh metric aam user ke experience ko sahi tarah bayaan karta hai.
+* **Tail Latencies (p95, p99, p99.9):** Apne system ke sab se bure outliers ko dhoondne ke liye hum unche percentiles ko dekhte hain. Graph mein **95th percentile** ka matlab hai ke 100 mein se 95 requests fast thin, aur sirf 5 requests us line se upar thin. Isi tarah **p99** batata hai ke sab se slow 1% requests kitni buri thin.
+
+### Writer Ki Real-World Amazon Example Ka Conceptual Flow
+
+Amazon apne internal microservices ke liye **99.9th percentile (p99.9)** ke strict target rakhta hai, halankay yeh 1,000 mein se sirf 1 user ko affect karta hai. Is decision ke peche aik bohot gahra data flow aur business model hai:
+
+* Jo customers p99.9 wali slow requests hit karte hain, wo aam taur par Amazon ke sab se **Valuable Customers** (heavy buyers) hote hain.
+* Unka account purana hota hai, unhone hazaron purchases ki hoti hain, aur unka profile data massive hota hai.
+* Jab wo homepage kholte hain, toh backend service ko unke liye database se bohot zyada data fetch karna parta hai, jiski wajah se unka response time tail latency (slowest pool) mein chala jata hai.
+* Agar un sab se ameer customers ko website slow dikhegi, toh wo shopping chor denge, jis se direct revenue ka bhari nuksan hoga. Isliye tail latency ko optimize karna business ke liye critical hai.
+* *Trade-off Decision:* Amazon ne p99.99 (10,000 mein se 1 request) ko optimize karna chor diya kyun ke us par hardware ka kharcha bohot zyada aa raha hai aur utna financial faida nahi ho raha tha (Diminishing returns).
+
+---
+
+## The User Impact of Response Times
+
+Yeh baat toh taye hai ke fast website users ko pasand hoti hai, lekin latency ka user behavior par asar napna kafi mushkil kaam hai. Writer ne yahan industry ke mukhtalif studies ke tazadaat (paradoxes) ko breakdown kiya hai:
+
+* **Google & Bing Data:** Google ne 2006 mein kaha ke 400ms se 900ms ka delay aane se 20% traffic drop ho gayi. Lekin 2009 ki study mein 400ms delay se sirf 0.6% searches kam huin. Bing ke mutabiq 2 seconds ka delay ad revenue ko 4.3% kam karta hai.
+* **The Akamai Paradox (Data Ki Bareeki):** Akamai ki aik study ne dawa kiya ke 100ms latency barhne se conversion rate 7% gir jata hai. Lekin unke data mein aik ajeeb cheez mili: **Jo pages sab se zyada tez load ho rahe thay, unka conversion rate sab se bura tha!**
+* *The System Behavior Explanation:* Asal mein jo pages microseconds mein load ho rahe thay, wo koi kaam ke pages nahi thay, balkay wo **404 Error Pages** thay. Kyun ke error page par koi image ya content nahi hota, isliye wo sab se tez load hote hain, aur zahir hai error page par koi user khareedari (conversion) nahi karta. Isliye bina context ke metrics dekhna architect ko gumrah kar sakta hai.
+* **Yahoo Study:** Yahoo ne search results ki quality ko control kar ke test kiya aur sabit kiya ke jab responses mein 1.25 seconds ka farq aata hai, toh fast searches par 20% se 30% zyada clicks aate hain.
+
+---
+
+## System Behavior & Data Flow Diagram
+
+Yeh diagram represent karta hai ke percentile monitoring system kaise kaam karta hai aur requests kaise different buckets mein sort hoti hain:
+
+<div align="center">
+  <img src="./images/10.jpg" width="700"/>
+</div>
+
+---
+
+## 💻 Mockup System Design & Interview Scenario
+
+**Scenario:** Aap aik B2B Fintech application (jaise Stripe) ke Architect hain. Company ke VPs kehte hain ke hamara Datadog monitoring dashboard "Average Response Time" hamesha 100ms dikhata hai, jo ke behtareen hai. Lekin hamare sab se bade enterprise clients (jo har mahine millions of dollars process karte hain) complain kar rahe hain ke unki payment processing API aksar 3 se 4 seconds leti hai. Masla kahan hai aur aap metrics pipeline ko kaise redesign karenge?
+
+**Architectural Diagnosis:**
+Masla yeh hai ke aapka monitoring system **Mean/Average** use kar raha hai. Enterprise clients ka data size bada hota hai, unke API payloads bade hote hain, aur unka data relational tables mein complex structures par hit karta hai. Unki requests p99 ya p99.9 (tail latency) mein phansi hui hain, jo ke total traffic ka sirf 1% hain. Average metric unke is bure experience ko baki 99% aam users ke fast data ke peche chupa (hide kar) raha hai.
+
+**Architectural Redesign Strategy:**
+Hum Average metric ko monitor karna chor denge aur **Rolling Percentiles Histogram** algorithm implement karenge taake tail latencies ko pakda ja sake.
+
+<div align="center">
+  <img src="./images/11.jpg" width="700"/>
+</div>
+
+**Interview Trade-Off Questions:**
+
+* **Question:** *Percentiles (p99) ko compute karna Average nikalne se zyada mehanga (resource-intensive) kyun hota hai?*
+* **Answer:** Average nikalne ke liye hamen sirf do cheezein save karni parti hain: total sum aur total count. Memory overhead zero hota hai. Lekin exact percentiles nikalne ke liye aapko aik specific time window (maslan 1 minute) ke tamam response times ko memory mein rakh kar sort karna parta hai. High throughput par yeh bohot memory consume karega. Is trade-off ko hal karne ke liye distributed systems mein **T-Digest** ya **HdrHistogram** jaise mathematical approximations use kiye jate hain jo kam memory mein 99% accurate percentile batate hain.
+
+
+* **Question:** *Agar p99.9 par latency barh rahi hai, toh kya hamen load balancer par round-robin algorithm change karna chahiye?*
+* **Answer:** Haan, kyun ke round-robin blindly request bhejta hai. Agar aik node par pehle se p99.9 wali do heavy requests chal rahi hain, toh round-robin teesri request bhi usi par bhej dega jise humne abhi parha ke **Head-of-Line Blocking** paida karegi. Iska behtar trade-off yeh hai ke hum **Least Connections** ya **Peak Ema** algorithm use karein taake requests un nodes par jayein jo free hain.
+
+
+
+---
+
+## 📌 Quick Revision Hints
+
+* **Mean (Average):** Outliers se buri tarah skew (mutasir) hota hai; throughput capacity ki calculation ke liye acha hai, user experience ke liye nahi.
+* **Median (p50):** Asli "typical" waiting time batata hai.
+* **Tail Latency (p99, p99.9):** Sab se slow requests. Inhe optimize karna zaroori hai kyun ke heavy/premium users aksar isi zone mein aate hain.
+* **Akamai Paradox:** Sub se fast pages aksar khali ya error (404) pages hote hain, isliye metrics ko context ke sath dekhna lazmi hai.
+* **The Cost of Tail Latency:** p99.99 tak jana diminishing returns deta hai, isliye p99.9 par line draw karna aik standard industry practice hai.
+
+---
