@@ -115,7 +115,56 @@ Software performance ko samajhne aur measure karne ke liye do main metrics ka is
 * **Response Time:** Yeh wo total waqt hai jo user ke request bhejne se lekar usay screen par output (response) milne tak lagta hai. Isay milliseconds (ms) ya seconds mein napa jata hai. Yaad rahe ke response time aur service time mein farq hota hai; response time mein network delay aur queue mein khray rehne ka waqt bhi shamil hota hai.
 * **Throughput:** Aik second mein aapka system kitni requests process kar raha hai, ya kitna data volume handle kar raha hai (Requests Per Second - RPS / Queries Per Second - QPS). Iski unit hamesha "somethings per second" hoti hai.
 
-Writer ne pichli Twitter case study se inko is tarah map kiya hai:
+
+### Response Time ka "Anatomy" (Safar ke Hisse)
+
+Response Time sirf ek cheez nahi hai, yeh in 4 cheezon ka **Sum (total)** hai:
+
+1. **Network Latency (Rasta):** Tumhare user ne "Click" kiya. Ab request internet se hote hue server tak jayegi. Yeh **Network Delay** hai.
+2. **Queueing Delay (Wait waqt):** Yeh sab se dangerous hai. Tumhara server busy hai, request aayi lekin usey process karne ke liye thread ya connection free nahi mila. Request ko line mein khara hona par gaya.
+3. **Service Time (Processing):** Yeh wo asal waqt hai jab server (CPU/RAM/DB) tumhare code ko chala raha hai aur Database se data nikal raha hai.
+4. **Return Network Latency:** Server ne data nikal liya, ab wapis wahi rasta tay kar ke user ki screen tak data aayega.
+
+**Formula:** </br>
+`Response Time = (Network Latency) + (Queueing Delay) + (Service Time) + (Return Network Latency)`
+
+---
+
+**The Computer Science Analogy: Highway aur Toll Plaza**
+
+System design mein isay samajhne ke liye **"Highway Toll Plaza"** ki misaal sab se behtareen hai:
+
+* **Latency (Response Time):** Ek gaari ko Toll Plaza se guzarnay mein kitna waqt laga. (Agar 5 seconds lage, toh Latency = 5 seconds).
+* **Throughput:** Ek ghantay mein Toll Plaza se kul kitni gaariyan guzri. (Agar 1,000 gaariyan guzri, toh Throughput = 1,000 cars/hour).
+
+**Basic Fark:** Tum gaari ki speed (Latency) barha kar bhi Throughput barha sakte ho, lekin Throughput barhane ka asal raasta **"Capacity barhana"** (zayada toll booths kholna) hota hai.
+
+**Throughput ko Measure kaise karte hain?**
+
+Computer ki zabaan mein hum ise in units mein napte hain:
+
+* **RPS (Requests Per Second):** Web server ke liye (e.g., 5,000 RPS).
+* **QPS (Queries Per Second):** Database ke liye (e.g., 10,000 QPS).
+* **TPS (Transactions Per Second):** Banking systems ke liye jahan data integrity bohot zaroori hai.
+
+Simple Arithmetic Formula (Basic Throughput)
+
+Agar tumhein sirf yeh dekhna hai ke system ek waqt mein kitna kaam kar raha hai, toh yeh basic formula use hota hai:
+
+$$Throughput = \frac{Total\ Requests\ Completed}{Total\ Time\ Taken}$$
+
+* **Total Requests Completed:** Jitne kaam (tasks) system ne process kar liye.
+* **Total Time Taken:** Jitne waqt mein yeh kaam huye.
+
+**Misaal:**
+Agar tumhara API server **10 second** mein **5,000 requests** process karta hai, toh:
+
+
+$$Throughput = \frac{5,000}{10} = 500\ Requests\ Per\ Second\ (RPS)$$
+
+---
+
+**Writer ne pichli Twitter case study se inko is tarah map kiya hai:**
 
 * **Throughput Metrics:** "Posts per second" (5,800 PPS) aur "Timeline writes per second" (1.1 million).
 * **Response Time Metrics:** "User ki home timeline load hone mein kitna time laga" aur "Celebrity ki post followers tak kitni der mein pohnchi".
