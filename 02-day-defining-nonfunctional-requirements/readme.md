@@ -700,15 +700,17 @@ Writer ne aik hairat-angez study ka zikr kiya hai: Bade internet systems mein ta
 **Sociotechnical Systems Ka Concept:**
 Jab production mein koi bara crash hota hai, toh aksar management use "Human Error" (insani ghalti) ka naam de kar baat khatam kar deti hai. Writer is soch ko bilkul galat aur counterproductive (nuksan-deh) kehta hai.
 
+"Sociotechnical" ek aisa perspective hai jo ye maanta hai ke technology (software, hardware, infrastructure) aur social systems (teams, organizational structure, culture) ek doosre se alag nahi hain, balkay gehrai se jure hue hain. Ek system design sirf "code" ya "servers" tak mehdood nahi hota, balkay yeh is baat par bhi depend karta hai ke usay banane wali team kaise communicate karti hai, unki leadership kaisi hai, aur unke processes kya hain. Asal mein, koi bhi technology tab tak kamyab nahi ho sakti jab tak aap usay bananay walay logon aur unke kaam karne ke tareeqon (social dynamics) ko technical constraints ke sath align na karein; yani system design mein "Human elements" ko technical elements ke barabar ehmiyat dena hi "Sociotechnical" approach hai.
+
 Insaani ghalti asal mein root cause (asal wajah) nahi hoti, balkay woh aik **Sociotechnical System** (Insaan + Technology ka aapas mein mix network) ki kharabi ki aik alamat (symptom) hoti hai. Complex distributed systems mein mukhtalif components ke darmiyan unexpected interactions hoti hain jo achanak aik naya bura behavior (emergent behavior) peda kar deti hain, jise aik operator aam halat mein anticipate nahi kar sakta.
 
 **Technical Guardrails (Insani Ghaltiyoon Ko Roknay Ke Tareeqe):**
 Architecture level par hum insaanon ko ghalti karne se rokne ke liye yeh technical measures lete hain:
 
-* **Thorough Testing:** Sirf haath se likhay test nahi, balkay property testing use karna jo random inputs generate kar ke code ko phaarne (break karne) ki koshish kare.
-* **Automated Rollback Mechanisms:** Agar koi configuration change system ko dubane lagay, toh single button se fauran purani state par wapas (rollback) jaya ja sakay.
-* **Gradual Rollouts (Canary/Blue-Green):** Naya code aik sath 100% servers par deploy karne ke bajaye pehle 1% traffic par chalanay ka makhsoos system design karna.
-* **Guardrailed Interfaces:** Aise admin panels aur UIs design karna jo sahi kaam karna asaan banayein aur tabahi machane wale buttons par strict warnings ya multi-factor confirmations lagayein.
+* **Thorough Testing:** Sirf wahi test na likhein jo aap chahte hain ke pass ho. "Property testing (Hypothesis)" jaise tools use karein jo khud-ba-khud random aur "ajeeb-o-ghareeb" data generate kar ke code ko crash karne ki koshish karein. Is se wo bugs pakre jate hain jo insaani dimagh nahi soch pata.
+* **Automated Rollback Mechanisms:** Kabhi bhi aisi deployment na karein jahan agar kuch kharab ho jaye toh wapis jana mushkil ho. Hamesha aisa system rakhein ke agar nayi update se system crash ho, toh "Ek Button" dabate hi system purani sahi halat mein wapas aa jaye.
+* **Gradual Rollouts (Canary/Blue-Green):** Kabhi bhi nayi cheez ek saath 100% users ko na dikhayen. Pehle sirf 1% ya 5% traffic par naya code chala kar dekhein. Agar wo 1% users ke liye stable hai, tabhi poori traffic par move karein.
+* **Guardrailed Interfaces:** Admin panel aisa banayein ke ghalti ki gunjaish na ho. Khatarnak buttons (jaise "Delete All Databases") ko hide karein, ya phir un par "Are you sure?" jaisi warnings aur "Multi-factor authentication" (OTP/Password) lagayein taake ghalti se click na ho jaye.
 
 **The Business Trade-off (Features vs Resilience):**
 Yeh tamaam guardrails lagane ke liye company ka waqt aur paisa lagta hai. Pragmatic business reality yeh hai ke companies hamesha revenue-generating features ko priority deti hain aur testing ya infrastructure resilience ko neglect (nazar-andaz) karti hain. Jab management features ko choose karti hai aur testing ko ignore karti hai, toh baad mein kisi engineer par ghalti ka malba daalna be-waqufi hai. Masla engineer ka nahi, company ki priorities ka hota hai.
