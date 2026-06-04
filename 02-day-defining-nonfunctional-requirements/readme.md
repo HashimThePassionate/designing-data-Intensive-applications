@@ -526,6 +526,8 @@ Lekin agar aapka system distributed hai (multiple nodes hain), toh aik node ka c
 
 ## Fault Tolerance
 
+Fault tolerance kisi bhi system ki wo salahiyat hai jiski wajah se woh apne kisi hissay (component) ke fail ya crash ho jane ke bawajood apna kaam jari rakh sakta hai. Ek fault-tolerant system ka maqsad yeh hota hai ke agar koi server ya node kharab ho jaye, toh poora system down na ho; balkay system khud-ba-khud us kharabi ko detect karke traffic ko sehat-mand (healthy) servers par shift kar de, taake user ko system mein koi rukawat ya interruption mehsus na ho.
+
 Aik system ko **Fault-Tolerant** tab kaha jata hai jab wo distributed nodes mein faults aane ke bawajood users ko bina rukawat ke service deta rahay.
 
 * **SPOF (Single Point of Failure):** Agar system ka koi aisa component hai jiske kharab hone se poora system directly baith jata hai (yaani fault directly failure mein badal jata hai), toh usay architecture ki zaban mein SPOF kehte hain. Behtar distributed system design ka maqsad hi SPOFs ko khatam karna hota hai.
