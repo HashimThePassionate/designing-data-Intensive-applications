@@ -801,13 +801,21 @@ Aaj agar aapka system perfectly aur reliably chal raha hai, toh iska yeh matlab 
 
 System ko scale karne se pehle aapko apne system ke **Current Load** ki mukammal samajh honi chahiye. Agar aapko current load ka hi nahi pata, toh aap growth ke sawalat (jaise "traffic double hone par kya hoga?") ka jawab kabhi nahi dhoond sakte.
 
-* **Quantifying Throughput:** Load ko hamesha throughput ke metrics se napa jata hai. Maslan, aapki API par aane wali Requests Per Second (RPS), database mein daily add hone wala naya data (Gigabytes per day), ya peak hours mein shopping cart se hone wale checkouts per hour.
-* **Statistical Characteristics of Load:** Sirf throughput kaafi nahi hoti, hamen load ke structural patterns ko bhi samajhna hota hai:
-* **Read-to-Write Ratio:** Kya aapka database read-heavy hai (jaise news website jahan log sirf parhte hain) ya write-heavy hai (jaise IoT trackers jo har second data insert karte hain)?
-* **Cache Hit Rate:** Aapka cache kitni requests ko database tak jaane se pehle hi raaste mein handle kar raha hai.
-* **Data Items per User:** Jaisa ke humne Twitter ki case study mein dekha ke har user ke average followers kitne hain aur extreme cases (celebrities) ka ratio kya hai.
+System load ko quantize karne ka matlab hai usay numbers mein lana taake tum "Capacity Planning" kar sako.
 
+* **Throughput Metrics:** Load ko sirf "CPU usage" se nahi naapa jata, balkay "business value" se naapa jata hai.
+* **Requests Per Second (RPS):** Ye batata hai ke system ka gateway kitni traffic handle kar raha hai.
+* **Data Growth (GB/day):** Ye database storage planning ke liye hai. Agar tumhare paas 100GB/day aa raha hai, toh tumhe pata hai ke 1 mahine mein tumhe kitni storage expand karni hogi.
+* **Peak Business Events:** "Shopping cart checkouts per hour" jaise metrics ye batate hain ke sales ke doran (jese Black Friday) system ka pressure kitna hoga.
 
+Sirf "kitni" traffic aa rahi hai ye kaafi nahi hai, balkay "kaise" aa rahi hai, ye janana scaling ke liye vital hai.
+
+* **Read-to-Write Ratio:** Ye system architecture ka sabse bada decision point hai.
+* **Read-Heavy (News/Blog):** Yahan tum Cache (CDN) ka bharpoor istemal kar sakte ho kyunke data change nahi ho raha.
+* **Write-Heavy (IoT/Logging):** Yahan Cache kaam nahi karta, yahan tumhe database ki "write throughput" aur "partitioning" par focus karna parta hai.
+* **Cache Hit Rate:** Ye batata hai ke tumhara "shortcuts" ka system kitna kargar hai. Agar Cache Hit Rate high hai, toh tumhara database bacha hua hai. Agar low hai, toh tumhara database har request ke liye disk se data utha raha hai, jo bohot slow aur mehenga hai.
+* **Data Items per User (The Skew Problem):** Ye Twitter ki case study wala point bohot gehra hai.
+* **The Celebrity Problem:** Kuch users ke paas 500 followers hote hain, aur kuch (celebrities) ke paas 50 million. Agar tum sab ko ek hi tarah se treat karoge, toh celebrities ka data fetch karte waqt system crash ho jayega. Scaling mein humein "Average" ke sath sath "Extreme Cases" (Outliers) ko bhi handle karna parta hai.
 
 **The Two Angles of Load Growth:**
 Jab aap apne system par load barhate hain, toh architecturally usay do tareeqon se analyze kiya jata hai:
