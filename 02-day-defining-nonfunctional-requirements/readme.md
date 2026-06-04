@@ -1,5 +1,133 @@
 # Defining Nonfunctional Requirements
 
+<details>
+<summary style="font-size: 1.3em; font-weight: bold; cursor: pointer; padding: 10px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 8px; margin: 20px 0;">
+  📖 Table of Contents
+</summary>
+
+### 📑 Complete Navigation Guide
+
+#### **🎯 Part 1: Core Concepts**
+- [1.1 Defining Nonfunctional Requirements](#defining-nonfunctional-requirements)
+- [1.2 Case Study: Social Network Home Timelines](#case-study-social-network-home-timelines)
+  - [1.2.1 Representing Users, Posts, and Follows](#representing-users-posts-and-follows)
+  - [1.2.2 The Polling Problem](#the-polling-problem-bohot-bura-idea)
+  - [1.2.3 Materializing and Updating Timelines](#materializing-and-updating-timelines)
+  - [1.2.4 Mockup System Design & Interview Scenario](#mockup-system-design--interview-scenario)
+
+#### **⚡ Part 2: Performance Metrics & Analysis**
+- [2.1 Describing Performance](#describing-performance)
+- [2.2 Response Time ka "Anatomy"](#response-time-ka-anatomy-safar-ke-hisse)
+  - [2.2.1 The Computer Science Analogy: Highway aur Toll Plaza](#the-computer-science-analogy-highway-aur-toll-plaza)
+  - [2.2.2 Throughput Measurement](#throughput-ko-measure-kaise-karte-hain)
+- [2.3 When an Overloaded System Won't Recover](#when-an-overloaded-system-wont-recover)
+  - [2.3.1 The Vicious Cycle (Retry Storm)](#the-vicious-cycle-retry-storm)
+  - [2.3.2 Architectural Remedies](#architectural-remedies-halat-ko-control-karne-ke-tareeqe)
+  - [2.3.3 Mockup System Design & Interview Scenario](#mockup-system-design--interview-scenario-1)
+
+#### **🔍 Part 3: Latency & Response Time Deep Dive**
+- [3.1 Latency and Response Time](#latency-and-response-time)
+- [3.2 Architectural Breakdown of Figure 2-4](#architectural-breakdown-of-figure-2-4)
+- [3.3 Real-World Noise: Response Time Kyun Badal Jata Hai](#real-world-noise-response-time-kyun-badal-jata-hai)
+- [3.4 Head-of-Line Blocking (HOL)](#head-of-line-blocking-hol)
+- [3.5 Mockup System Design & Interview Scenario](#mockup-system-design--interview-scenario-2)
+
+#### **📊 Part 4: Statistical Analysis & Percentiles**
+- [4.1 Average, Median, and Percentiles](#average-median-and-percentiles)
+- [4.2 Figure 2-5 Detailed Structural Breakdown](#figure-2-5-ka-detailed-structural-breakdown)
+- [4.3 The User Impact of Response Times](#the-user-impact-of-response-times)
+  - [4.3.1 Google & Bing Data](#google--bing-data)
+  - [4.3.2 The Akamai Paradox](#the-akamai-paradox-data-ki-bareeki)
+- [4.4 Mockup System Design & Interview Scenario](#mockup-system-design--interview-scenario-3)
+
+#### **🔌 Part 5: Tail Latency & Distributed Systems**
+- [5.1 Use of Response Time Metrics](#use-of-response-time-metrics)
+- [5.2 Figure 2-6 Tail Latency Amplification](#figure-2-6-ka-detailed-architectural-breakdown)
+- [5.3 SLOs aur SLAs Mein Percentiles Ka Istemal](#slos-aur-slas-mein-percentiles-ka-istemal)
+- [5.4 Computing Percentiles](#computing-percentiles)
+  - [5.4.1 The Naive Approach](#the-naive-approach-cpu-crasher)
+  - [5.4.2 The Approximation Solution](#the-approximation-solution)
+- [5.5 Mockup System Design & Interview Scenario](#mockup-system-design--interview-scenario-4)
+
+#### **🛡️ Part 6: Reliability & Fault Tolerance**
+- [6.1 Reliability and Fault Tolerance](#reliability-and-fault-tolerance)
+- [6.2 Fault vs Failure](#fault-aur-failure-ka-bareek-talluq)
+- [6.3 Fault Tolerance Concepts](#fault-tolerance)
+  - [6.3.1 SPOF (Single Point of Failure)](#spof-single-point-of-failure)
+  - [6.3.2 Chaos Engineering](#chaos-engineering--fault-injection)
+- [6.4 Mockup System Design & Interview Scenario](#mockup-system-design--interview-scenario-5)
+
+#### **⚙️ Part 7: Hardware & Software Faults**
+- [7.1 Hardware Faults](#hardware-and-software-faults)
+  - [7.1.1 Magnetic Drives Aur SSDs Ka Faraq](#magnetic-drives-aur-ssds-ka-faraq)
+  - [7.1.2 CPU Aur RAM Ki Khamosh Tabahi](#cpu-aur-ram-ki-khamosh-tabahi)
+  - [7.1.3 Datacenter Level Disasters](#datacenter-level-disasters)
+- [7.2 Tolerating Hardware Faults Through Redundancy](#tolerating-hardware-faults-through-redundancy)
+- [7.3 Software Faults](#software-faults)
+  - [7.3.1 The Leap Second Bug](#the-leap-second-bug-june-30-2012)
+  - [7.3.2 Cascading Failures](#cascading-failures-dino-effect)
+- [7.4 Mockup System Design & Interview Scenario](#mockup-system-design--interview-scenario-6)
+
+#### **👥 Part 8: Human Factors in Reliability**
+- [8.1 Humans and Reliability](#humans-and-reliability)
+- [8.2 Sociotechnical Systems Ka Concept](#sociotechnical-systems-ka-concept)
+- [8.3 Technical Guardrails](#technical-guardrails-insani-ghaltiyoon-ko-roknay-ke-tareeqe)
+- [8.4 How Important Is Reliability](#how-important-is-reliability)
+  - [8.4.1 The Horizon Scandal](#the-horizon-scandal-unreliable-software-ki-real-world-horrific-example)
+- [8.5 Mockup System Design & Interview Scenario](#mockup-system-design--interview-scenario-7)
+
+#### **📈 Part 9: Scalability Fundamentals**
+- [9.1 Scalability](#scalability)
+- [9.2 Understanding Load](#understanding-load)
+  - [9.2.1 Throughput Metrics](#throughput-metrics)
+  - [9.2.2 Read-to-Write Ratio](#read-to-write-ratio)
+  - [9.2.3 The Celebrity Problem](#the-celebrity-problem)
+- [9.3 The Two Angles of Load Growth](#the-two-angles-of-load-growth)
+- [9.4 Mockup System Design & Interview Scenario](#mockup-system-design--interview-scenario-8)
+
+#### **🏗️ Part 10: Architecture Paradigms**
+- [10.1 Shared-Memory, Shared-Disk, and Shared-Nothing Architectures](#shared-memory-shared-disk-and-shared-nothing-architectures)
+  - [10.1.1 Shared-Memory Architecture (Vertical Scaling)](#shared-memory-architecture-vertical-scaling--scaling-up)
+  - [10.1.2 Shared-Disk Architecture](#shared-disk-architecture)
+  - [10.1.3 Shared-Nothing Architecture (Horizontal Scaling)](#shared-nothing-architecture-horizontal-scaling--scaling-out)
+  - [10.1.4 Cloud Native Hybrid Approach](#the-modern-cloud-native-hybrid-approach)
+- [10.2 Principles for Scalability](#principles-for-scalability)
+- [10.3 Mockup System Design & Interview Scenario](#mockup-system-design--interview-scenario-9)
+
+#### **🔧 Part 11: Maintainability**
+- [11.1 Maintainability](#maintainability)
+- [11.2 Operability: Making Life Easy for Operations](#operability-making-life-easy-for-operations)
+- [11.3 Simplicity: Managing Complexity](#simplicity-managing-complexity)
+  - [11.3.1 Essential vs Accidental Complexity](#essential-complexity)
+  - [11.3.2 Abstraction Ka Istemal](#abstraction-ka-istemal)
+- [11.4 Evolvability: Making Change Easy](#evolvability-making-change-easy)
+  - [11.4.1 The Enemy of Change: Irreversibility](#the-enemy-of-change-irreversibility)
+- [11.5 Mockup System Design & Interview Scenario](#mockup-system-design--interview-scenario-10)
+
+---
+
+### ⚡ Quick Jump Links
+
+| Category | Links |
+|----------|-------|
+| **Performance** | [Throughput](#throughput-ko-measure-kaise-karte-hain) • [Response Time](#response-time-ka-anatomy-safar-ke-hisse) • [Latency](#latency-and-response-time) |
+| **Reliability** | [Fault Tolerance](#fault-tolerance) • [Hardware Faults](#hardware-and-software-faults) • [Software Faults](#software-faults) |
+| **Scalability** | [Load Understanding](#understanding-load) • [Architectures](#shared-memory-shared-disk-and-shared-nothing-architectures) • [Sharding](#the-two-angles-of-load-growth) |
+| **Maintainability** | [Operability](#operability-making-life-easy-for-operations) • [Simplicity](#simplicity-managing-complexity) • [Evolvability](#evolvability-making-change-easy) |
+
+---
+
+### 🎓 Study Tips
+
+1. **Quick Review**: Start with the Quick Revision Hints at the end of each section
+2. **Interview Prep**: Focus on the "Mockup System Design & Interview Scenario" parts
+3. **Deep Dive**: Read the detailed explanations for concept mastery
+4. **Visual Reference**: Look for the ASCII diagrams and images throughout
+
+</details>
+
+---
+
 ## Defining Nonfunctional Requirements
 
 Jab bhi koi application banayi jati hai, toh list mein sab se upar **Functional Requirements** hoti hain (yani app kya kaam karegi, buttons kaise kaam karenge, screens kaisi hongi).
