@@ -819,3 +819,110 @@ Aap aik hyper-scale **Collaborative Drag-and-Drop Task Management Platform (like
 * **Your Answer:** Yeh embedded data locality ka aik classic boundary edge-case hai jise *Document Bloat* kehte hain. Isko solve karne ke liye hum data modeling par aik strict separation boundary lagayenge. Hum poore tasks ka detail payload main board document ke andar embed nahi karenge. Main board document sirf lists aur unke andar ordered `Task_IDs` ki simple arrays hold karega (One-to-Few relationship). Tasks ka actual rich metadata aur dynamic custom fields ka data alag discrete documents (ya rows) mein store hoga jinhein task_id se identify kiya jayega. Jab board load hoga, hum main layout array single seek se uthayenge aur UI viewport mein nazar aane wale top 20 tasks ka detailed text chunk asynchronous batch retrieval ya lightweight parallel hydration engine ke zariye scale-out caches se fetch kar lenge. Is tarah document boundaries bhi limit mein rahengi aur data locality aur reordering arrays ka faida bhi milta rahega.
 
 ---
+
+## Graph-Like Data Models
+
+Applications ke andar data models ko aik dusre se alag karne wali sab se ahem cheez unke darmiyan mojood relationships (taaluqat) ki nature hai. Agar aapke application data mein zyada tar **One-to-Many** relationships hain (yaani aik tree-like structure jahan aik record ke niche multiple sub-records hote hain aur poora tree aik sath load hota hai), toh document model sab se behtareen rehta hai.
+
+Magar, jab aapke data mein **Many-to-Many** relationships aam ho jayein aur data ke darmiyan connections nihayat pechida (highly interconnected) ho jayein, toh data ko aik **Graph** ke roop mein model karna sab se zyada natural aur architecturally efficient ho jata hai.
+
+### Graph Architecture Ke do Buniyadi Pillars
+
+Aik graph buniyadi taur par do qism ke objects se mil kar banta hai:
+
+1. **Vertices:** Inhein Nodes ya Entities bhi kaha jata hai. Yeh haqiqi duniya ke objects ya data points ko represent karte hain (jaise log, jaghein, ya events).
+2. **Edges:** Inhein Relationships ya Arcs bhi kehte hain. Yeh do vertices ke darmiyan maujood connection aur uski direction/nature ko zahir karte hain.
+
+### Homogeneous Graphs Aur Unke Core Algorithms
+
+Jab graph ke saare vertices aik hi tarah ki cheez ko represent karein, toh usay *Homogeneous Graph* kaha jata hai. Writer ne iski teen behtareen real-world use cases bayan ki hain:
+
+* **Social Graphs:** Yahan saare vertices "Log (People)" hote hain, aur edges yeh batate hain ke kaunsa banda kis ko janta hai ya kis ka dost hai.
+* **The Web Graph:** Yahan har node aik "Web Page" hoti hai, aur edges un HTML hyperlinks ko represent karte hain jo aik page se dusre page par le kar jate hain.
+* **Road or Rail Networks:** Is infrastructure model mein vertices "Junctions (Choraye/Stations)" hote hain, aur edges unke darmiyan mojood sarak (roads) ya railway lines ko zahir karte hain.
+
+In graphs par kaam karne ke liye specialized, well-known distributed algorithms chalaye jate hain:
+
+* **Shortest Path Algorithm:** Navigation maps (jaise Google Maps) road networks par do points ke darmiyan sab se chota aur tez tareen rasta dhoondne ke liye nodes aur edges ko scan karte hain.
+* **PageRank Algorithm:** Web graph par chalaya jata hai taake hyperlinks ke network flow ko analyze kar ke kisi web page ki popularity aur search ranking tay ki ja sakay.
+
+---
+
+### Internal Storage Representations: Adjacency List Versus Adjacency Matrix
+
+Graph data ko memory aur disk par store karne ke do mukhtalif math-oriented patterns hain, jin ke darmiyan gehre architectural trade-offs hote hain:
+
+1. **Adjacency List Model:** Is model mein har vertex apne andar un saare neighbor vertices ki IDs ki aik list mahfooz rakhta hai jo us se aik edge ki doori par hote hain.
+* *Architectural Benefit:* Yeh model **Graph Traversals** (pointer-chasing/network path scanning) ke liye behtareen hai. Jab aapko aik node se nikal kar uske raston par aage barhna ho, toh adjacency list memory lookups ko sequential aur tez banati hai.
+
+
+2. **Adjacency Matrix Model:** Yeh aik 2-Dimensional Array (matrix) hota hai jahan rows aur columns dono graph ke vertices ko represent karte hain. Agar node A aur node B ke darmiyan edge na ho toh value `0` hoti hai, aur agar edge maujood ho toh value `1` save hoti hai.
+* *Architectural Benefit:* Matrices un use cases ke liye behtareen hain jahan heavy mathematical computations aur **Machine Learning (ML)** models chalane hon (jaise dense tensors par embeddings calculate karna), kyun ke modern CPUs/GPUs matrix multiplication ko hardware level par bohot tezi se execute karte hain.
+
+
+
+---
+
+### Heterogeneous Graphs Ki Power (Flexible Unified Entities)
+
+Graphs ki asal taqat sirf homogeneous data tak mahdood nahi hai, balkay iska sab se bada faida yeh hai ke yeh bilkul mukhtalif (completely different) qism ke objects aur schemas ko aik hi database cluster ke andar aik consistent tareeqay se jorh kar rakh sakta hai.
+
+* **Facebook's Unified Graph:** Facebook aik single distributed graph maintain karta hai jahan vertices mukhtalif entities ko represent karte hain: log (people), locations, events, user check-ins, aur comments. Unke darmiyan edges relationships ka network flow bante hain: kaun kiska dost hai, kis location par check-in hua, kis post par kis ne comment kiya, aur kis event ko kis ne attend kiya.
+* **Search Engine Knowledge Graphs:** Google jaise search engines public websites ko crawl aur text-analyze kar ke aik massive knowledge graph build karte hain. Is graph mein organizations, log, aur places ke facts ko aapas mein link kiya jata hai. Wikidata jaise structured platforms bhi isi tarah ka graph data publish karte hain.
+
+Graph data systems ko structure aur query karne ke do ahem models hain:
+
+* **Property Graph Model:** Jise Neo4j, Memgraph, aur KùzuDB implement karte hain.
+* **Triple Store Model:** Jise Datomic aur AllegroGraph implement karte hain.
+
+Inhein query karne ke liye specialized languages jaise *Cypher*, *SPARQL*, *Datalog*, *GraphQL*, aur modern SQL graph extensions use hoti hain.
+
+---
+
+### Detailed Decomposition of Figure 3-6 (The Running Schema)
+
+Hum Figure 3-6 mein diye gaye graph structure ko direct and step-by-step dissect karte hain taake samajh aaye ke graph kaise dynamic granularity aur fluid hierarchies ko handle karta hai.
+
+<div align="center">
+  <img src="./images/17.jpg" width="600"/>
+</div>
+
+Figure 3-6 aik heterogeneous graph ko zahir karta hai jahan data ke bikhre huay levels (social aur geographical structures) aapas mein linked hain. Chaliye iska step-by-step data flow dekhte hain:
+
+* **Social Connection (The Core Cluster):** Markaz mein do grey boxes (vertices) hain: `type: person, name: Lucy` aur `type: person, name: Alain`. In dono ke darmiyan aik edge hai jis par label hai **married**. Yeh aik direct horizontal social edge hai.
+* **Geographical Heterogeneity (Irregular Hierarchies):** Is graph ki sab se barhi khubsurti yeh hai ke yeh dono logo ke background ko alag-alag structural depth ke sath store kar raha hai, jo relational schema mein tables ko break kar deta:
+1. **Lucy Ka Path (US Hierarchy - 3 Steps):** Lucy se aik arrow nikalta hai (`born_in`) jo `state: Idaho` ko point karta hai. Idaho se arrow nikalta hai (`within`) jo `country: United States` par jata hai, aur woh aage `within` ke zariye `continent: North America` se connect hota hai.
+2. **Alain Ka Path (France Hierarchy - 5 Steps):** Alain se arrow nikalta hai (`born_in`) jo `city: Saint-Lô` ko point karta hai. France ka administrative structure deep hai, isliye Saint-Lô aage `within` hai `département: Manche` ke, Manche `within` hai `région: Normandie` ke, Normandie `within` hai `country: France` ke, aur France `within` hai `continent: Europe` ke.
+3. **The Convergence Link:** Lucy aur Alain dono se do independent edges nikalte hain jin par **lives_in** likha hai, aur yeh dono arrows aik hi single node `city: London` ko point karte hain. London aage `within` England -> `within` United Kingdom -> `within` Europe ke zariye usi common Europe continent node se jorh jata hai jahan Alain ka France wala path end hua tha.
+
+
+
+**Architectural Insight:** Agar aapko relational DB mein yeh query chalani ho ke "Un married couples ko dhoondain jin mein se aik ka taluq North America se ho aur dusre ka Europe se, magar dono is waqt aik hi shahar mein reh rahe hon," toh aapko users, regions, cities, states, aur countries ke tables par 8 se 10 `JOIN` operations lagane padenge, jo database compiler ko paghal kar denge. Graph database mein yeh sirf pointer chasing (edge traversal) ka aik clean operation hota hai.
+
+---
+
+## Interview aur Mockup System Design Scenario
+
+### Scenario (The Problem)
+
+Aap aik international bank ke liye **Real-Time Financial Fraud Detection & Anti-Money Laundering (AML) System** design kar rahe hain. Platform par har second lakhon transactions hoti hain. Fraudsters direct money transfer nahi karte; woh paisa chupane ke liye aik complex chain banate hain (User A -> Transfers to User B -> Who owns Company C -> Which wires money to Account D in High-Risk Location).
+
+Aapko aik aisa data model aur execution engine design karna hai jo 5 se 6 hops (levels) deep connections ko real-time mein (<50ms) scan kar ke alerts generate kare ke kya yeh transaction kisi fraud ring ka hissa hai ya nahi. Purana relational system 3 hops se aage joins lagane par choke ho jata hai.
+
+### System Design Core Decisions & Trade-offs
+
+1. **Property Graph Store over RDBMS:** Hum is transaction linkage path ke liye aik native Property Graph database (jaise Neo4j cluster ya AWS Neptune) select karenge. Wahan hum **Index-free Adjacency** ka faida uthayenge, jahan har node disk/memory par apne edges ke physical pointers hold karti hai, jis se multi-hop traversals bina kisi global index scan ke constant time mein execute hote hain.
+2. **Trade-off (Write Latency vs Deep Read Traversal):** Graph store mein naya edge add karte waqt pointers update karne padte hain, jis se write throughput relational databases se thodi kam ho sakti hai. Magar hamara fraud analytics path read-heavy network analysis par chalta hai, isliye deep read traversal ko optimize karne ke liye hum ne writes par thoda compromise (trade-off) kiya hai.
+
+### Architectural Flow Diagram
+
+<div align="center">
+  <img src="./images/18.jpg" width="600"/>
+</div>
+
+### Interview Talk (Key Takeaways)
+
+* **Interviewer Question:** Relational databases mein bhi hum associative tables par indexes bana kar many-to-many links dhoond sakte hain. SQL database 4 ya 5 levels deep queries par choke kyun ho jata hai jabke graph database scale kar jata hai?
+* **Your Answer:** Relational database mein jab aap $N$-level deep join lagate hain, toh database engine ko har step par aik alag index scan karna padta hai. Agar `Table A` ko `Table B` se join karna hai, toh B-Tree index scan par $\mathcal{O}(\log M)$ ka cost aata hai. Jab data billions of rows par chala jaye, toh har hop par yeh index lookup cost multiply hota jata hai, jise *Join Explosion* ya *Join Bomb* kehte hain. Iske baraks, native graph databases **Index-free Adjacency** use karte hain. Iska matlab hai ke jab aap Node A par khade hain, toh Node B ka physical memory address (pointer) direct Node A ke records mein save hota hai. Database ko koi global index scan nahi karna padta; woh direct memory pointer chase karta hai. Isliye graph database mein 5-hop traversal ka cost total database ke size par depend nahi karta, balkay sirf un nodes ke subgraph size par depend karta hai jo aap visit kar rahe hain.
+
+---
