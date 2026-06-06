@@ -69,3 +69,86 @@ Aap aik bade Scale ka **E-commerce Analytics Dashboard** design kar rahe hain ja
 
 
 ---
+
+## Relational Versus Document Models
+
+Aaj ki software engineering ki duniya mein SQL sab se zyada jana-pehchana aur istemal hone wala data model hai, jis ki buniyaad Edgar Codd ne 1970 mein **Relational Model** ke roop mein rakhi thi. Is model ke mutabaq, data ko **Relations** (jise hum tables kehte hain) mein organize kiya jata hai, aur har relation un-ordered **Tuples** (yaani database rows) ka aik majmua hota hai.
+
+### Relational Model Ka Irtiqa Aur Dominance
+
+* **Theoretical Origins to Market Dominance:** Jab Edgar Codd ne yeh model pesh kiya, toh yeh sirf aik math-based theoretical proposal tha. Us daur ke engineers ko shaq tha ke kya is tarah ke model ko computer disk par efficiently implement kiya bhi ja sakta hai ya nahi, kyun ke is mein explicit pointers ke bajaye logical joins par rely kiya jata tha. Magar 1980s ke darmiyan tak, Relational Database Management Systems (RDBMS) aur SQL itne behtar ho chuke thay ke yeh regular ya structured data ko store aur query karne ke liye industry ka standard ban gaye.
+* **Long-Term Success in Analytics:** Decades guzarne ke baad bhi, business analytics aur data warehousing jaiseuse cases mein relational model ka hi raj hai, jahan data ko *Star* aur *Snowflake* schemas mein organize karke complex reporting ki jati hai.
+
+### Muqabla Aur Tareekhi Data Models
+
+Relational model ne market par qabza karne ke liye lambi ladaas ladi hai. Iske raaste mein kayi competitors aaye:
+
+* **Hierarchical and Network Models (1970s - 1980s):** Yeh relational model ke sab se pehle aur bade competitors thay. Hierarchical model (jaise IBM ka IMS) data ko aik tree structure mein dekhta tha, jabke Network model (CODASYL) explicit memory pointers ke zariye records ko aapas mein jorhta tha. Relational model ne in dono ko isliye shikast di kyun ke is ne developer ko physical pointer paths ke jhanjhat se azad kar diya.
+* **Object Databases (Late 1980s - Early 1990s):** Jab Object-Oriented Programming (OOP) ka raaj shuru hua, toh laga ke object databases relational ka khatma kar dein gi taake programming objects ko direct save kiya ja sakay. Magar yeh commercial level par nakaam rahin aur bohot jaldi gayab ho gaein.
+* **XML Databases (Early 2000s):** Internet ke anay par XML format ka shor macha, aur khususat XML databases bani hain, magar inka adoption sirf kuch makhsoos (niche) industries tak mahdood raha.
+
+<div align="center">
+  <img src="./images/04.jpg" width="600"/>
+</div>
+
+* **SQL's Adaptation Strategy:** Relational model ki kamyabi ka aik bada sabab yeh bhi hai ke is ne waqt ke saath khud ko badla. Jab XML aur JSON ka trend aaya, toh SQL databases (jaise PostgreSQL aur MySQL) ne in formats ko apne andar hi support karna shuru kar diya, jis se competitors ki zaroorat khatm ho gayi.
+
+---
+
+### NoSQL Aur NewSQL Ka Daur
+
+2010s mein **NoSQL** ka lafz aik naye inqilab ke roop mein ubhra. Iska maqsad relational databases ki badshahat ko radd karna tha.
+
+* **NoSQL Ke Core Pillars:** NoSQL koi aik single technology nahi hai, balkay yeh chand ahem makhsoos goals ka naam hai:
+1. **Schema Flexibility:** Data store karne ke liye pehle se rigid tables aur columns design karne ki zaroorat nahi.
+2. **Horizontal Scalability:** Data ko aik hi bade super-computer par rakhne ke bajaye commodity servers ke pure cluster par divide (shard) karna.
+3. **Open Source Adoption:** Proprietary software ke bajaye open-source community-driven tools ka istemal.
+
+
+* **The Rise of NewSQL:** Jab logo ne dekha ke NoSQL scale toh accha karta hai magar relational databases jaisi transactional guarantees (ACID properties) nahi deta, toh **NewSQL** databases wajood mein aaein. Unka maqsad NoSQL ki scalability aur Relational ka transactional trust aik sath dena tha. Waqt ke saath jab yeh saare principles aam databases mein merge ho gaye, toh NoSQL aur NewSQL jase words ka trend ab dheema ho chuka hai.
+
+---
+
+### Document Model Ki Kamyabi
+
+NoSQL movement ka jo sab se mazboot aur mustaqil asar baqi raha, woh hai **Document Model** ki popularity, jo aam taur par data ko **JSON** format mein represent karta hai.
+
+* **MongoDB aur Couchbase ka Kirdar:** Is model ko specialized document databases ne aam banaya. JSON documents ko unke flexible nature ki wajah se pasand kiya jata hai. Relational tables mein agar aapko aik naya column add karna ho, toh poore table par *ALTER TABLE* chalana padta hai jo bade production systems mein risk hota hai. Iske mukable mein, JSON documents mein har record (document) ka apna alag structure ho sakta hai bina kisi global schema ki pabandi ke.
+
+```plaintext
+Relational Storage (Rigid Normalized Structure):
+[ Table: Users ] ───(Needs Join)───> [ Table: Contact Info ]
+
+Document Storage (Self-Contained JSON Document):
+{
+  "user_id": 101,
+  "name": "Hashim",
+  "contact": { "email": "hashim@email.com", "phone": "12345" }
+}
+```
+
+---
+
+## Interview aur Mockup System Design Scenario
+
+### Scenario (The Problem)
+
+Aap aik modern **Content Management System (CMS)** aur User Profile service design kar rahe hain jahan alag-alag qism ke users (e.g., Authors, Clients, Guest Users) apna data save karte hain. Har user type ke attributes bilkul mukhtalif hain (Authors ke paas unki publications aur bio hai, jabke Clients ke paas company details aur billing history hai). Mazeed yeh ke marketing team har hafte naye custom fields profile mein add karti rehti hai. Agar aap aik traditional relational database use karte hain, toh har schema change par heavy migration karni padti hai jo zero-downtime deployement mein rukawat banti hai.
+
+### System Design Core Decisions & Trade-offs
+
+* **Relational Core Data vs Document Profile Data:** Hum core application features (jaise billing, accounting, subscriptions) ke liye relational storage engine use karenge kyun ke wahan multi-table transactional consistency zaroori hai. Magar User Profile aur Custom Fields ke liye hum **Document Model (JSON)** ka intekhab karenge.
+* **Trade-off (Schema-on-Write vs Schema-on-Read):** Relational database *Schema-on-write* hota hai (database check karta hai ke data format sahi hai ya nahi save karte waqt). Document database *Schema-on-read* hota hai (data jaisa bhi ho save ho jata hai, application read karte waqt uski validation handle karti hai). Hum flexibility ke liye schema-on-read ka trade-off select kar rahe hain taake product agility barhi rahe.
+
+### Architectural Flow Diagram
+
+<div align="center">
+  <img src="./images/05.jpg" width="600"/>
+</div>
+
+### Interview Talk (Key Takeaways)
+
+* **Interviewer Question:** Kya hum document model ka maza kisi relational database mein nahi le sakte? Aaj kal toh PostgreSQL bhi JSONB support karta hai.
+* **Your Answer:** Bilkul le sakte hain, aur yeh aik behtareen hybrid approach hai. Agar hum PostgreSQL ka `JSONB` data type use karte hain, toh humein relational integrity (Foreign Keys for main user ID) bhi milti hai aur sath hi aik column ke andar dynamic JSON data store karne ki flexibility bhi mil jati hai. Magar agar hamara poora application workflow hi completely document-centric hai aur humein bohot bade scale par data ko cluster par write-heavy partitions mein distribute karna hai, toh MongoDB jaisa dedicated document database native horizontal sharding aur behtar scaling automation provide karega jo RDBMS ke upar JSON chalane se zyada efficient hoti hai.
+
+---
