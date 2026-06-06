@@ -1703,6 +1703,10 @@ Database engine is rule ko baar baar recursive call karta hai jab tak saare geog
 
 ### Figure 3-7 Ki Step-by-Step Mathematical Evaluation
 
+<div align="center">
+  <img src="./images/19.jpg" width="600"/>
+</div>
+
 Datalog engine backend par patterns ko execute karne ke liye **Fixed-Point Iteration (Bottom-Up Evaluation)** ka use karta hai. Chaliye Figure 3-7 ke mutabaq dekhte hain ke database kaise step-by-step raw data se virtual rows derive karta hai:
 
 ```plaintext
@@ -1957,5 +1961,217 @@ Aap Discord aur Slack ke bade scale ka **Real-Time Group Collaboration Hub** des
 
 * **Interviewer Question:** Agar hum ne GraphQL layer lagayi aur koi malicious crawler user client application ke bypass kar ke gateway par aik be-tahasha nested deep query hit kar de (e.g., messages -> sender -> channels -> messages -> sender -> channels up to 100 levels), toh hamara database resolvers compute stack collapse ho jayega. No recursion policy ke bawajood is deep query nesting attack (DoS) se backend ko kaise protect karenge?
 * **Your Answer:** Yeh GraphQL security ka aik classic vulnerability footprint hai jise *Nested Query Abuse Attack* kehte hain. Is structural threat se bachne ke liye hum production code mein teen ahem lines of defense set karte hain. Pehle, hum gateway par **Static Query Depth Analysis** lagayenge. Yeh middleware incoming query tree ko bina execute kiye scan karta hai aur agar query ka nesting depth level hamari limit (e.g., max 5 levels depth) se zyada ho, toh gateway resolver layer tak pohnchne se pehle hi request ko instant drop (abort) kar deta hai. Doosra, hum production environment mein **Persisted Queries (Query Whitelisting)** implement karte hain. Frontend app development ke waqt hi saari legitimate queries ka SHA-256 hash hash backend database par register kar diya jata hai. Mobile client network par puri query string bhejne ke bajaye sirf hash ID bhejta hai. Agar koi attacker apni custom modified deep nested text block hit karega, toh gateway use unrecognized signature keh kar database connection layer se pehle hi register hone se makhsoos reject kar dega, jo system availability ko secure rakhne ka behtareen scalable structural standard hai.
+
+---
+
+## Event Sourcing and CQRS
+
+Complex distributed applications mein aksar yeh problem samne aati hai ke jis format mein data ko database mein write (save) kiya jata hai, usi format mein use behtareen performance ke sath read ya query nahi kiya ja sakta. Agar aap poore system ke liye aik hi single data representation (jaise standard tables ya documents) select karte hain, toh aapko reads ya writes mein se kisi aik par severe compromise karna padta hai. Is design bottleneck ko hal karne ke liye hum aik naya architectural pattern use karte hain: data ko aik aise format mein write kiya jata hai jo purely writes ke liye optimized ho, aur us se automatic aisi derived representations (projections) generate ki jati hain jo purely specialized reads ke liye optimized hon.
+
+Agar hum kisi system ko strictly high-throughput writes ke liye design karein aur read queries ki latency ki fikar bilkul chhipa dein, toh data save karne ka sab se fast, safe aur flexible tareeqa aik **Immutable Append-Only Event Log** hai. Jab bhi system mein koi tabdeeli aati hai, hum existing data ko badalne (update) ya delete karne ke bajaye, us event ka poora context aik self-contained string ya JSON object ke roop mein timestamp ke sath log ke aakhri hissay mein append (jorh) dete hain.
+
+---
+
+### Detailed Dissection of Figure 3-8 (The Core Architecture)
+
+<div align="center">
+  <img src="./images/20.jpg" width="600"/>
+</div>
+
+Aap ke share kiye gaye Figure 3-8 mein Event Sourcing aur CQRS ka mukammal data lifecycle aur execution blueprint dikhaya gaya hai. Yeh example aik complex Conference Management System ki hai jahan bikhra hua business logic (seats reservation, bulk corporate ordering, allocations, cancellations) run ho raha hai.
+
+Chaliye is diagram ke left side par maujood raw event log matrix aur right side par derived views ko completely text layout mein decode karte hain aur iski mechanical processing ko samajhte hain.
+
+#### 1. Write-Optimized Stream (The Left Box Fact Log)
+
+Writer ka text code ya data structure agay say as it is likhna:
+
+```json
+// Event 1: Conference Created
+{
+  "event_type": "conference_created",
+  "timestamp": "2025-10-28 14:53:20",
+  "conf_id": 123,
+  "name": "Data-Intensive App Developers"
+}
+
+// Event 2: Registrations Opened
+{
+  "event_type": "registrations_opened",
+  "timestamp": "2025-10-30 07:03:19",
+  "conf_id": 123
+}
+
+// Event 3: Seats Reserved
+{
+  "event_type": "seats_reserved",
+  "timestamp": "2025-10-30 07:06:01",
+  "conf_id": 123,
+  "customer_id": 331,
+  "num_seats": 3,
+  "booking_id": 4001
+}
+
+// Event 4: Booking Payment Confirmed
+{
+  "event_type": "booking_payment_confirmed",
+  "timestamp": "2025-10-30 07:10:42",
+  "conf_id": 123,
+  "customer_id": 331,
+  "paid_amount": 1497.00,
+  "paid_currency": "USD"
+}
+
+// Event 5: Booking Canceled
+{
+  "event_type": "booking_canceled",
+  "timestamp": "2025-10-31 21:52:35",
+  "conf_id": 123,
+  "customer_id": 345,
+  "booking_id": 4003
+}
+
+```
+
+**Code aur Logic Key Analysis:**
+
+* **Past Tense Semantics:** Figure 3-8 mein saare events ke naam hamesha past tense (`conference_created`, `seats_reserved`) mein hain. Yeh distributed system ka aik buniyadi asool hai: event is baat ka pakka saboot hai ke yeh event mazi mein **baway (happen)** ho chuka hai, yeh aik immutable fact ban chuka hai jise radd nahi kiya ja sakta.
+* **Polymorphic Schemas:** Har event ka internal data structure bilkul mukhtalif hai. `conference_created` mein conference ka naam hai, jabke `seats_reserved` mein `booking_id` aur `num_seats` ka dynamic metadata shamil hai. Event store bina kisi table schema restrictions ke in bikhre huay JSON payload strings ko sequential sequence mein save karta jata hai.
+
+#### 2. The Derivation & Projection Layer (The Middle Arrows)
+
+Diagram ke darmiyan mein jo arrows dikhaye gaye hain, woh projection processors (consumers) ko zahir karte hain. Jab bhi upar wala log append-only format mein aage barhta hai, yeh workers asynchronous stream ke zariye in events ko read karte hain aur target databases par push karte hain.
+
+#### 3. Read-Optimized Representations (The Right Projections)
+
+Dono arrows do bilkul alag-alag specialized read models (Materialized Views) ko generate kar rahe hain:
+
+* **Top View (Customer Booking Confirmation):** Yeh aik structural Document model hai jo client endpoint UI ke liye optimize kiya gaya hai:
+Writer ka text/JSON payload code agay say as it is likhna:
+
+```json
+{
+  "booking_id": 4001,
+  "conference_name": "Data-Intensive App ...",
+  "paid_amount": 1497.0,
+  "paid_currency": "USD",
+  "unassigned_seats": 1,
+  "assigned_seats": [
+    {"badge_id": 501, "badge_name": "Aaliyah"},
+    {"badge_id": 502, "badge_name": "Caleb"}
+  ]
+}
+
+```
+
+*Explanation:* Jab projection service ne event log se `seats_reserved` aur `booking_payment_confirmed` ko sequential order mein process kiya, toh unho ne combines kar ke yeh self-contained nested profile view build kiya taake jab user dashboard kholay, toh zero database join cost ke sath instant confirm screen render ho sakay.
+
+* **Bottom View (Conference Organizer Dashboard Chart):** Yeh doosra arrow data ko aik tabular Time-Series matrix mein dhalta hai. Diagram ke mutabaq, line chart Y-axis par `Seats booked` aur X-axis par `Time` ko track kar raha hai. Jaise hi `registrations_opened` ke baad user reservations ke events log mein append hotay hain, chart ki graph line step-by-step jump maar kar upper limit (`Venue capacity`) ki taraf barhti hai.
+
+---
+
+### Core Definition: Event Sourcing Versus CQRS
+
+Software engineering mein in do terms ke darmiyan aik clear separation boundary hoti hai jise mix nahi karna chahiye:
+
+1. **Event Sourcing (The Source of Truth Pattern):** Iska matlab hai ke aapki application ki state ko track karne ke liye koi current snapshot database (jaise dynamic user row) primary resource nahi hai. System ki asal state aur **Source of Truth** darasl woh sequential event log hai jo mazi ke saare state changes ko register karta aya hai. Aap ki application ki current state is event log ko starting point se replay kar ke nikali jati hai.
+2. **CQRS (Command Query Responsibility Segregation):** Yeh architecture level par write path aur read path ko do alag domains mein taqseem (segregate) karne ka naam hai. Jab client koi action perform karta hai, toh usay **Command** kehte hain (jo write operation chalata hai). Jab client data viewing karta hai, toh usay **Query** kehte hain (jo specialized read views hit karta hai). Event Sourcing ke bina bhi CQRS lagaya ja sakta hai (e.g., dual-writing to SQL and Elasticsearch), magar Event Sourcing natural tareeqay se CQRS ke read models ko drive karne ka fuel banti hai.
+
+#### Execution Lifecycle Sequence: From Command to Fact Fact
+
+Jab user ticket book karne lagta hai, toh workflow is tarah execute hota hai:
+
+```plaintext
+[ User Request / Action ] ──► [ Validates Command against Current State ]
+                                          │
+                                          ▼ (If Valid: Succeeds and Hardens)
+                              [ Immutable Fact Created (Past Tense) ]
+                                          │
+                                          ▼ (Append to Storage Disk)
+                              [ Global Event Log Stream Engine ]
+                                          │
+                   ┌──────────────────────┴──────────────────────┐
+                   ▼ (Async Processor A)                         ▼ (Async Processor B)
+     [ Denormalized Read Store ]                   [ Time-Series Analytics DB ]
+
+```
+
+---
+
+### Comparison Matrix: Event Sourcing Versus Star Schema
+
+Agarchay Event Sourcing aur analytics ka Star Schema table dono mazi ke events (historical logs) ka record rakhte hain, magar unke internals mein gehre data modeling differences hote hain:
+
+* **Column Uniformity:** Star schema ke fact table ke andar har single row ka column structure strictly uniform (aik jaisa fixed layout) hota hai. Event Sourcing mein har event type ka data payload dynamic aur polymorphic hota hai.
+* **Order Significance:** Analytics fact tables unordered collections bante hain (agar do transactions aage peeche save hon, toh analytics sum par koi farq nahi padta). Event Sourcing mein **Events ka sequence order intehai critical hota hai**. If a user first makes a booking and then cancels it, processing those events in the wrong order (pehle cancellation process karna aur phir booking) poore read model state machine ko crash ya corrupt kar dega.
+
+---
+
+### Deep Architectural Advantages of Event Sourcing/CQRS
+
+* **High Semantic Intent Communication:** Traditional CRUD database mein jab koi user booking cancel karta hai, toh background execution direct row target karti hai: `UPDATE bookings SET active = false`. Software level par yeh samajhna mushkil hota hai ke yeh row false kyun hui? Kya user ne cancel kiya, kya payment timeout hui, ya admin ne remove kiya? Event Sourcing mein intent bilkul crystal clear direct store hota hai: `"booking_canceled"`.
+* **Deterministic Time Travel & View Reproducibility:** Agar aapki view maintenance programming logic mein koi severe bug aa jata hai jis se dashboard data ghalat show ho raha ho, toh aapko complex manual patches chalane ki zaroorat nahi hai. Aap simply purane read-store tables ko **Delete (Drop)** kar dete hain, code ka bug fix karte hain, aur background pointer reset kar ke starting points se saare events dobara replay kar dete hain. Poora state machine naye clean code se automatic recompute ho jata hai.
+* **Polyglot Reading Optimizations:** Chonke read models derived processors hain, aap aik hi event log se teen alag databases feed kar sakte hain. Custom billing queries ke liye PostgreSQL table projection chala dein, autocomplete search ke liye Elasticsearch index project kar dein, aur network visualization ke liye Graph database feed kar dein.
+* **Asynchronous Write Buffering & Smooth Throughput:** Append-only log storage continuous sequential writes use karta hai jo dynamic random disk access ya heavy table locks se azad hota hai. Peak business events or write storms ke dauran log absorbing shield ka kaam karta hai, aur backend consumers updates ko apni automatic pace par scale kar ke process karte hain bina applications layer ko throttling hit kiye.
+
+---
+
+### Critical Downsides and Mitigation Standards
+
+* **The Non-Deterministic External Dependency Trap:** Agar event process karte waqt humein kisi external variable par rely karna paday (jaise currency exchange conversion rate calculation), toh system recomputations par crash ho sakta hai. Agar hum saal baad event replay karenge aur us waqt ka live dollar rate fetch karenge, toh hamara billing view corrupt ho jayega.
+* *Mitigation Engineering:* Processing logic ko strictly deterministic hona chahiye. Ya toh exchange rate snapshot ko event payload ke andar hi append-only compile kar ke save karein, ya phir database mein aik historical time-stamped rate tracker maintain karein jo same historical timestamp parameter par hamesha identical fixed answer hi return kare.
+
+
+* **The GDPR Immutability Conflict (Right to be Forgotten):** European data compliance compliance (GDPR) ke mutabaq user apna personal account mapping data remove karwa sakta hai. Magar event store immutable hai, wahan se delete operation chalanay se poori distributed chain break ho jati hai.
+* *Mitigation Engineering:* Is bottleneck ko hal karne ke liye **Crypto-Shredding** architecture design kiya jata hai. User ka actual private sensitive data (name, email) event log mein save karne ke bajaye aik alag secure external table mein save kiya jata hai, aur event log mein sirf uski encrypted token string di jati hai. Jab user right-to-erase request karega, system sirf us external key block ko destroy (shred) kar dega, jis se event payload ka structural log baqi rahega magar encryption key delete hone ki wajah se data completely un-readable garbage block ban jayega.
+
+
+
+---
+
+## Interview aur Mockup System Design Scenario
+
+### Scenario (The Problem)
+
+Aap aik international ride-hailing application (like Uber or Careem Clone) ke liye **Core Ride Lifecycle & Dynamic Fare Estimation Engine** design kar rahe hain. System par high scale traffic hai: har second lakhon customers rides request karte hain, drivers states accept ya reject karte hain, GPS location pings emit hoti hain, aur ride paths complete hotay hain.
+
+Business operations team ko do zaroori requirements chahiye: pehle, customer support team ko har ride ka aik complete audit trace timeline chahiye ke ride kab request hui, kis driver ko pehle match mila, us ne kab reject kiya, aur kis location par passenger pickup hua (<100ms UI loading latency). Doosra, machine learning pricing data teams ko past historical tracking ka data bulk columns analytics formats mein chahiye taake price surge models evaluate ho sakein. Purana monolithic dynamic table updates state lock contention ki wajah se database deadlocks paida kar raha hai.
+
+### System Design Core Decisions & Trade-offs
+
+1. **Event Sourced Architecture using Apache Kafka & EventStoreDB:** Hum direct operational state dynamic overwrite queries (`UPDATE rides SET status = 'completed'`) bilkul ban kar dein ge. Ride lifecycle ki har state change ko aik immutable command validation loop se guzar kar past-tense events (e.g., `ride_requested`, `driver_matched`, `driver_rejected`, `trip_started`, `trip_completed`) ki surat mein sequential log store mein serialize kiya jayega.
+2. **CQRS Projection Isolation for Multi-Model Storage:** Read performance ko optimize karne ke liye write stream se do separate projections run ki jayengi. Customer support audit screen ke liye hum data ko aik document store (MongoDB) view mein materialise karenge jahan har ride ki single continuous self-contained text stream update hogi. Machine learning aggregation analytics ke liye data parallel mein columnar layout (ClickHouse DB) table columns mein bulk dump hota jayega.
+
+### Architectural Flow Diagram
+
+```plaintext
+                                   [ Driver & Passenger App Telemetry ]
+                                                    │
+                                                    ▼ (Emits Operations Actions Commands)
+                                   [ Ride Lifecycle Command Service ]
+                                                    │ (Validates against core memory locks)
+                                                    ▼
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│ [ High-Throughput Distributed Event Store (Kafka Ledger / EventStoreDB Cluster) ]      │
+│                                                                                        │
+│   Immutable Sequential Storage Stream:                                                 │
+│   [Ride:91, Type:ride_requested] ──► [Type:driver_matched] ──► [Type:trip_started]    │
+│   (Append-Only structural disk layout ensures high burst absorption & zero locks)      │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+                                                    │
+                        ┌───────────────────────────┴───────────────────────────┐
+                        ▼ (Asynchronous Projection Worker 1)                     ▼ (Asynchronous Projection Worker 2)
+       [ MongoDB Cluster Read Projections ]                     [ Columnar ClickHouse Analytics Engine ]
+       │ (Optimized for Customer Support UI)                    │ (Optimized for Surge Price Data Science)
+       │                                                        │
+       ▼ (Single Key Document Fetch <40ms)                      ▼ (High-Volume Column Aggregations)
+[ Support Agent Interface Dashboard Views ]             [ Dynamic Surge Machine Learning Models ]
+
+```
+
+### Interview Talk (Key Takeaways)
+
+* **Interviewer Question:** Event Sourcing aur CQRS architecture mein saba se bada runtime barrier Eventual Consistency ka hota hai. Agar driver ride accept karta hai (`driver_accepted` event write log mein chala gaya) magar background consumer workers ke lag ki wajah se passenger ka read-model query view instantly update nahi hota, toh user ko screen par lag dikhega. Aap is network sync gap latency ko production system mein kaise solve karenge?
+* **Your Answer:** Yeh CQRS systems ka aik buniyaadi business infrastructure trade-off hai jise *Eventual Consistency Handling* kehte hain. Is read-sync gap lag ko users software interface par design level par mitigate karne ke do technical solutions hain. Pehla engineering standard yeh hai ke jab application request call gateway par hit karti hai, toh command validation logic acknowledge hotay hi user client local application memory layer par ek dynamic **Optimistic UI Update** reflect kar deti hai (yaani user ko lagne lagta hai ke status badal gaya hai), jabke backend engine asynchronous message queue buffers ko reconcile kar raha hota hai. Doosra solid technical architecture path yeh hai ke hum simple REST request long-polling queries use karne ke bajaye frontend integration par **WebSockets/Server-Sent Events (SSE)** ka notification layer configure karte hain. Gateway command processing complete hote hi direct event processing loop se aik parallel trigger alert notification node WebSocket engine ke zariye driver state change ka dynamic payload client screen par instant bypass kar deta hai, jis se backend execution system completely decoupled rehta hai aur read throughput par compromise kiye bina sub-100ms application agility faraham ki ja sakti hai.
 
 ---
