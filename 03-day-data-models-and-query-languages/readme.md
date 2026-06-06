@@ -152,3 +152,140 @@ Aap aik modern **Content Management System (CMS)** aur User Profile service desi
 * **Your Answer:** Bilkul le sakte hain, aur yeh aik behtareen hybrid approach hai. Agar hum PostgreSQL ka `JSONB` data type use karte hain, toh humein relational integrity (Foreign Keys for main user ID) bhi milti hai aur sath hi aik column ke andar dynamic JSON data store karne ki flexibility bhi mil jati hai. Magar agar hamara poora application workflow hi completely document-centric hai aur humein bohot bade scale par data ko cluster par write-heavy partitions mein distribute karna hai, toh MongoDB jaisa dedicated document database native horizontal sharding aur behtar scaling automation provide karega jo RDBMS ke upar JSON chalane se zyada efficient hoti hai.
 
 ---
+
+## The Object-Relational Mismatch
+
+Software engineering ki dunya mein aik bohot bada structural gap hai: jis tarah data ko application code (Object-Oriented Programming like Java, Python) mein represent kiya jata hai, aur jis tarah data ko Relational Databases (SQL tables, rows, columns) mein mahfooz kiya jata hai, un dono mein aik wazeh tazaad (disconnect) hai. Is disconnect ko distributed systems ki zabaan mein **Impedance Mismatch** kaha jata hai.
+
+### Impedance Mismatch Ka Concept Aur Analogy
+
+Yeh term asal mein electronics se udhaar li gayi hai. Kisi bhi electric circuit ke inputs aur outputs ki aik makhsoos impedance (alternating current ke khilaf resistance) hoti hai. Agar aap do circuits ko aapas mein jorhte hain, toh maximum power transfer tabhi hota hai jab dono ki impedance aapas mein match karein. Agar mismatch ho, toh signal reflect hota hai aur energy ka zaya hota hai.
+
+Bilkul isi tarah, software mein jab aap application ke rich object graphs (jo memory mein pointers ke zariye connected hote hain) ko database ke flat 2D relational tables mein save karne ki koshish karte hain, toh aapko aik complex translation layer likhni padti hai. Is translation layer ki wajah se development velocity dheemi ho jati hai aur system ki performance par asar padta hai.
+
+---
+
+## Object-relational mapping
+
+Is translation layer ke bohot bade boilerplate code (repetitive SQL statements) ko kam karne ke liye **Object-Relational Mapping (ORM)** frameworks (jaise Java mein Hibernate aur Ruby/Rails mein ActiveRecord) banaye gaye. ORM ka kaam programming objects ko database tables ke sath automatically map karna hai, magar is approach par bohot architectural criticisms hain.
+
+### ORMs Ke Core Problems Aur Architectural Trade-offs
+
+* **Abstraction Leakage aur Complexity:** ORMs bohot complex hote hain aur yeh relational model aur object model ke darmiyan ke farq ko poori tarah chhipa nahi sakte. Aik developer ko barh-e-raast dono models ke baare mein sochna padta hai, kyun ke agar database level par data normalized hai, toh ORM ko batana padta hai ke objects ko kis tarah map kiya jaye.
+* **OLTP vs Analytics (OLAP) ka Pechida Masala:** ORMs ko aam taur par sirf OLTP (Online Transaction Processing) applications yaani daily operations ke liye design kiya jata hai. Data engineers jo analytics aur business intelligence par kaam karte hain, unhein direct raw relational structures aur tables par queries chalani hoti hain. Isliye, agar ORM ne backend par ajeeb o ghareeb schema generate kiya hai, toh data warehousing aur analytics ke liye bohot mushkil paida ho jati hai.
+* **Polyglot Persistence Ki Kami:** Zyada tar ORMs sirf relational SQL databases ke sath hi chalte hain. Agar kisi complex organization mein diverse data systems use ho rahe hain—jaise Search Engines (Elasticsearch), Graph Databases (Neo4j), ya NoSQL document stores—toh wahan traditional ORMs fail ho jate hain aur unka support khatam ho jata hai.
+* **Inefficient Schema Generation:** Kuch ORMs database schema ko khud-ba-khud generate karte hain. Yeh auto-generated schemas aksar inefficient hote hain aur queries ko database par slow kar dete hain. Jab aap unhein customize karne baithte hain, toh customization itni complex ho jati hai ke ORM use karne ka a असल faida hi khatam ho jata hai.
+
+### The N+1 Query Problem (Performance Bottleneck)
+
+Yeh ORM frameworks ka sab se mashhoor aur khatarnak performance trap hai.
+
+Misaal ke taur par, aapko aik page par $N$ comments display karne hain, aur har comment ke sath uske author ka naam dikhana hai.
+
+1. **ORM Approach:** ORM pehle aik query chalaye ga jo $N$ comments le kar aayegi. Ab har comment ke andar author ki `user_id` maujood hogi. Author ka naam nikalne ke liye ORM loop ke andar har single comment ke liye alag se database query chalaye ga. Is tarah pehle comment ke liye 1 query, aur phir $N$ comments ke authors ke liye $N$ mazeed queries chalengi. Total **$N+1$ queries** database par hit karengi, jo network I/O overhead ko be-tahasha badha dengi.
+2. **Handwritten SQL Approach:** Agar aap khud SQL likhein, toh aap aik single query ke andar hi `JOIN` operations perform kar ke comments aur users ka data aik hi dafa mein database se nikal sakte hain.
+
+```plaintext
+[ Handcoded SQL Solution (1 Query) ]
+User Request -> SELECT * FROM comments JOIN users ON comments.user_id = users.id -> Returns complete data in 1 Roundtrip
+
+[ ORM Inefficient Solution (N+1 Queries) ]
+User Request -> 1. SELECT * FROM comments (Returns N rows)
+             -> 2. SELECT * FROM users WHERE id = 1
+             -> 3. SELECT * FROM users WHERE id = 2  ... up to N times (N Roundtrips!)
+
+```
+
+* **ORMs Ke Advantages:** In sab nuksanat ke bawajood, ORMs ka faida yeh hai ke yeh simple CRUD operations ke liye boilerplate code ko khatam karte hain. Yeh database query results ko cache karne mein madad dete hain aur database schema migrations (tables ke structure ko upgrade/downgrade karna) ko manage karna asan banate hain.
+
+---
+
+## The document data model for one-to-many relationships
+
+Har qism ka data relational tables mein fit nahi baithta. Is ko samajhne ke liye hum LinkedIn Profile (Resume) ki real-world example ko dono models ke lehaz se dissect karte hain.
+
+<div align="center">
+  <img src="./images/06.jpg" width="600"/>
+</div>
+
+### Relational Model Ka Approach (Figure 3-1)
+
+Agar hum LinkedIn profile ko relational database mein design karein (jise Figure 3-1 mein dikhaya gaya hai), toh humein pooray data ko normalize karna padega:
+
+* **users table:** Is mein user ki unique identity `user_id (251)`, `first_name`, `last_name`, aur profile picture ka URL save hoga, kyun ke yeh pure profile mein sirf aik hi dafa aate hain.
+* **regions table:** Location (`region_id`) ko alag table mein rakha jata hai taake data duplicate na ho (jaise `us:91` ka matlab "Washington, DC, United States" hai).
+* **positions, education, aur contact_info tables:** Chunke aik user ke paas multiple jobs (positions) aur multiple degrees (education) ho sakti hain, isliye yeh **One-to-Many relationship** banata hai. In sab ko alag-alag tables mein rakha jata hai aur har record mein aik Foreign Key (`user_id = 251`) lagayi jati hai jo `users table` ke primary record ko point karti hai.
+
+**Problem:** Jab bhi aapko Barack Obama ki profile ka page load karna hoga, system ko ya toh 4 se 5 alag-alag SQL queries chalani padengi ya phir aik bohot hi messy aur heavy multi-way `JOIN` query execute karni padegi, jo disk par se alag-alag jagah se data dhoond kar layegi.
+
+### Document Model Ka Approach (Example 3-1 aur Figure 3-2)
+
+<div align="center">
+</div>
+
+Document model isi information ko aik self-contained **JSON document** ki shakal mein store karta hai (jise Example 3-1 mein dikhaya gaya hai).
+
+```plaintext
+[ Document Store Logical Disk Layout ]
+{
+ "user_id": 251,
+ "first_name": "Barack",
+ "last_name": "Obama",
+ "headline": "Former President of the United States of America",
+ "region_id": "us:91",
+ "photo_url": "/p/7/000/253/05b/308dd6e.jpg",
+ "positions": [
+ {"job_title": "President", "organization": "United States of America"},
+ {"job_title": "US Senator (D-IL)", "organization": "United States Senate"}
+ ],
+ "education": [
+ {"school_name": "Harvard University", "start": 1988, "end": 1991},
+ {"school_name": "Columbia University", "start": 1981, "end": 1983}
+ ],
+ "contact_info": {
+ "website": "https://barackobama.com",
+ "x": "https://x.com/barackobama"
+ }
+}
+===> Stored together as a single contiguous block/string on disk.
+
+```
+
+* **Data Locality (Read Optimization):** JSON document ka sab se bada faida yeh hai ke is mein **Data Locality** behtareen hoti hai. Profile ka poora data disk par aik hi jagah, aik hi contiguous block mein save hota hai. Jab application profile request karti hai, toh database bina kisi `JOIN` ke, sirf aik single disk read operation se poora tree-structure data utha kar le aata hai, jo read latency ko bohot kam kar deta hai.
+
+
+  <img src="./images/07.jpg" width="600"/>
+
+* **Tree Structure Explicit (Figure 3-2):** One-to-many relationships asal mein data ka aik tree structure banati hain. Figure 3-2 ke mutabaq, Root node `user 251` hai. Is root node se branches nikal rahi hain: aik branch `positions` ki taraf jati hai jo aage sub-branches `job 1`, `job 2` mein divide hoti hai. Doosri branch `education` ki taraf jati hai. JSON model is tree structure ko naturally aur explicitly apnata hai, jis se programming codes ke objects ke sath impedance mismatch khatam ho jata hai.
+
+### The Bounded vs Unbounded Trap (One-to-Many vs One-to-Few)
+
+Yahan aik bohot critical architectural nuance hai: LinkedIn resume mein positions aur education hamesha limited hoti hain (aam taur par aik insan 5 ya 10 jobs badalta hai). Isko hum **One-to-Few** kehte hain. Aise data ke liye document model mein data ko embed karna perfect hai.
+
+Magar, agar relationship sach mein **One-to-Many** ke bajaye **One-to-Unbounded** ho—misaal ke taur par, kisi celebrity ki social media post par aane wale lakhon comments—toh aap un saare comments ko single post document ke andar embed **nahi** kar sakte. Is se document ka size hadd se zyada badh jayega (jaise MongoDB ki 16MB per document limit hai), read/write magnification ka masla hoga, aur system crash ho jayega. Aise unbounded scenarios ke liye hamesha relational table approach (jahan har comment alag row hoti hai) behtar hoti hai.
+
+---
+
+## Interview aur Mockup System Design Scenario
+
+### Scenario (The Problem)
+
+Aap aik bade scale ka **Professional Networking Platform (LinkedIn Clone)** design kar rahe hain. Is platform par har mahine millions of active users profiles dekhte hain (Read Heavy). Purana architecture aik traditional RDBMS par chal raha tha jahan profile load karne ke liye 6 tables par custom joins lagte thay. Peak hours mein heavy joins aur ORM ke generate kiye huay inefficient queries ki wajah se Database CPU 95% touch kar jata hai, aur profile loading mein latency 3 seconds tak chali jati hai. Aapko is profile rendering pipeline ko sub-100ms latency par lekar aana hai.
+
+### System Design Core Decisions & Trade-offs
+
+1. **Migration to Document Model for Profiles:** Hum user profiles ke read-heavy section ko relational DB se hata kar aik Document Store (ya PostgreSQL JSONB column with indexing) par shift karenge taake multi-table joins ka jhanjhat hi khatam ho jaye aur Data Locality ka bharpoor faida uthaya ja sakay.
+2. **Trade-off (Write Cost vs Read Speed):** Document model select karne se profile update (write operation) thoda costly ho sakta hai kyun ke poora document dobara write karna padta hai, magar hamara system 95% Read-Heavy hai, isliye hum ne reads ko optimize karne ke liye writes par thoda compromise (trade-off) kiya hai.
+
+### Architectural Flow Diagram
+
+<div align="center">
+  <img src="./images/08.jpg" width="600"/>
+</div>
+
+### Interview Talk (Key Takeaways)
+
+* **Interviewer Question:** Agar hum document model use karte hain aur kal ko kisi school ya company ka naam change hota hai, toh humein har user ke profile document ke andar ja kar usay update karna padega. Is data duplication aur consistency ke maslay ko kaise handle karenge?
+* **Your Answer:** Yeh document model ka aik ahem trade-off hai jise *Denormalization* kehte hain. Agar school ya company ka naam badalta hai, toh updates asynchronous background workers ke zariye batch processing mein chalaye ja sakte hain, kyun ke profiles par thodi si eventual consistency (kuch der baad naam update dikhna) acceptable hai. Magar iske badlay mein jo humein read speed mein data locality ka faida mil raha hai, woh production system ko scale karne ke liye zyada zaroori hai. Agar transaction consistency 100% zaroori ho (jaise user payments), toh hum strictly relational path hi use karenge.
+
+---
