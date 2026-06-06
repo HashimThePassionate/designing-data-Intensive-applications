@@ -416,3 +416,105 @@ Aap aik high-scale **Distributed News Feed Service (like LinkedIn/Twitter Home F
 * **Your Answer:** Agar hum profile image ya like counters ko post document ke andar hi embed (denormalize) kar dein ge, toh jab bhi koi user apna profile picture badlega ya post par koi like click karega, humein us core post document par write command chalani padegi. Distributed system mein high-frequency writes document locks aur cache invalidation ka sabab banti hain. Hydration layer application level par join zaroor karti hai, magar chunke yeh read operations key-by-key lookups hote hain, isliye inhein Redis cluster ya distributed hash rings par distribute kar ke microsecond latencies par parallel chalaya ja sakta hai. Yeh approach scale aur data freshment dono ka behtareen balance (trade-off) faraham karti hai.
 
 ---
+
+## Many-to-One and Many-to-Many Relationships
+
+Distributed systems aur database architecture mein jab hum data ke darmiyan relationships ko scale karte hain, toh data ki nature ke mutabaq modeling badal jati hai. Pichle sections mein jo `positions` aur `education` tables thay, woh **One-to-Many** ya **One-to-Few** ki misalein thin (yaani aik bande ke paas kayi naukriyan ho sakti hain, magar har naukri ka record strictly usi aik bande ke profile se juda hota hai).
+
+Iske baraks, `region_id` aik **Many-to-One** relationship ki behtareen misaal hai. Iska matlab yeh hai ke aik hi shahar ya region (jaise Washington, DC) mein hazaaron log reh sakte hain, magar hum yeh farz karte hain ke aik insan aik waqt mein sirf aik hi jagah reh raha hai.
+
+Jab hum system mein `organizations` (companies) aur `schools` ko aam text strings ke bajaye baqaida alag entities (records) bana dete hain aur unhein unique IDs ke zariye jorhte hain, toh hamare paas **Many-to-Many** relationship wajood mein aati hai. Misaal ke taur par, aik insan apni zindagi mein multiple companies mein kaam kar sakta hai, aur aik company ke andar hazaaron purane ya maujooda employees ho sakte hain.
+
+---
+
+### Relational Model Ka Approach (Figure 3-3)
+
+Relational model ke andar Many-to-Many relationship ko handle karne ka aik bohot hi pakka aur standard tareeqa hai jise **Associative Table** ya **Join Table** kaha jata hai.
+
+<div align="center">
+  <img src="./images/11.jpg" width="600"/>
+</div>
+
+Figure 3-3 ke mutabaq data ka structural flow is tarah chalta hai:
+
+* **Core Entities Tables:** Hamare paas do alag-alag main tables hain—`users table` (jahan user 251 yaani Barack Obama ka record hai) aur `organizations table` (jahan companies ke unique records hain, jaise ID 513 par "United States of America" aur ID 514 par "United States Senate" unke logo images ke sath save hain).
+* **The Associative Table (positions table):** Yeh table asal mein relational bridge ka kaam karta hai. Is table ki apni koi azaad identity nahi hoti balkay yeh doosray tables ki primary keys ko foreign keys ke roop mein apne andar jorhta hai.
+* **Data Flow Mechanics:** `positions table` ka har row aik makhsoos linkage ko zahir karta hai. Row 458 mein `user_id` 251 ko `org_id` 513 ke sath jodha gaya hai, aur sath hi us makhsoos relationship ka metadata (jaise `job_title`: President, `start`: 2009, `end`: 2017) bhi isi table mein save kiya gaya hai. Row 457 isi user 251 ko `org_id` 514 se connect karti hai.
+
+<div align="center">
+  <img src="./images/13.jpg" width="600"/>
+</div>
+
+---
+
+### Document Model Ka Approach (Figure 3-4 Aur Example 3-2)
+
+Many-to-One aur Many-to-Many relationships kabhi bhi aik single, self-contained JSON document ke andar natural tarike se fit nahi baithteen. Agar aap aik hi company ka poora data har us employee ke JSON document mein nested (embed) kar dein ge jo wahan kaam karta hai, toh be-tahasha data duplication hogi aur data write/update karna impossible ho jayega. Isliye document model mein bhi is kaam ke liye **Normalized References** ka sahara liya jata hai.
+
+<div align="center">
+  <img src="./images/12.jpg" width="600"/>
+</div>
+
+Figure 3-4 aur Example 3-2 ke mutabaq iska architectural flow darja-zail hai:
+
+* **Document Boundaries (Dotted Boxes):** Figure 3-4 mein jo dotted boxes (lakeron wale dibbe) dikhaye gaye hain, woh har user ka aik azaad, self-contained JSON document hain. Misaal ke taur par, left side par `user 251` ka document hai aur right side par `user 467` ka document hai.
+* **Logical References (References to Outer Documents):** In documents ke andar user ka personal data (`positions`, `education` arrays) toh embedding ke roop mein maujood hai, magar jahan company ya school ka talluq aata hai, wahan data embed karne ke bajaye outer entities ke pointers (`org_id` ya `school_id`) rakh diye jate hain.
+* **The Interconnected Mesh:** Jaise hi aap in IDs ko use karte hain, aapka saf-suthra simple tree structure (jo hum ne pichle section mein dekha tha) khatam ho jata hai aur data aik complex network ya mesh ki shakal ikhtiyar kar leta hai, jahan alag-alag document boundaries se nikalne wale pointers bahar baithi common entities (`org 1`, `org 2`, `school 1`, etc.) ko point kar rahe hote hain.
+
+<div align="center">
+  <img src="./images/14.jpg" width="600"/>
+</div>
+
+---
+
+### Bidirectional Queries Aur Indexing Ke Trade-offs
+
+Many-to-Many relationships mein sab se bada masla yeh hota hai ke inhein hamesha **Bidirectional** (dono taraf se) query karna padta hai:
+
+1. **Forward Query:** Mujhe `User 251` ki profile dikhao aur batao unho ne kis kis company mein kaam kiya?
+2. **Reverse Query:** Mujhe `Organization 513` (e.g., Google) ka page dikhao aur batao kaun kaun se users yahan kaam kar chuke hain?
+
+Is bidirectional querying ko handle karne ke do mukhtalif architectural raste hain:
+
+#### 1. Denormalized Bidirectional Approach (Two-Way References)
+
+Is approach mein hum ID references ko dono sides par save kar dete hain. Yaani user ke document mein unki saari companies ki IDs hongi, aur har company ke document mein un saare users ki IDs ki aik array hogi jo wahan kaam karte hain.
+
+* **Trade-off:** Iska faida yeh hai ke dono taraf se reads bohot tez ho jate hain. Magar sab se bada nuksan **Inconsistency Risk** hai. Agar aik naya banda company join karta hai aur system user document ko update kar deta hai magar kisi crash ya network failure ki wajah se company document mein uski ID entry miss ho jati hai, toh data corrupt ho jayega.
+
+#### 2. Normalized Approach via Secondary Indexes
+
+Is behtareen approach mein relationship ko poore database mein sirf **aik hi jagah** save kiya jata hai, aur dono taraf se fast querying ke liye database ke **Secondary Indexes** par rely kiya jata hai.
+
+* **Relational Implementation:** Figure 3-3 ke associative schema mein, hum database engine ko command dete hain ke woh `positions table` ke dono columns (`user_id` aur `org_id`) par alag-alag secondary indexes create kare.
+* Jab user profile chahiye hogi, toh `user_id` index chalega.
+* Jab company page ke employees chahiye honge, toh `org_id` index chalega. Data sirf aik jagah save rehta hai, koi duplication nahi hoti.
+
+
+* **Document Implementation:** Document databases mein chunke data JSON document ke andar arrays mein hota hai, isliye database engine ke paas yeh salahiyat honi chahiye ke woh JSON array ke andar baithe objects ke fields (jaise `positions.[].org_id`) par index bana sakay. Modern document stores (jaise MongoDB) aur relational systems (jaise PostgreSQL with JSONB indexing) is deep array indexing ko natively support karte hain, jis se single-source relationship par hi dono sides se high-performance lookups hasil kiye ja sakte hain.
+
+---
+
+## Interview aur Mockup System Design Scenario
+
+### Scenario (The Problem)
+
+Aap aik bade scale ka **Enterprise Professional Directory (like LinkedIn for Business)** design kar rahe hain. Is platform par har Company ka aik verified page hai aur har Employee ka apna profile hai. Requirement yeh hai ke jab koi user Company page kholay, toh wahan unke saari employees ki directory real-time mein render ho (<120ms), aur jab koi Employee ka profile kholay toh unki saari past companies ke logos aur names instant nazar aane chahiye. Data volume bohot heavy hai: platform par 50 Million users hain aur 5 Million companies hain. Aapko aik aisi data modeling aur indexing strategy design karni hai jo bidirectional queries ko scale kar sakay bina data corrupt kiye.
+
+### System Design Core Decisions & Trade-offs
+
+1. **Single-Source Normalized Relationships with JSONB Arrays:** Hum user profiles ko store karne ke liye PostgreSQL document model (JSONB) use karenge. Many-to-Many updates mein hone wale consistency data corruption se bachne ke liye hum data ko dono sides par duplicate nahi karenge (No Two-Way References). Relationship sirf User Document ke andar `experience_array.company_id` ke roop mein save hogi.
+2. **Multi-Key Inverted Gin Indexing for Reverse Queries:** Company page se employees ko instant fetch karne ke liye hum user document ke nested JSONB array field `company_id` par aik **GIN (Generalized Inverted Index)** ya Multi-key index lagayenge. Is se database backend par programming level ke manual joins ke bajaye direct index scan se target users nikal sakega.
+
+### Architectural Flow Diagram
+
+<div align="center">
+  <img src="./images/15.jpg" width="600"/>
+</div>
+
+### Interview Talk (Key Takeaways)
+
+* **Interviewer Question:** Agar hum NoSQL document store mein array indexing use karte hain, toh jab koi user apni company profile mein update karega ya naye experiences add karega, toh index maintenance par kya cost aayegi?
+* **Your Answer:** Yeh aik critical trade-off hai. Jab bhi JSON array ke andar koi naya element push hota hai ya update hota hai, toh database ko us pure array ka inverted index block dobara compute (re-index) karna padta hai. Is se Write Latency thodi badh jati hai. Magar hamare is enterprise directory system mein, users apni naukriyan roz-roz ya har ghante badal nahi rahe hote (Writes are very rare, maybe once in a few months). Isliye write cost high hona system par negative impact nahi dalega, jabke reads har second lakhon ki tadad mein ho rahe hain, jahan index hamare read path ko ultra-fast bana deta hai. data storage strictly normalized hone ki wajah se hamesha consistent rahega.
+
+---
