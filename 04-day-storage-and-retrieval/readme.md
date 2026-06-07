@@ -1609,6 +1609,10 @@ Kyunki high dimensions (e.g., 1536 floating points) par traditional B-trees ya R
 
 Aap jo Figure 4-11 dekh rahe hain, wo HNSW index ke multi-layered skip-list graph architecture ko visual level par breakdown karti hai ke kaise multi-dimensional space mein instant routing ki jati hai:
 
+<div align="center">
+  <img src="./images/11.jpg" width="600"/>
+</div>
+
 ```plaintext
 [ Layer 2: Sparse Top Graph ]
 Start Traversal (Node A) ----------> Long Distance Jump -----------> (Node B: Closest to Query in L2)
