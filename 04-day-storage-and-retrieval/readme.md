@@ -1338,3 +1338,154 @@ Analytical database execution mein asli jung sirf disk reads ki nahi, balkay **C
 | **Best Use Case Fit** | Highly complex multi-conditional queries with complex mathematical operations. | Standard analytical filtering, matching, scans, and bitmap evaluations. |
 
 ---
+
+## Materialized Views and Data Cubes
+
+Data warehousing aur analytics ke andar jab humein queries ko extreme performance level par le kar jana ho, toh hum precomputation ka sahara lete hain. Is silsile mein do baray concepts samne aate hain: **Virtual Views** aur **Materialized Views**.
+
+* **Virtual Views (Farzi Khake):** Yeh sirf SQL queries likhne ka ek shortcut hote hain. Jab aap kisi virtual view se data read karte hain, toh database engine back-end par uski asli SQL query ko on-the-fly expand karta hai aur raw tables par naye sire se query execute karta hai. Is mein disk par koi data save nahi hota.
+* **Materialized Views (Haqeeqi Khake):** Yeh virtual views ke bilkul ultay hote hain. Is mein query ka jo result hota hai, database uski ek **actual copy disk par physically write** kar ke save kar leta hai.
+
+```plaintext
+[ Virtual View Query ] -------> On-the-fly Expansion -------> [ Scans Raw Tables Every Time ]
+
+[ Materialized View Query ] --> Direct Disk/Memory Read ----> [ Precomputed Result Table (Instant) ]
+
+```
+
+### Architectural & System Behavior Breakdown
+
+#### 1. Write Overhead vs Read Speed
+
+Jab database ka underlying raw data change hota hai (yaani base tables mein naye records insert ya delete hote hain), toh materialized view ko bhi update karna parta hai. Kuch advanced databases (jaise ke *Materialize*) is maintenance ke kaam mein specialize karti hain aur automatic views ko refresh karti hain.
+
+Iska direct architectural trade-off yeh hai ke **writes par overhead barh jata hai** kyunki har badle hue record ke sath view ko recompute karna parta hai, magar un workloads ke liye **reads super-fast** ho jati hain jahan bar-bar identical reporting queries chalani parti hain.
+
+#### 2. Materialized Aggregates
+
+Data warehouses mein zyadatar queries aggregation functions par mushtamil hoti hain (jaise SQL ke `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`). Agar trillions of rows par har dafa naye sire se yeh calculations chalayi jayein toh hardware resources horribly choke ho jayenge. Iska hal yeh hai ke hum in counts aur sums ko pehle se calculate kar ke memory/disk cache mein rakh lein, jise **Data Cube** ya **OLAP Cube** kaha jata hai.
+
+---
+
+### Figure 4-10 Ka Gehrayi Se Mutaala (Two Dimensions of a Data Cube)
+
+<div align="center">
+  <img src="./images/10.jpg" width="600"/>
+</div>
+
+Aap jo Figure 4-10 dekh rahe hain, wo ek 2-Dimensional Data Cube ke grid layout ko dikhati hai jahan data ko `SUM` function ke zariye precompute kiya gaya hai. Is layout ke mutabiq core analytical query flow is tarah execute hota hai:
+
+#### Code Examples from Figure 4-10 Layout
+
+Writers ne diagram ke mukhtalif nodes par jo query criteria lagaye hain, unko agar hum modern clean SQL format mein dekhein toh data cells is tarah map hote hain:
+
+```sql
+-- Query 1: Specific cell intersection lookup
+SELECT SUM(net_price) FROM fact_sales 
+WHERE date_key = 260101 AND product_sk = 32;
+
+```
+
+* **Explanation:** Yeh query direct specific coordinate intersection ko target kar rahi hai. Pura table scan karne ke bajaye engine direct Row `260101` aur Column `32` ke intersection cell par jayera aur wahan se precomputed value **149.60** utha kar direct return kar dega. Is look up ka response time strictly **$O(1)$** hai.
+
+```sql
+-- Query 2: Column margin rollup (Sales across all dates for a product)
+SELECT SUM(net_price) FROM fact_sales 
+WHERE product_sk = 32;
+
+```
+
+* **Explanation:** Is query mein date filter hata diya gaya hai. Engine ko sirf product 32 ki total sales chahiye. Cube ke architectural layout mein is column ke bilkul niche ek dedicated `total` row bani hui hai. Engine pure vertical column ko jama karne ke bajaye direct margin index se precomputed cell value **14967.09** read kar lega.
+
+```sql
+-- Query 3: Row margin rollup (Sales across all products for a specific date)
+SELECT SUM(net_price) FROM fact_sales 
+WHERE date_key = 260101;
+
+```
+
+* **Explanation:** Is query mein product ka filter missing hai aur sirf date targeted hai. Cube ke right side par har row ke end mein ek horizontal `total` column maujood hai. Engine direct us corner point se precomputed total **40710.53** utha lega.
+
+---
+
+### Hypercubes & The Flexibility Trade-off
+
+Real-world fact tables mein sirf do dimensions (date aur product) nahi hotein, balkay aksar 5 ya us se zyada dimensions hoti hain (jaise date, product, store, promotion, aur customer).
+
+Ek 5-Dimensional **Hypercube** ko dimaag mein tasawwur karna mushkil hai, magar distributed systems level par iska mathematical principle bilkul same rehta hai: **Har cell ek unique multidimensional combination ka precomputed aggregate value hold karta hai.**
+
+#### The Ultimate OLAP Cube Trade-off
+
+1. **The Core Advantage:** Mukhtalif dimensions ke edge-totals pehle se computed hote hain. Agar manager poochay ke "Kal pure mulk mein kis store par kitni sales hui?", toh database ko trillions of logs scan nahi karne parte, wo direct store-date axis ke margin cells read karta hai aur response fractions of milliseconds mein dashboard par display ho jata hai.
+2. **The Severe Disadvantage (Flexibility Loss):** Data cube raw data ke muqable mein apni flexibility kho deta hai. Farz karein ad-hoc analysis ke dauran business team yeh query bhej de: *"Hamein check karna hai ke jo items $100 se mehngay hain, unka sales proportion kitna hai?"* **Ab yeh query Data Cube par fail ho jayegi.** Kyunki `price > 100` is cube ki dimensions ka hissa nahi tha, isliye precomputed cells ke andar se yeh raw detail nikalna namumkin hai.
+
+Isi liye modern data systems ka rule yeh hai ke **saari raw files ko data lake (Parquet/Iceberg format) mein safe rakha jata hai** taake dynamic queries chal sakein, aur data cubes ko sirf fixed dashboard reports ki performance boost karne ke liye as a supplementary layer use kiya jata hai.
+
+---
+
+## Mockup System Design Scenario (Interview Style)
+
+### Interview Context & Problem Statement
+
+> **Interviewer:** "Aap ek Global Retail Chain (jaise Walmart) ka executive real-time sales reporting dashboard design kar rahe hain. CEO aur regional managers har subah dashboard open karte hain jahan unhein pichle haftay ki total revenue country, city, store, aur product category ke mutabiq aggregated shakal mein dekhni hoti hai. Agar hum live raw transactional lake par yeh queries chalayein toh dashboards load hone mein 2 minutes lagte hain, jo CEO ko pasand nahi. Hamein response time $<100\text{ms}$ chahiye, magar hum cost ki wajah se poora 5-year data RAM cache mein nahi rakh sakte. Aap optimization structure kaise design karenge?"
+
+### Solution Strategy & Conceptual Flow
+
+Hum yahan Martin Kleppmann ke **Materialized Aggregates via OLAP Data Cubes** ka system structure implement karenge:
+
+1. **Precomputation Batch Pipeline:** Har raat jab transactional traffic minimum hoti hai, hum ek background distributed job (Apache Spark/Trino) chalayenge jo pichle din ka naya raw data data lake se uthayegi.
+2. **Cube Generation Layer:** Yeh pipeline un specific reporting dimensions (`date`, `country`, `city`, `store`, `category`) par granular SQL functions execute kar ke ek tight **Materialized Data Cube** generate karegi aur usay disk par write kar degi.
+3. **Instant Query Execution:** Jab subah CEO dashboard open karega, dashboard ka query broker direct us disk-based precomputed data cube par point lookups marega. Pura transaction table traverse nahi hoga, direct pre-calculated values cells se utha kar $<50\text{ms}$ mein dashboard render ho jayega.
+
+### Architectural Flow Diagram
+
+```plaintext
+[ Raw Transactions Data Lake (S3/Parquet) ] 
+                     |
+         (Nightly Batch ETL Pipeline)
+                     |
+                     v
+   [ Distributed Aggregator Engine (Spark) ] 
+                     | (Computes multidimensional grids)
+                     v
+   [ Materialized Data Cube Storage File ]
+   +-------------------------------------------------------------+
+   | Axes: [Date] x [Country] x [City] x [Store] x [Category]   |
+   | Cells: Precomputed SUM(revenue), COUNT(orders)             |
+   +-------------------------------------------------------------+
+                     |
+                     v (Direct Cell Lookup Lookup via Index)
+[ Executive Dashboard UI ] <---> [ Sub-100ms Result Served ]
+
+```
+
+### Trade-off Evaluation in this Design
+
+* **Pros:** Dashboard load performance dunya ki fast-edge line par pohanch jayegi. Sasti disk storage use hogi kyunki compiled cube ka size raw rows se 95% chota hota hai.
+* **Cons:** System rigid ho jayega. Agar CEO suddenly yeh dekhna chahe ke *"Kis specific hourly time slot (e.g., 2 PM to 3 PM) mein sales high thin?"*, toh dashboard blank ho jayega kyunki `hour_of_day` dimension cube generation ke waqt shamil nahi ki gayi thi. Iske liye poori nightly batch job ka schema alter karna parega.
+
+---
+
+## Quick Revision Sheet
+
+### Core Takeaway
+
+Materialized views aur data cubes raw query freedom ko precomputed storage cells ke sath exchange karte hain. Trillions of facts par repetitive aggregate functions (`SUM`, `COUNT`) chalane ke bajaye database dimensions ka ek coordinated grid cache kar leta hai, jis se reads instant $O(1)$ ho jati hain magar schema updates aur writes par maintenance cost barh jati hai.
+
+### Key Mechanisms
+
+* **Materialized vs Virtual:** Virtual har dafa compute hota hai; materialized result ko database table ki shakal mein permanent storage par store kar leta hai.
+* **OLAP Grid Matrix:** Dimensions (e.g., Date, Product) ko axes par set kar ke har intersection square mein raw calculations pehle se lock rakhna.
+* **Dimensional Roll-up:** Grid ke borders/margins par total summary cells cells create karna jo kisi ek dimension ke missing hone par bhi automatic fast answer return karein.
+* **Hypercube Overheads:** Dimensions barhne se combinations exponentially barhte hain, isliye limited dynamic parameters par hi aggregation lagayi jati hai.
+
+### Trade-offs At A Glance
+
+| Operational Parameter | Raw Data Lake Architecture (Parquet / SQL Scan) | Materialized Data Cube Architecture |
+| --- | --- | --- |
+| **Query Latency** | High (Har dafa raw columns scan aur process karne parte hain). | Ultra-Low (Precomputed cell numbers direct buffer se read hote hain). |
+| **Query Flexibility** | Maximum (Aap kisi bhi field par dynamic filter ya transformation laga sakte hain). | Extremely Strict (Sirf unhi parameters par search ho sakti hai jo cube dimensions ka hissa hain). |
+| **Write/Ingestion Overhead** | Zero to Low (Data direct write/append hota rehta hai background layers mein). | High Overhead (Raw data badalne par pooray cube registers ko recompute/merge karna parta hai). |
+| **Storage Usage** | Consumes higher raw space bytes for historical analysis tracking. | Small compact footprint, temporary space takes peak only during batch merge operations. |
+
+---
