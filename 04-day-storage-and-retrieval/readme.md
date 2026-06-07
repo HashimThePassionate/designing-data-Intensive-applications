@@ -990,3 +990,213 @@ Analytics (OLAP) systems massive scale operations par chalte hain jahan single r
 | **Data Ecosystem Shared Access** | Poor (Sirf database software hi data read kar sakta hai) | High (Multiple separate analytical tools direct Parquet files read kar sakte hain) |
 
 ---
+
+## Column-Oriented Storage
+
+Data warehouses mein aam tor par **Stars and Snowflakes** schemas ka istemaal kiya jata hai, jahan ek bohot barri **Fact Table** hoti hai jo dunya bhar ke transactions ya events ka record rakhti hai aur uske sath choti **Dimension Tables** linked hoti hain. Jab aapke paas fact tables mein trillions of rows aur petabytes of data jama ho jaye, toh unhein traditional row-oriented tarike se manage karna impossible ho jata hai.
+
+Agache ek fact table 100 se zyada columns jitni chori (wide) ho sakti hai, magar ek typical analytical query ek waqt mein sirf 4 ya 5 columns ko hi access karti hai. Analytics mein `SELECT *` queries ki zaroorat taqreeban kabhi nahi parti.
+
+Example 4-1 ki query ko dekhein: Yeh query 2024 ke poore saal ka massive data scan kar rahi hai taake log pichle saal fruit aur candy kharidne ki taraf kitna jhukao rakhte the yeh analyze kiya ja sake. Is query ko poore table mein se sirf teen columns chahiye: `date_key`, `product_sk`, aur `quantity`. Baaki ke 95+ columns se is query ka koi lena dena nahi hai.
+
+### Architectural & System Behavior Breakdown (Row vs Column Layout)
+
+Traditional OLTP databases mein data **Row-Oriented** shakal mein save hota hai, yaani ek poori row ka sara data disk par ek sath sequence mein para hota hai (jaise CSV file ki lines). Agar aap row-oriented engine par upar di gayi query chalayenge, toh engine ko disk se trillions of rows uthani parengi. Har row ke andar maujood 100 se zyada attributes RAM mein load honge, parse honge, aur phir filter out honge. Is tarah memory aur I/O bandwidth ka bohot bara hissa zaya ho jata hai.
+
+**Column-Oriented Storage** ka simple asool yeh hai ke poori row ko ek sath rakhne ke bajaye, **har column ka data disk par alag se ek sath store kiya jata hai**.
+
+Aap jo Figure 4-7 dekh rahe hain, wo is core architectural shift ko bilkul saaf bayan karti hai:
+
+<div align="center">
+  <img src="./images/08.jpg" width="600"/>
+</div>
+
+```plaintext
+[ Row-Oriented Layout (OLTP) ]
+| Row 1: Date, Prod, Store, Price... | Row 2: Date, Prod, Store, Price... |
+
+-------------------------------------------------------------------------
+
+[ Column-Oriented Layout (OLAP) ]
+| File 1 (date_key):      260102, 260102, 260102, 260103, 260103... |
+| File 2 (product_sk):   69, 69, 69, 74, 30, 30, 30...              |
+| File 3 (quantity):     1, 3, 1, 5, 1, 3, 1...                     |
+
+```
+
+* **Row Reconstruction Principle:** Columnar storage is bunyad par khari hoti hai ke har individual column file mein data ki rows ka **order (tarteeb) bilkul same hota hai**. Agar database ko kisi specific point par poori row dubara jor kar dekhni ho, toh wo har column file se exact $k$-th entry uthayega aur unhein combine kar ke table ki $k$-th row reconstruct kar lega (e.g., har file se 23rd entry uthane par 23rd row ban jayegi).
+* **Logical Blocks Division:** Haqeeqi distributed systems mein trillion-row ka poora single column ek sath nahi likha jata. System table ko pehle bade chunks ya blocks (millions of rows each) mein torta hai (aam tor par timestamp range ke mutabaq). Phir un blocks ke andar har column ka data alag alag file segments mein save kiya jata hai. Is se query engine ko sirf wahi date-range wale blocks aur unke required columns read karne parte hain.
+
+> **Crucial Tech Distinction (Wide-Column Confusion):** Column-oriented databases ko **Wide-Column** (ya Column-Family) models jaise Cassandra, Bigtable, ya HBase ke sath confuse mat karein. Wide-column databases naam ki had tak milti julti hain, magar internals ke lehaas se wo **Row-Oriented** hoti hain kyunki wo ek row ke saare mukhtalif columns ko disk par ek sath hi store karti hain.
+
+---
+
+## Column compression
+
+Kyunki columnar storage mein ek hi column ka data continuous sequence mein store hota hai, isliye is mein repetition (duplication) ka imkan bohot high hota hai (jaise ek retail store mein dunya bhar ke transactions chal rahe hon magar unique products sirf 100,000 hi hon). Yeh repetition data compression ke liye ek behtareen golden chance paida karti hai jo disk storage footprint aur network bandwidth demands ko na hone ke barabar kar deti hai.
+
+### Figure 4-8 Ka Gehrayi Se Mutaala (Bitmap Encoding & Run-Length Encoding)
+
+Figure 4-8 dikhati hai ke data warehouses mein sabse effective compression technique **Bitmap Encoding** kaise kaam karti hai:
+
+<div align="center">
+  <img src="./images/08.jpg" width="600"/>
+</div>
+
+```plaintext
+[ Column Values (product_sk) ]
+Rows:      1    2    3    4    5    6    7    8    9   10
+Values: [ 69 | 69 | 69 | 69 | 74 | 30 | 30 | 30 | 30 | 29 ]
+
+-------------------------------------------------------------------------
+
+[ Step 1: Generate Bitmaps for Each Distinct Value ]
+product_sk = 30:  0    0    0    0    0    1    1    1    1    0  (Sparse Bitmap)
+product_sk = 69:  1    1    1    1    0    0    0    0    0    0  (Sparse Bitmap)
+
+-------------------------------------------------------------------------
+
+[ Step 2: Apply Run-Length Encoding (RLE) to Save Space ]
+product_sk = 30 -> Encoded as: "5, 4"  (Matlab: Pehle 5 zeros hain, phir 4 ones hain, baaki zeros)
+product_sk = 69 -> Encoded as: "0, 4"  (Matlab: 0 zeros ke baad direct 4 ones hain, baaki zeros)
+
+```
+
+* **Bitmap Vector Generation:** Agar ek column mein $n$ distinct (unique) values hain, toh database unhein $n$ alag alag bitmaps mein badal deta hai. Har row ke liye sirf ek single bit allocate hoti hai. Agar row mein wo value maujood hai toh bit `1` ho jayegi, warna `0`.
+* **Run-Length Encoding (RLE):** Kyunki har bitmap mein aksar `0` ki taudad bohot zyada hoti hai (jise *Sparse Bitmap* kehte hain), isliye database in zeros ko individual save karne ke bajaye unka count save karta hai (e.g., Roaring Bitmaps mechanism). Is se encoding itni tight hoti hai ke billions of rows ka data memory mein chote se bytes chunk mein compact ho jata hai.
+
+#### Bitwise Operations Processing Power:
+
+Bitmap compression ka asli jadoo hardware processors par queries run karte waqt dikhta hai. Modern CPUs bitwise operations ko single clock cycle mein extreme high speed par execute karte hain:
+
+* **Analytical `WHERE ... IN` Pattern:** Agar query ho `WHERE product_sk IN (31, 68, 69)`, toh engine product 31, 68, aur 69 ke RLE compressed bitmaps ko load karega aur unke darmiyan **Bitwise OR** operation chala dega.
+* **Analytical Multi-Column `AND` Pattern:** Agar query ho `WHERE product_sk = 30 AND store_sk = 3`, toh database dono columns ke respective bitmaps uthayega aur un par **Bitwise AND** chala dega. Kyunki dono files mein rows ka physical order bilkul seene-ba-seene match karta hai, isliye $k$-th bit automatic sahi output generate karegi bina kisi heavy table join overhead ke.
+
+---
+
+## Sort order in column storage
+
+Column stores mein rows ko kis order mein store kiya jaye, iska faisla database administrator queries ke pattern ko dekh kar karta hai. Lekin yahan ek sakht theoretical boundary hai jise samajhna laazmi hai.
+
+* **The Hard Constraint:** Aap har column ko alag se independently sort nahi kar sakte. Agar aapne `date_key` column ko alag sort kar diya aur `product_sk` ko alag sort kar diya, toh unka row-link toot jayega. Phir aap kabhi nahi jaan payenge ke kis date par kaun sa product bika tha. Sorting hamesha **poori row ke context mein ek sath** hoti hai, bhale hi data column-by-column store ho raha ho.
+
+### Cascading Sort Priority aur Compression Effect
+
+```plaintext
+Primary Sort Key:   [ date_key ]      ---> Continuous runs of same date (RLE compression maximum!)
+                             |
+Secondary Sort Key: [ product_sk ]    ---> Groups same products inside each date segment
+                             |
+Tertiary Sort Key:  [ store_sk ]      ---> Random lookalike order (Compression efficiency drops)
+
+```
+
+1. **Primary Sort Key (`date_key`):** Agar zyadatar analytical queries date range ko target karti hain, toh date ko primary sort key banaya jata hai. Is se fada yeh hota hai ke pure ek mahine ka data disk par lagatar sequence mein save hota hai aur query engine baki ke saare chronological blocks ko scan karne se bach jata hai.
+2. **Compression Domino Effect:** Jo aapka primary sort key hoga, us par compression ka asar sabse makhsoos aur khatarnak hota hai. Kyunki data usi key ke mutabiq sorted hai, isliye ek hi date lagatar millions of rows tak repeat hogi. RLE compressed format mein yeh poora sequence sirf kuch kilobytes space lega.
+3. **Subsequent Sort Keys:** Pehli sort key ke duplicate groups ke andar data ko mazeed tarteeb dene ke liye secondary sort key (e.g., `product_sk`) lagayi jati hai. Lekin priority list mein aap jitna niche chalte jayenge, data utna hi jumbled (bikhra hua) hota jayega, aur wahan compression ka effect kamzor hota chala jayega kyunki lagatar unique values repeat nahi hongiin.
+
+---
+
+## Writing to column-oriented storage
+
+Column-oriented storage read optimization ke lehaas se behtareen hai, magar **Writes** ke mamle mein yeh bohot heavy padta hai. Agar aap chalte hue system ke darmiyan mein ek single data row insert karne ki koshish karenge, toh database ko us point se aage ke saare compressed column blocks ko decompress kar ke, naya data ghusa kar, dobara pore layout ko disk par rewrite karna parega, jo ke systems ko down kar sakta hai.
+
+### LSM-Style Batch Ingestion Architecture
+
+Is write challenge ko hal karne ke liye modern columnar systems direct disk update ke bajaye ek **Log-Structured Batch Update** mechanism use karte hain, jo data warehouses ke ETL pipelines ke liye fit baithta hai:
+
+```plaintext
+[ Stream / Bulk ETL Incoming Writes ] 
+                  |
+                  v
+    [ In-Memory Row-Oriented Store ] ---> (Sorted, easy to write row-by-row)
+                  |
+         (Batch Size Threshold Hit)
+                  |
+                  v
+[ Background Bulk Merge & Conversion Thread ]
+                  |
+                  +---> Read Immutable Columnar Files from Disk/S3
+                  |
+                  +---> Convert Memory Rows to Compressed Columns Layout
+                  |
+                  v
+    [ New Compressed Columnar Files written to Disk in one single pass ]
+
+```
+
+1. **The In-Memory Buffer:** Jo bhi naye inserts, updates, ya deletes aate hain, wo direct columnar structure mein nahi jaate. Wo pehle memory (RAM) ke andar ek row-oriented, sorted data structure mein save hote hain (jaise LSM memtable format).
+2. **Bulk Vectorized Flush:** Jab memory buffer ka size ek huge threshold cross kar leta hai, toh ek background merge process chalta hai jo memory ke row data ko columnar vectors mein stream encode karta hai aur purane immutable files ke sath cascade merge kar ke ek hi jhatke mein **naya compressed columnar block** disk/cloud object storage par write kar deta hai.
+3. **The Unified Query Engine Interface:** Jab koi analyst is dauran query chalata hai, toh query engine user se is internal division ko chupa leta hai. Engine parallel mein disk par maujood primary column data aur RAM mein maujood real-time updates dono ko scan kar ke instant combined fresh output return karta hai.
+
+---
+
+## Mockup System Design Scenario (Interview Style)
+
+### Interview Context & Problem Statement
+
+> **Interviewer:** "Aap ek global Ad-Tech Analytics Engine design kar rahe hain jo billions of user ad clicks aur impressions track karta hai ($10\text{B events/day}$). Ad networks ko dashboard par real-time query chalani hoti hai ke pichle 30 dinon mein kis country (`country_code`) ke users ne kis specific brand device category (`device_type`) par sabse zyada clicks kiye hain. Storage costs cloud object storage par control rakhni hain aur multi-column group filters par response time sub-second hona chahiye. Aap storage layer kaise structure karenge?"
+
+### Solution Strategy & Conceptual Flow
+
+Hum yahan Martin Kleppmann ke **Sorted Columnar Layout with Bitmap Indexing + Run-Length Encoding** ka framework choose karenge.
+
+1. **Storage Format:** Trillions of events ke liye row storage crash kar jayegi, isliye hum data ko columnar layout (Parquet format blocks) mein store karenge. Primary sort key hum `click_timestamp` (date) ko banayenge aur secondary sort key `country_code` ko rakhenge.
+2. **Indexing & Bitmaps Acceleration:** `country_code` (approx. 200 values) aur `device_type` (approx. 5-10 values) ki cardinality bohot low hai. Hum in dono fields par disk blocks ke sath high-fidelity **Bitmap Indexes with Run-Length Encoding** append karenge.
+3. **Execution Path:** Jab query aayegi: `WHERE country_code = 'US' AND device_type = 'Mobile'`. Query engine network se poora data download nahi karega. Wo direct in do specific values ke compressed bitmaps ko RAM mein load karega, un par CPU level par instant **Bitwise AND** chalayega, aur sirf unhi filtered rows ke matching offset arrays utha kar summary aggregations (`SUM`/`COUNT`) return kar dega.
+
+### Architectural Flow Diagram
+
+```plaintext
+[ 10 Billion Daily Ad-Clicks Stream ] ---> [ In-Memory Row Buffer ] 
+                                                    |
+                                       (Hourly Columnar Vector Flush)
+                                                    |
+                                                    v
+                                [ Cloud Object Storage: Compressed Parquet Chunks ]
+                                +-------------------------------------------------+
+                                | Column: click_timestamp (Primary Sort)          |
+                                | Column: country_code    (Secondary Sort)        |
+                                | Column: device_type                             |
+                                +-------------------------------------------------+
+                                                       |
+[ Dashboard BI Analyst Query ]                         | (Loads compressed bitmaps only)
+`WHERE country_code='US' AND device_type='Mobile'`     v
+                |                      [ Vectorized Execution Engine ]
+                +--------------------> [ Bitwise AND Array Operation ]
+                                                       |
+                                                       v  (Zero full row scans!)
+                                        [ Sub-Second Response Generated ]
+
+```
+
+### Trade-off Evaluation in this Design
+
+* **Pros:** Data compression ratios up to 90% tak mil sakti hain, cloud storage bills extreme down rahenge. Multi-column criteria filter queries poori data rows decompress kiye bina bitwise matchings ke zariye instant return hongiin.
+* **Cons:** Agar user kisi individual ad-click event ki unique primary ID search karne lag jaye (`WHERE ad_click_id = 'xyz-789'`), toh columnar database extreme bura perform karega kyunki itni high-cardinality string par bitmap fail ho jata hai aur pure columnar rows traverse karne parte hain.
+
+---
+
+## Quick Revision Sheet
+
+### Core Takeaway
+
+Analytical systems (OLAP) ka core objective millions of rows ke wide dimensions se select selective data elements ko summarize karna hota hai. Column-oriented storage data rows ke bajaye columns ko disk par alag sequence mein save karta hai, jo bitwise compression algorithms aur sequential sorting pipelines ke sath mil kar scale par analytical lookups ko sub-seconds bana deta hai.
+
+### Key Mechanisms
+
+* **Columnar Layout:** Ek column ka poora sequence disk blocks par same parallel row indexes ke sath save hota hai.
+* **Bitmap Encoding:** Low cardinality values ko discrete bits matrices mein convert karna taake loops ke bajaye logical expressions chal sakein.
+* **Cascading Sort Priority:** Rows ko logical priorities (e.g., Date $\rightarrow$ ID) par sort karna taake primary keys par RLE compression exponential leverage de sake.
+* **LSM Batched Writes:** Real-time stream data ko row memory buffer mein lock rakhna aur background workers ke zariye bulk layout chunks flush karna.
+
+### Trade-offs At A Glance
+
+| Operational Dimension | Row-Oriented Engine (OLTP / B-Trees) | Column-Oriented Engine (OLAP / Parquet-Iceberg) |
+| --- | --- | --- |
+| **Optimal Workload Type** | High-frequency points read/writes ($O(1)$ updates). | Huge aggregation batch queries over trillions of facts. |
+| **Storage Compression Rate** | Moderate to Low (Bikhre hue different types ke row data compress nahi hote). | Extreme High (Identical columns data sequence high-level RLE extract karta hai). |
+| **Write Cost Operations** | Very cheap (Direct write-ahead log append aur local page update). | Horribly expensive for single rows (Requires bulk log-structured merging). |
+| **Range Queries Efficiency** | Fast if target fields are indexed within single tree nodes. | Fast for sorted dimensions, but multi-segments parallel merge demands high network bandwidth. |
+
+---
