@@ -401,3 +401,159 @@ Hum yahan DDIA ke concepts (LSM-Tree + Memtable + Bloom Filters + Leveled Compac
 * **Cons:** Hamein Bloom filters aur Sparse index ke liye achi khasi RAM capital allocate karni paregi. Agar false positive rate ko mazeed kam karna hai, toh memory consumption thodi aur barhegi.
 
 ---
+
+## B-Trees
+
+LSM-tree (Log-structured storage) ke ilawa, databases mein data store aur read karne ka sabse maqbool aur purana tareeqan **B-Tree** hai. 1970 mein introduce hone wale B-trees aaj bhi dunya ke taqreeban tamaam Relational Databases (jaise MySQL, PostgreSQL) aur kai Non-relational databases ke default indexing engines hain.
+
+### Design Philosophy: B-Trees vs LSM-Trees
+
+Agache B-trees bhi SSTables ki tarah data ko **sorted by key** rakhte hain taake range queries aur fast lookups ho sakein, lekin dono ki andarooni design philosophy bilkul mukhtalif hai:
+
+* **LSM-Trees:** Yeh database ko mukhtalif size ke segments (kuch megabytes) mein torta hai. Yeh segments hamesha **Immutable** hote hain (sirf naya data append hota hai, purana change nahi hota).
+* **B-Trees:** Yeh database ko **fixed-size blocks ya pages** mein torta hai. Har page ka size fixed hota hai (traditionally 4 KiB, jabki PostgreSQL mein 8 KiB aur MySQL mein 16 KiB default hota hai). Yeh disk par ja kar purane data ke upar hi naya data overwrite karte hain, jise **In-place update** kehte hain.
+
+Har page ka ek unique **Page Number** hota hai. Ek page doosre page ka reference (pointer) is page number ke zariye rakhta hai. Agar saare pages ek hi file mein hain, toh system `Page Number $\times$ Page Size` kar ke disk par us page ka exact byte offset nikal leta hai.
+
+---
+
+### Figure 4-5 Ka Gehrayi Se Mutaala (B-Tree Index Lookup)
+
+Aap jo Figure 4-5 dekh rahe hain, wo yeh samjhati hai ke jab humein koi key dhoondni ho (jaise `user_id = 251`), toh B-tree ka pointer-based look up architecture kaise kaam karta hai:
+
+<div align="center">
+  <img src="./images/05.jpg" width="600"/>
+</div>
+
+```plaintext
+[ Root Page ] -> Contains Keys: [ 100 | 200 | 300 | 400 | 500 ]
+                       |
+             (251 lies between 200 and 300)
+                       |
+                       v
+[ Child Page ] -> Contains Keys: [ 210 | 230 | 250 | 270 | 290 ]
+                                         |
+                               (251 lies between 250 and 270)
+                                         |
+                                         v
+[ Leaf Page ]  -> Contains Actual Data: [ 250:val | 251:val | 252:val ]
+
+```
+
+1. **The Root Page:** Tree ke sabse upar ek **Root Page** hota hai. Har lookup yahin se shuru hota hai. Is page mein keys aur unke sath child pages ke references (`ref`) hote hain. Har child page ek khas continuous key range ke liye zimmedar hota hai.
+2. **The Traversal Path:** Hamein `251` search karna hai. Root page par hum dekhte hain ke 251 kis range mein aata hai. Yeh $200 \le \text{key} < 300$ ke darmiyan hai, toh hum us range ke niche wale specific `ref` pointer ko follow karte hain.
+3. **The Leaf Page:** Hum agle child page par pohanchte hain jahan range mazeed choti sub-ranges mein divide hoti hai. Wahan hum dekhte hain ke 251 ab $250 \le \text{key} < 270$ ke darmiyan hai. Is pointer ko follow karne par hum aakhri page par pohanchte hain jise **Leaf Page** kehte hain. Leaf page par actual keys aur unki values (ya wo address jahan value pari hai) inline maujood hoti hain.
+4. **Branching Factor:** Ek single page ke andar kitne child references aa sakte hain, usay **Branching Factor** kehte hain (Figure 4-5 mein yeh factor 6 hai). Real-world mein yeh factor keys aur pointers ke size par depend karta hai, magar aam tor par yeh kai sainkro (hundreds) mein hota hai.
+
+---
+
+### Figure 4-6 Ka Gehrayi Se Mutaala (Page Splitting aur Tree Growth)
+
+B-tree mein jab data update karna ho, toh system leaf page dhoond kar naye data ko purane data ke upar overwrite kar deta hai. Magar jab naya data **Insert** karna ho, toh system ko page splitting ka sahara lena parta hai, jise Figure 4-6 mein buraheen ke sath dikhaya gaya hai:
+
+<div align="center">
+  <img src="./images/06.jpg" width="600"/>
+</div>
+
+```plaintext
+[ BEFORE INSERTION ]
+Parent Page Pointer -> [ 310 | 333 | 345 ]
+                         |
+                         v
+Leaf Page (Full)    -> [ 333:val | 335:val | 337:val | 340:val | 342:val ] (No Space!)
+
+-----------------------------------------------------------------------------------------
+
+[ AFTER ADDING KEY 334 (Page Split) ]
+Parent Page Updated -> [ 310 | 333 | 337 | 345 ]  <-- Boundary key 337 pushed up!
+                               |     |
+            +------------------+     +------------------+
+            v                                           v
+New Leaf Page 1 -> [ 333:val | 334:val | 335:val ]   New Leaf Page 2 -> [ 337:val | 340:val | 342:val ]
+
+```
+
+* **The Problem:** Hum ne key `334` insert karni hai, magar range `333–345` wala leaf page pehle hi full ho chuka hai (us mein mazeed space nahi hai).
+* **The Action (Page Split):** System is full page ko do aadhe-aadhe (half-full) pages mein tor deta hai. Pehla page `333–337` range ka banta hai (jis mein naya key 334 fit ho jata hai) aur doosra page `337–345` range ka ban jata hai.
+* **Cascading Effect to Parent:** Kyunki ab ek ke bajaye do pages ban chuke hain, isliye inka jo **Boundary Key** hai (jo ke `337` hai), usay upar wale **Parent Page** mein push kar diya jata hai taake parent page ab dono naye child pages ko target kar sake. Agar parent page bhi pehle se full hota, toh wo bhi split ho jata. Yeh split ka silsila upar root tak ja sakta hai. Agar root page split ho jaye, toh tree ki depth (levels) ek darja barh jati hai.
+* **Balanced Tree Guarantee:** Is split algorithm ki wajah se B-tree hamesha **Balanced** rehta hai. $n$ keys wale B-tree ki depth hamesha **$O(\log n)$** hoti hai. Zyadatar production databases ka data sirf 3 se 4 levels deep B-tree mein fit ho jata hai (4 KiB page size aur 500 branching factor ke sath ek 4-level tree taqreeban **250 TB** data store kar sakta hai), yani sirf 4 disk reads mein aapko aapka record mil jata hai.
+
+---
+
+## Making B-trees reliable
+
+B-tree ka bunyadi rule yeh hai ke yeh disk par maujood pages ko direct overwrite karta hai. Yeh approach LSM-trees se bilkul ulti hai (jo sirf naye files append karte hain aur purani files ko touch nahi karte). Direct disk overwrite karne mein bohot baray hardware risks hote hain.
+
+### Hardware Risks & Solutions
+
+* **The Danger of Corruption:** Agar page split ke dauran (jab database multiple pages disk par write kar raha ho) suddenly light chali jaye ya system crash ho jaye, toh kuch pages write ho jayenge aur kuch reh jayenge. Is se tree ka structure kharab ho jayega aur kuch pages **Orphan Pages** ban jayenge (yani unka koi parent pointer nahi rahega).
+* **Torn Pages:** Agar hardware level par disk ek pure 4 KB ya 16 KB ke page ko ek hi jhatke mein atomicity ke sath write na kar paye, toh page ka aadha hissa naya aur aadha purana reh jata hai, jise **Torn Page** kehte hain.
+
+#### 1. The Write-Ahead Log (WAL) / Journaling
+
+In sab khatraat se bachne ke liye har B-tree implementation disk par ek extra data structure maintain karti hai jise **Write-Ahead Log (WAL)** ya *Journal* kehte hain.
+
+* **The Protocol:** Jab bhi B-tree mein koi modification (insert/update/delete) karni ho, database tree ke pages ko hath lagane se pehle us event ko is append-only WAL file mein write karta hai.
+* **Crash Recovery:** Agar system mid-page write par crash ho jaye, toh restart hone par database is WAL file ko dubara parhta (replay karta) hai aur B-tree ko ek consistent aur sahi state mein wapas le aata hai.
+
+#### 2. Memory Buffering aur Durability
+
+Performance ko tez karne ke liye databases har write ko foran disk page par overwrite nahi karte, balkay B-tree pages ko RAM mein buffer (cache) kar lete hain. WAL file is baat ki guarantee hoti hai ke data safe hai. Jab tak naya transaction WAL mein write ho kar OS ki `fsync` system call ke zariye disk par physically flush ho jata hai, tab tak data durable mana jata hai, bhale hi main B-tree pages abhi RAM mein hi kyun na pare hon.
+
+---
+
+## Using B-tree variants
+
+B-trees ke itne saal purane safar mein developer community ne iske kai advanced variants banaye hain taake mukhtalif use-cases ko handle kiya ja sake:
+
+* **Copy-on-Write (COW) Scheme:** Kuch databases (jaise **LMDB**) in-place overwrite aur WAL ka jhanjhat hi khatam kar deti hain. Jab kisi page ko modify karna ho, toh use purane address par overwrite karne ke bajaye disk par ek **bilkul naye location** par likha jata hai. Phir uske parent pages ka ek naya version generate kiya jata hai jo is naye location ko point karta hai. Yeh scheme concurrency control aur Snapshot Isolation ke liye intehai mufeed hai.
+* **Key Abbreviation (Prefix Compression):** Tree ke andarooni (interior) pages mein poori poori text keys store karne ke bajaye unke sirf shuruati lafz (prefixes) store kiye jate hain jo ranges ki boundary batane ke liye kafi hon. Is se page mein space bachti hai, branching factor barhta hai, aur tree ki depth kam hoti hai.
+* **Sequential Leaf Layout:** Koshish ki jati hai ke disk par leaf pages ek sequential tarteeb mein hon taake range scans karte waqt disk heads ko zyada move na karna pare. Magar tree ke barhne sath sath is order ko maintain rakhna bohot mushkil ho jata hai.
+* **Sibling Pointers (B+Tree Links):** Har leaf page apne barabar wale left aur right leaf pages ka direct reference (pointer) apne paas rakhta hai. Iska faida yeh hota hai ke agar aapko sorted order mein scan chalana ho, toh aapko baar baar parent nodes par wapas ja kar niche aane ki zaroorat nahi parti; aap direct leaves ke darmiyan traverse kar sakte hain.
+
+---
+
+## Mockup System Design Scenario (Interview Style)
+
+### Interview Context & Problem Statement
+
+> **Interviewer:** "Hamein ek Core Banking Ledger System design karna hai jahan users ke account balances store honge. Requirements yeh hain ke point lookups (jaise kisi user ka exact balance check karna) hamesha instant ho, memory overhead kam se kam ho, aur critical requirement yeh hai ke agar server ka power failure (crash) ho jaye, toh balance corrupt nahi hona chahiye aur system hamesha consistent state mein rahay. Aap LSM-tree use karenge ya B-Tree?"
+
+### Solution Strategy & Conceptual Flow
+
+Is scenario ke liye hum **B-Tree with WAL** select karenge. Reasons aur tradeoffs yeh hain:
+
+1. **Why Not LSM-Tree?** LSM-trees mein ek key ke multiple versions alag alag segments mein hotae hain, jis ki wajah se point lookups par read amplification hoti hai (multiple segments scan karne par sakte hain). Ledger system mein point lookups fast aur predictable ($O(\log n)$) hone chahiye.
+2. **In-Place Update Advantage:** Ledger mein rows fixed hoti hain (Account ID $\rightarrow$ Balance). B-tree unhi fixed pages par data overwrite karega, jis se space predictability bani rehti hai aur background compaction ka wait nahi karna parta.
+3. **Crash Resilience Path:** Jab koi transaction (e.g., Transfer $100) aayegi, hum pehle usay **WAL (Write-Ahead Log)** mein append karenge aur `fsync` chalayenge. Uske baad RAM Buffer mein B-tree page update hoga. Agar disk par actual page update ke dauran light chali bhi jaye, toh restart par WAL se balance recover ho jayega.
+
+### Architectural Flow Diagram
+
+```plaintext
+[ User Transaction Request ] ---> (Deduct $100 from Acc: 501)
+                                         |
+                                         v
+                     [ 1. Append to Append-Only Disk WAL ] 
+                                         |  (Guarantees Durability via fsync)
+                                         v
+                     [ 2. Update Page in RAM Buffer Cache ]
+                                         |
+                       (Periodic Background Page Flush)
+                                         |
+                                         v
+                     [ 3. In-Place Overwrite on Disk File ]
+                     +---------------------------------------+
+                     | Root Page -> Child Page -> Leaf Page  |
+                     | [Acc 501: Old Bal] -> [Acc 501: $900] | (Overwritten!)
+                     +---------------------------------------+
+                                         |
+                (If Crash Happens Mid-Flush: Replay WAL to Recover)
+
+```
+
+### Trade-off Evaluation in this Design
+
+* **Pros:** Point lookups intehai tez hain kyunki tree balanced hai aur max 3-4 steps mein target node mil jata hai. Multi-versioning na ہونے ki wajah se disk space optimal rehti hai. Strong consistency aur data integrity zero corruption ke sath milti hai.
+* **Cons:** Writes thodi slow ho sakti hain LSM-tree ke muqable mein, kyunki page split ke dauran multiple disk pages par random overwrites karne parte hain aur WAL par double-writing ka overhead hota hai.
+
+---
