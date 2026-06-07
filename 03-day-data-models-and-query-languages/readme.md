@@ -155,6 +155,25 @@ Aaj ki software engineering ki duniya mein SQL sab se zyada jana-pehchana aur is
 * **Theoretical Origins to Market Dominance:** Jab Edgar Codd ne yeh model pesh kiya, toh yeh sirf aik math-based theoretical proposal tha. Us daur ke engineers ko shaq tha ke kya is tarah ke model ko computer disk par efficiently implement kiya bhi ja sakta hai ya nahi, kyun ke is mein explicit pointers ke bajaye logical joins par rely kiya jata tha. Magar 1980s ke darmiyan tak, Relational Database Management Systems (RDBMS) aur SQL itne behtar ho chuke thay ke yeh regular ya structured data ko store aur query karne ke liye industry ka standard ban gaye.
 * **Long-Term Success in Analytics:** Decades guzarne ke baad bhi, business analytics aur data warehousing jaiseuse cases mein relational model ka hi raj hai, jahan data ko *Star* aur *Snowflake* schemas mein organize karke complex reporting ki jati hai.
 
+> <mark>1970 ki dahai me Edgar Codd ne data ko organize karne ka ek bilkul naya logical nazariya pesh kiya jo us waqt ke physical pointer‑based systems se mukhtalif tha.</mark> Us waqt engineers data ko addresses ke zariye jorte thay—bilkul usi tarah jaise kisi kitab me likh diya jaye ke “Is kirdar ki tafseel page 42 ki 3rd line par dekhein.” Page badalne se poora structure toot jata tha.
+>
+> Codd ne is approach ko ghalat qarar diya aur kaha ke data ko physical addresses se azaad kar ke logical banaya jaye. Usne relational model introduce kiya jo set theory par mabni tha aur jisne data ko mathematically clean aur predictable structure diya.
+>
+> * <mark>Shuru me engineers ne is model par shukook ka izhar kiya.</mark> Unka khayal tha ke logical joins bohot slow honge aur machine is complexity ko handle nahi kar payegi.  
+> * Magar waqt ke sath hardware powerful hota gaya aur database engines ne Codd ke model ko machine‑speed ke sath align kar diya.  
+>
+> <mark>1980s tak SQL aik standard ban chuki thi aur relational model ne industry me apni permanent jagah bana li.</mark>
+>
+> Data ke behte hue darya ne relational model ka asal imtehan tab liya jab analytics aur reporting ka daur shuru hua. Aaj bhi business analytics ki bunyaad relational thinking par hi khari hai.
+>
+> <mark>Data warehousing isi relational philosophy ka evolved roop hai</mark> jahan data ko ajeeb‑o‑ghareeb formats me nahi, balkay structured schemas me rakha jata hai taake reporting fast aur reliable ho.
+>
+> * Star schema me aik central fact table hoti hai—jese Sales—aur uske gird dimension tables hoti hain jese Date, Product, Store. Yeh structure data ko ek library ki tarah organize karta hai jahan har cheez apni jagah par hoti hai.  
+> * Snowflake schema tab istemal hota hai jab data bohot complex ho jaye aur dimensions ko mazeed normalize karna zaroori ho. Yeh structure barf ke phool jaisa lagta hai—layered aur detailed.
+>
+> <mark>In schemas ka maqsad sirf data rakhna nahi, balkay usay is tarah organize karna hai ke insights nikalna tezi aur accuracy ke sath mumkin ho.</mark>
+
+
 ### Muqabla Aur Tareekhi Data Models
 
 Relational model ne market par qabza karne ke liye lambi ladaas ladi hai. Iske raaste mein kayi competitors aaye:
@@ -163,11 +182,18 @@ Relational model ne market par qabza karne ke liye lambi ladaas ladi hai. Iske r
 * **Object Databases (Late 1980s - Early 1990s):** Jab Object-Oriented Programming (OOP) ka raaj shuru hua, toh laga ke object databases relational ka khatma kar dein gi taake programming objects ko direct save kiya ja sakay. Magar yeh commercial level par nakaam rahin aur bohot jaldi gayab ho gaein.
 * **XML Databases (Early 2000s):** Internet ke anay par XML format ka shor macha, aur khususat XML databases bani hain, magar inka adoption sirf kuch makhsoos (niche) industries tak mahdood raha.
 
-<div align="center">
-  <img src="./images/04.jpg" width="600"/>
-</div>
-
 * **SQL's Adaptation Strategy:** Relational model ki kamyabi ka aik bada sabab yeh bhi hai ke is ne waqt ke saath khud ko badla. Jab XML aur JSON ka trend aaya, toh SQL databases (jaise PostgreSQL aur MySQL) ne in formats ko apne andar hi support karna shuru kar diya, jis se competitors ki zaroorat khatm ho gayi.
+
+
+```plaintext
+[ 1970s: Hierarchical / Network Models ] -> Manual Pointer Navigation (Complex)
+                     │
+                     ▼
+[ 1980s - Present: Relational Model ]   -> Declarative SQL & Logical Joins (Winner)
+                     │
+                     ▼
+[ 2010s: NoSQL & Document Revolution ]  -> JSON Abstraction & High Scalability
+```
 
 ---
 
@@ -182,6 +208,26 @@ Relational model ne market par qabza karne ke liye lambi ladaas ladi hai. Iske r
 
 
 * **The Rise of NewSQL:** Jab logo ne dekha ke NoSQL scale toh accha karta hai magar relational databases jaisi transactional guarantees (ACID properties) nahi deta, toh **NewSQL** databases wajood mein aaein. Unka maqsad NoSQL ki scalability aur Relational ka transactional trust aik sath dena tha. Waqt ke saath jab yeh saare principles aam databases mein merge ho gaye, toh NoSQL aur NewSQL jase words ka trend ab dheema ho chuka hai.
+
+> <mark>2010s se pehle relational databases aik strict ledger ki tarah kaam karte thay jahan pehle format banana parta tha aur phir data us format me fit kiya jata tha.</mark> Agar structure me thoda sa bhi tabdeeli hoti, tou poori diary ko naye sire se likhna padta. Internet ke tezi se barhte data ne is rigid approach ko chhota kar diya.
+>
+> Isi pressure ne NoSQL ka inqilab paida kiya—ek aisi soch jo data ko pehle se tayar qaidon me bandhne ke bajaye flexibility aur scale ko tarjeeh deti hai.
+>
+> * <mark>NoSQL ki sab se badi quwwat uski schema flexibility thi.</mark> Yeh bilkul sticky notes ki tarah tha—jahan aap kabhi text rakh sakte hain, kabhi image, aur kabhi nested structure—bina pehle se table banaye.  
+> * Horizontal scalability ne is model ko aur mazboot banaya. Jab data aik server me na samaaye, tou NoSQL kehta hai: “Ek bada computer lene ke bajaye, 100 chote computers mila kar kaam chalao.”
+>
+> <mark>NoSQL ne speed aur scale toh de diya, lekin reliability ka woh sakoon nahi de saka jo ACID properties deti hain.</mark> Banking, finance aur mission‑critical systems me yeh trust deficit bohot bara masla ban gaya.
+>
+> * ACID ka matlab tha ke transaction ya toh poori hogi ya bilkul nahi—beech me adhoori halat nahi hogi.  
+> * NoSQL ke shuruati daur me yeh guarantee kamzor thi, jis wajah se engineers ko darr tha ke kahin speed ke chakkar me data ki amanat compromised na ho jaye.
+>
+        Jab industry ko ehsaas hua ke scale bhi chahiye aur trust bhi, tou NewSQL ka janam hua—ek aisa approach jo dono duniyaon ka behtareen hissa apne andar sameta hua tha.
+>
+> * <mark>NewSQL ka wada yeh tha ke woh SQL ki transactional reliability ko barkarar rakhega</mark>—jahan account balance, inventory aur payments hamesha consistent rahte hain.  
+> * Saath hi woh NoSQL ki tarah shard ho kar horizontally scale bhi karega, taake barhta hua data load aasani se handle ho jaye.
+>
+> <mark>Yeh reconciliation un developers ke liye game‑changer sabit hui jo scale par compromise nahi karna chahte thay aur na hi data integrity par.</mark>
+
 
 ---
 
