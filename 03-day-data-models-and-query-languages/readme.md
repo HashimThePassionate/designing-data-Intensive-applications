@@ -90,6 +90,28 @@ SQL, Cypher, SPARQL, aur Datalog jaise query languages **declarative** hoti hain
 * **The Role of Query Optimizer:** Declarative languages mein database ka aik ahem component jise **Query Optimizer** kehte hain, woh khud yeh faisla karta hai ke kaunsa index scan karna hai, kaunsa join algorithm (jaise Hash Join ya Merge Join) chalana hai, aur query ke mukhtalif hisson ko kis tarah sequence mein execute karna hai.
 * **Imperative Approach (Python/Java):** Iske baraks, jab aap traditional programming languages mein code likhte hain, toh aap computer ko aik explicit algorithm dete hain ke pehle step A karo, phir array par loop chalao, phir condition check karo. Yeh *Imperative* approach hai jahan aap "HOW" par focus karte hain.
 
+
+> <mark>Declarative style me kaam karte waqt developer aik director ki tarah sirf outcome batata hai—yaani system se kya hasil karna hai.</mark> Aap bas yeh specify karte hain ke “June ki wo sales do jo 1000$ se zyada hain,” aur database khud decide karta hai ke is request ko sab se behtar tareeqe se kaise execute karna hai.
+>
+> * <mark>Aap sirf natija batate hain, tareeqa nahi.</mark> Aap yeh nahi batate ke disk par kahan jana hai, kaunsa index use karna hai, ya kis sequence me data uthana hai.
+> * Yeh bilkul us waiter ki misaal jaisa hai jise aap sirf itna kehte hain: “Mujhe pizza chahiye.” Pizza kaise banega, oven ka temperature kya hoga—yeh sab kitchen ka kaam hai, aapka nahi.
+>
+> Imperative style me developer aik chef ki tarah har step khud likhta hai. Yahan focus “kaise” par hota hai—yaani process ko manually define karna.
+>
+> * <mark>Aap har qadam specify karte hain:</mark> pehle flour lo, phir pani dalo, dough gundo, oven me rakho, timer lagao.  
+> * Agar ek bhi step ghalat ho jaye, poora result bigad jata hai.  
+> * Programming me `for loop` lagana bhi isi soch ka hissa hai—computer ko batana padta hai ke pehle index 0 par jao, phir 1 par, phir condition check karo.
+>
+> Declarative systems ki asli taqat unke query optimizer me hoti hai—wo “invisible genius” jo aapki request ko parh kar sab se efficient execution plan banata hai.
+>
+> * <mark>Optimizer decide karta hai:</mark> kya poora table scan karna behtar hai ya index use karna?  
+> * Kaunsa join pehle hona chahiye?  
+> * Kaunsa raasta sab se kam disk I/O use karega?
+>
+> <mark>Optimizer ka role is liye critical hai kyunke woh aapki imperfect query ko bhi behtar bana kar chalata hai.</mark> Agar SQL me aapne query thodi tedhi likh di ho, toh optimizer usay sudhar kar sab se efficient plan choose karta hai.
+>
+
+
 <div align="center">
   <img src="./images/02.jpg" width="600"/>
 </div>
