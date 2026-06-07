@@ -859,3 +859,134 @@ Is ultra-low latency geospatial matching system ke liye hum **Durable In-Memory 
 
 
 ---
+
+## Data Storage for Analytics
+
+Analytical queries (OLAP) ke liye **Relational Data Model** aur **SQL** dunya bhar mein sabse zyada maqbool hain. Business analysts graphical tools ke zariye aisi SQL queries generate karte hain jo data ko deeply analyze karne, slicing-dicing karne, aur drill-down operations chalane mein madad deti hain.
+
+Sathahi tor par dekhne mein ek Data Warehouse aur ek relational OLTP database bilkul aik jaise lagte hain kyunki dono ka client interface SQL par chalta hai. Magar inke internal storage architectures aur software mechanics dunya ke do mukhtalif kinare hain, kyunki dono alag query patterns ke liye optimize kiye jate hain. Yahi wajah hai ke database vendors ab ya toh sirf transaction processing (OLTP) support karte hain ya phir sirf analytics (OLAP), dono ek sath handle karna aik hi engine ke liye efficient nahi hota.
+
+Halankeh Microsoft SQL Server, SAP HANA, aur SingleStore jaise databases ek hi product ke andar transactional aur analytical dono workloads ko chalane ka dawa karte hain. In **HTAP (Hybrid Transactional and Analytical Processing)** databases ke andarooni dhanchay (internals) ko agar dekha jaye, toh yeh dunya ek common SQL interface ke peeche do bilkul alag storage aur query engines ko chala rahi hoti hai taake analytical queries transactional flow ko choke na karein.
+
+```plaintext
+[ Client Application SQL Query ]
+               |
+               v
+     [ Unified SQL Interface ]
+               |
+       +-------+-------+
+       | (OLTP Query)  | (Analytical/OLAP Query)
+       v               v
+[ Transaction Engine ] [ Columnar Analytics Engine ]
+(Row-based / WAL)      (Vectorized execution / Decoupled)
+       |               |
+       v               v
+[ Local NVMe Disks ]   [ Optimized Storage Layers ]
+
+```
+
+---
+
+### Cloud Data Warehouses
+
+Traditional data warehouses (jaise Teradata, Vertica, SAP HANA) pehle on-premises physical data centers mein chalte the, magar ab unhon ne bhi cloud infrastructure ko apna liya hai. Unke sath sath market mein cloud-only platforms (jaise Google Cloud’s BigQuery, Amazon Redshift, aur Snowflake) ne analytics dunya ka rukh badal diya hai. Yeh naye cloud data warehouses physical hardware ki limitations se azaad hote hain aur cloud scalable frameworks jaise object storage aur serverless computing ka bharpoor faida uthate hain.
+
+#### 1. Decoupling of Compute and Storage
+
+Purane architectures mein storage disks aur computing CPUs aik hi physical server ke andar lock hote تھے۔ Agar aapka data barh jaye, toh aapko naya server kharidna parta tha jiske computing cores faltu pare rehte the. Cloud data warehouses is coupling ko khatam kar dete hain (**Decoupling compute from storage**).
+
+Data ko local disks par rakhne ke bajaye intehai sasti cloud object storage (jaise AWS S3 ya Google Cloud Storage) par immutable files ki shakal mein hamesha ke liye persist kar diya jata hai. Jab koi analyst koi heavy query chalata hai, toh database cloud se on-demand serverless compute resources (CPUs/RAM) spin-up karta hai, computational tasks distributed tarike se execute hote hain, aur query khatam hote hi compute nodes delete ho jate hain. Is elasticity ki wajah se storage aur compute ka kharcha alag alag handle hota hai.
+
+#### 2. Open Source Disaggregation (The Lakehouse Breakdown)
+
+Cloud ki is elasticity ki wajah se traditional open-source systems (jaise Apache Hive) jo pehle ek single monolithic setup ke tor par chalte the, ab mukhtalif azaad (decoupled) components mein toot chuke hain. Ab data lakes ke andar poora ecosystem modular ban chuka hai:
+
+```plaintext
+              [ SQL Query Client Interface ]
+                            |
+                            v
+       [ Query Engine: Trino / Presto / DataFusion ]
+       (Parses, Optimizes Plan & Distributed Compute)
+                            |
+            +---------------+---------------+
+            | (Fetches Table Layout)         | (Reads/Writes Metadata)
+            v                               v
+[ Table Format: Iceberg / Delta ] <---> [ Data Catalog: Unity / Polaris ]
+(ACID, Time Travel Management)          (REST-based Governance Directory)
+            |
+            v
+[ Storage Format: Parquet / ORC / Lance / Nimble ]
+(Tightly Compressed Columnar Bytes on Object Storage)
+
+```
+
+* **Query Engine (Trino, Presto, Apache DataFusion):** Inka kaam data ko store karna nahi hai. Yeh sirf user ki SQL query ko parse karte hain, use ek optimized execution plan mein convert karte hain, aur parallel distributed computing nodes ke zariye data data lake se nikal kar compute karte hain.
+* **Storage Format (Parquet, ORC, Lance, Nimble):** Yeh batate hain ke rows ko files ke andar bytes ki shakal mein kaise tightly encode kiya jaye. Yeh ziada tar columnar formats hote hain jo object storage par compress shakal mein pare hote hain taake analytics queries kam se kam bytes read karein.
+* **Table Format (Apache Iceberg, Databricks Delta format):** Parquet files immutable (un-changeable) hoti hain, yani unhein direct edit nahi kiya ja sakta. Table format in files ke upar ek abstraction layer lagata hai jo database ko yeh batati hai ke kaun kaun si files mil kar ek table banti hain. Is layer ki wajah se data lake par row insertion, deletion, ACID transactions, aur **Time Travel** (kisi purani date/time par table ka kya state tha wo query karna) jaisay behtareen features mumkin hote hain.
+* **Data Catalog (Snowflake Polaris, Databricks Unity Catalog):** Table format agar yeh batata hai ke files se table kaise banti hai, toh Data Catalog yeh batata hai ke database ke andar kaun kaun si tables exist karti hain. Yeh aam tor par aik standalone REST-based service hoti hai jahan se query engines metadata ki direct access lete hain. Is decoupling ki wajah se enterprise level par data discovery aur data governance (security/privacy) lagana intehai asaan ho jata hai.
+
+---
+
+## Mockup System Design Scenario (Interview Style)
+
+### Interview Context & Problem Statement
+
+> **Interviewer:** "Hamein ek E-Commerce platform ka real-time aur historical analytical platform design karna hai. Har minute lakhon customers transactions kar rahe hain jiska data core OLTP database mein ja raha hai. Business intelligence (BI) analysts ko pichle 5 saal ka trend analyze karna hota hai jahan trillions of rows scan hoti hain. Jab bhi wo query chalate hain, live user app slow ho jati hai. Plus, continuous server scale rakhna company ko financial crisis mein dal raha hai. Aap is analytical compute system ko zero production impact aur dynamic costing ke sath kaise design karenge?"
+
+### Solution Strategy & Conceptual Flow
+
+Hum yahan DDIA ke **Decoupled Cloud-Native Lakehouse Architecture** ko implement karenge. Production database par impact zero karne ke liye aur computing cost optimize karne ke liye design path yeh hoga:
+
+1. **Asynchronous Ingestion (Zero Production Impact):** Live transactional DB se hum Change Data Capture (CDC) ya event streams ke zariye transaction logs ko asynchronous tarike se cloud object storage (AWS S3) par dump karte jayenge. Is se main database par analytics ka load zero ho jayega.
+2. **Storage Layout Setup:** S3 par data ko hum highly compressed **Apache Parquet (Storage Format)** mein convert karenge aur metadata tracking ke liye **Apache Iceberg (Table Format)** implement karenge.
+3. **On-Demand Serverless Compute Engine:** Analytics queries chalane ke liye hum **Trino (Query Engine)** use karenge. Jab tak koi analyst query nahi chalayega, compute servers zero rahenge (zero cost). Jaise hi query trigger hogi, Trino automatic auto-scale ho kar hundred of nodes deploy karega, Iceberg catalog se metadata parh kar sirf unhi specific Parquet blocks ko network se khichega jo query ke liye required hain, aur computation complete hote hi servers down ho jayenge.
+
+### Architectural Flow Diagram
+
+```plaintext
+[ Production Transactions (OLTP) ] ---> [ Real-time Event Stream (Kafka/Kinesis) ]
+                                                       |
+                                                       v
+                                      [ Object Storage Bucket (AWS S3) ]
+                                    (Stored as Compressed Parquet Files)
+                                                       ^
+                                                       |
+                                     [ Managed by Apache Iceberg Table Format ]
+                                                       ^
+                                                       | (Fetches on-demand chunks)
+[ BI Dashboard / Analyst ] --------> [ Distributed Query Engine (Trino Cluster) ]
+                                     (Compute Nodes Scale UP on Query execution)
+                                     (Compute Nodes Scale DOWN to Zero on Idle)
+
+```
+
+### Trade-off Evaluation in this Design
+
+* **Pros:** Analytics ki wajah se production checkout system par 0% load aayega. Hardware compute cost sirf query chalne ke waqt lagegi (Dynamic Pay-per-query). Storage cost object storage ki wajah se 90% kam ho jayegi.
+* **Cons:** Network latency thodi barh sakti hai kyunki compute nodes data ko local disk ke bajaye network storage (S3) se pull karte hain. Isko counter karne ke liye compute nodes par local SSD caching lagani paregi.
+
+---
+
+## Quick Revision Sheet
+
+### Core Takeaway
+
+Analytics (OLAP) systems massive scale operations par chalte hain jahan single rows ke bajaye millions of rows ka scan data optimization demand karta hai. Modern data engineering systems monoliths se nikal kar completely decoupled architectures (Query Engine + Table Format + Storage Format) par shift ho chuke hain taake storage aur compute ko azadana scale kiya ja sake.
+
+### Key Mechanisms
+
+* **Compute & Storage Decoupling:** Data sasti network storage par rehta hai, compute cluster temporary trigger hota hai.
+* **Storage Formats (Parquet/ORC):** Binary encoding data layers jo text ko space-efficient columns mein store karti hain.
+* **Table Formats (Iceberg/Delta):** Immutable object storage files ke upar ACID transactions aur time travel features manage karne ka metadata structure.
+* **Query Engines (Trino/Presto):** Pure compute blocks jo distributed systems par parallel analytical tasks chalate hain.
+
+### Trade-offs At A Glance
+
+| Operational Parameter | Coupled Architecture (Traditional Monolith) | Decoupled Architecture (Modern Cloud-Native) |
+| --- | --- | --- |
+| **Scaling Flexibility** | Bad (Compute aur Storage ko aik sath scale karna parta hai) | Excellent (S3 par infinite storage aur compute par infinite auto-scaling) |
+| **Cost Efficiency** | Expensive (Servers ko peak load ke mutabaq 24/7 chalana parta hai) | Ultra-Cheap (Storage cost flat minimum hai, compute cost strictly variable hai) |
+| **Query Latency** | Low Latency (Data local physical disk par attached hota hai) | Variable (Pehli dafa network se data pull karne mein millisecond overhead hota hai) |
+| **Data Ecosystem Shared Access** | Poor (Sirf database software hi data read kar sakta hai) | High (Multiple separate analytical tools direct Parquet files read kar sakte hain) |
+
+---
