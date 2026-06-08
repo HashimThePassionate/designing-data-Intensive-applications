@@ -1,5 +1,40 @@
 # Data Models and Query Languages
 
+<details>
+<summary><b>📑 Table of Contents)</b></summary>
+
+- [Data Models ki Abstraction Layers](#data-models-ki-abstraction-layers)
+- [Terminology: Declarative Query Languages](#terminology-declarative-query-languages)
+- [Relational Versus Document Models](#relational-versus-document-models)
+- [The Object-Relational Mismatch](#the-object-relational-mismatch)
+- [Object-relational mapping](#object-relational-mapping)
+- [The document data model for one-to-many relationships](#the-document-data-model-for-one-to-many-relationships)
+- [Normalization, Denormalization, and Joins](#normalization-denormalization-and-joins)
+- [Trade-offs of normalization](#trade-offs-of-normalization)
+- [Denormalization in the social networking case study](#denormalization-in-the-social-networking-case-study)
+- [Many-to-One and Many-to-Many Relationships](#many-to-one-and-many-to-many-relationships)
+- [Stars and Snowflakes: Schemas for Analytics](#stars-and-snowflakes-schemas-for-analytics)
+- [When to Use Which Model](#when-to-use-which-model)
+- [Schema flexibility in the document model](#schema-flexibility-in-the-document-model)
+- [Data locality for reads and writes](#data-locality-for-reads-and-writes)
+- [Query languages for documents](#query-languages-for-documents)
+- [Convergence of document and relational databases](#convergence-of-document-and-relational-databases)
+- [Graph-Like Data Models](#graph-like-data-models)
+- [The Cypher Query Language](#the-cypher-query-language)
+- [Graph Queries in SQL](#graph-queries-in-sql)
+- [Triple Stores and SPARQL](#triple-stores-and-sparql)
+- [The Semantic Web](#the-semantic-web)
+- [The RDF data model](#the-rdf-data-model)
+- [The SPARQL query language](#the-sparql-query-language)
+- [Datalog: Recursive Relational Queries](#datalog-recursive-relational-queries)
+- [GraphQL](#graphql)
+- [Event Sourcing and CQRS](#event-sourcing-and-cqrs)
+- [DataFrames, Matrices, and Arrays](#dataframes-matrices-and-arrays)
+
+</details>
+
+---
+
 Ludwig Wittgenstein ke mashhoor maqoolay ka matlab software engineering ki duniya mein bohot gehra hai. Agar hamare paas kisi cheez ko bayan karne ke liye sahi alfaaz ya model nahi hain, toh hum us problem ka aik behtareen solution soch hi nahi sakte. Data models sirf code likhne ka tareeqa tay nahi karte, balkay yeh hamare zehn mein problem ko solve karne ka poora framework set karte hain.
 
 Most applications ko aik doosray ke upar mukhtalif layers ki surat mein build kiya jata hai. Har layer ki sab se barhi kamyabi yeh hoti hai ke woh apne se neeche wali layer ki complex details ko chhipa deti hai (abstract kar deti hai) aur upar wali layer ko aik saaf aur asan interface deti hai.
@@ -3786,5 +3821,58 @@ Problem yeh hai ke raw customer feedback log operational relational shards par s
 
 * **Interviewer Question:** Agar aap vector calculations ke liye Spark ya Pandas DataFrames use kar rahe hain aur dynamic model execution ke waqt data user machines ya local analytical master memory memory limits se bahar (Out of Memory - OOM error) chala jaye due to high matrix size expansion, toh aap core storage compression block kaise map karenge?
 * **Your Answer:** Yeh DataFrame pipelines ka aik classic engineering limitation edge-case hai jise *Matrix Density Blowout* kehte hain. Is structural bottleneck ko optimize karne ke liye hum teen structural solutions design karte hain. Pehle step par, hum data chunk structures ko multi-node computer cluster par memory partitioning pattern ke tehat horizontal balance karenge using **Apache Spark Distributed RDDs**. Doosra engineering step yeh hai ke memory chunks par traditional Python pointer lists store karne ke bajaye hum memory level par byte structures ko row-serialization blocks se squeeze karne ke liye underlying **Apache Arrow Columnar In-Memory Format** apply karenge, jo vectors structures ko straight native C++ memory blocks access data faraham karta hai bina overhead overhead formatting instructions kiye. Teesra solid checkpoint yeh hai ke numerical calculations execute karne se pehle hum matrix indexing system ko strictly *Coordinate (COO)* ya *Compressed Sparse Row (CSR)* representation layers par cast karenge jo database runtime arrays ko instruct karegi ke 0 values ke blocks memory hardware blocks se physically wipe out (omit) rakhe jayein, jis se algorithm ka runtime computing scope strictly non-zero dimensions intersection blocks tak limit ho jayega, aur OOM error hit kiye bina platform billions of data tracks scale out kar sakega.
+
+---
+
+# Revisions Section: Data Models aur Unki Query Languages
+
+Is matn mein hum ne software engineering mein data modeling ke mukhtalif nazariyaat, unke darmiyan trade-offs, aur specialized use cases ka gehra mutala kiya. Neeche aham abwaab (chapters) ka khulasa diya gaya hai taake aap buniyadi concepts ko dohra sakein.
+
+### 1. Data Models aur Abstraction Layers (Revisited)
+
+* **Fundamental Principle:** Ludwig Wittgenstein ke maqoolay ke mutabiq, sahi data model chunna problem ko samajhne aur hal karne ke liye dimaghi framework set karta hai. Kamzor model (Weak Model) system ki salahiyat ko mehdood karta hai, jabke mazboot model (Strong Model) intelligent behavior aur complex queries ko mumkin banata hai.
+* **Abstraction Layers:** Data ko haqiqi duniya se hardware level tak le jaane ke liye 4 layers kaam karti hain:
+1. **Application Developer Layer:** Haqiqi duniya ki entities ko programming objects mein badalna.
+2. **General-Purpose Data Model Layer:** Objects ko structured format (JSON, Tables, Graphs) mein persist karna.
+3. **Storage Engine Layer:** Data ko disk par bytes ki shakal mein optimize karna (Search aur retrieve tez karne ke liye).
+4. **Hardware Layer:** Bytes ko electrical/physical signals mein badalna.
+
+
+* **Key Insight:** Har layer apne se neeche wali layer ki pechidgi (complexity) ko chhupati hai (Decoupling), jis se system maintainable aur scalable banta hai.
+
+### 2. Declarative vs Imperative Query Languages (Revisited)
+
+* **Declarative (SQL, Cypher):** Aap database ko batate hain ke **"Kiya (WHAT)"** data chahiye. Database ka **Query Optimizer** khud faisla karta hai ke "Kaise (HOW)" hasil karna hai (e.g., kaunsa index use karna hai).
+* **Imperative (Python, Java loops):** Aap computer ko aik explicit algorithm dete hain ke data **"Kaise (HOW)"** filter karna hai (e.g., pehle loop chalao, phir condition check karo).
+* **Trade-off:** Declarative languages mukhtasar hoti hain, implementation details ko chhupati hain, aur automatic parallelism (multi-threading) ka faida uthati hain baghair developer ki fikar ke.
+
+### 3. Relational vs Document Models (Revisited)
+
+* **Relational Model (SQL):** Data ko tables aur rows (relations/tuples) mein organize karta hai. Strong hai structured data, Many-to-One, aur Many-to-Many relationships ke liye.
+* **Document Model (NoSQL/JSON):** Data ko self-contained JSON documents mein store karta hai. Strong hai hierarchical (One-to-Many) data, schema flexibility, aur data locality (read latency kam karne) ke liye.
+* **Impedance Mismatch:** Application code (Objects) aur relational database (Tables) ke darmiyan structural gap ko "Impedance Mismatch" kehte hain. ORM frameworks is gap ko kam karte hain magar complex queries aur analytics (N+1 problem) mein inefficient ho sakte hain.
+
+### 4. Normalization vs Denormalization (Revisited)
+
+* **Normalized Data (Standardized IDs):** Data poore DB mein sirf aik jagah save hota hai. ID use hoti hai references ke liye. **Faida:** Fast writes (1 copy), single source of truth, consistent data. **Nuksan:** Slow queries (needs complex JOINs).
+* **Denormalized Data (Precomputed Text):** Data redundant (duplicate) hota hai taake joins se bacha ja sakay. **Faida:** Fast reads (zero joins). **Nuksan:** Slower/expensive writes (multiple updates needed), inconsistency risk.
+* **Hybird Approach:** Scalable systems mein often data ko **Denormalize (Embed)** kiya jata hai read speed ke liye, aur consistency barkarar rakhne ke liye **Asynchronous Background Sync (Eventual Consistency)** use ki jati hai.
+
+### 5. Graph-Like Data Models (Revisited)
+
+* **Core Concepts:** Jab data highly interconnected ho aur Many-to-Many relationships aam hon, toh graph model natural hai. Yeh do cheezon se banta hai: **Vertices (Nodes/Entities)** aur **Edges (Relationships)**.
+* **Homogeneous Graphs:** Saare vertices aik hi type ke hote hain (e.g., Social Graph - saare "Log" hain). specialized algorithms (Shortest Path, PageRank) is par tez chalte hain.
+* **Heterogeneous Graphs:** Mukhtalif qism ke objects aur schemas ko aik hi cluster mein jorhta hai (e.g., Facebook's Unified Graph - Log, Locations, Events).
+* **Property Graph Model:** Nodes aur Edges ke andar Key-Value pairs (properties) aur Labels (Types) save karne ki ijazat deta hai, jo schema flexibility aur direct pointer chasing (index-free adjacency) faraham karta hai.
+
+### 6. Specialized Query Languages (GraphQL, Event Sourcing, DataFrames)
+
+* **GraphQL:** OLTP queries ke liye restrictive language. Client ko ijazat deti hai ke woh makhsoos JSON structure request kare taake network par **Over-fetching** se bacha ja sakay. Recursion ya arbitrary filters support nahi karti DoS attacks se bachne ke liye.
+* **Event Sourcing & CQRS:**
+* **Event Sourcing:** System ki current state dynamic table snapshot ke bajaye aik **Immutable Append-Only Event Log** se derived ki jati hai (deterministic time travel mumkin).
+* **CQRS:** Write path (Commands) aur Read path (specialized Projections/Views) ko segregate (alag) karna taake reads aur writes dono ko independent scale kiya ja sakay.
+
+
+* **DataFrames, Matrices, Arrays:** Specialized analytical aur numerical contexts (Machine Learning, Scientific Data) ke liye. Datalog jaisi recursive relational queries multi-hop deep trace (e.g., fraud detection) ke liye expressive hain. DataFrames step-by-step programmtic commands (Imperative) use karte hain data wrangling ke liye. Sparse matrix memory allocation Gigabytes ke data ko Megabytes mein squeeze kar sakti hai.
 
 ---
