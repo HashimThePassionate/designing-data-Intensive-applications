@@ -2232,7 +2232,77 @@ Do vertices ko jorhne wala har aik edge bhi apne andar panch lazmi attributes ra
 * **Tail Vertex (Start Node):** Woh makhsoos node jahan se edge (arrow) shuru ho raha hai.
 * **Head Vertex (End Node):** Woh makhsoos node jahan par edge (arrow) ja kar khatam ho raha hai.
 * **Label:** Aik string string jo yeh bayan karti hai ke in do nodes ke darmiyan kis tarah ka talluq hai (misaal ke taur par: `married`, `born_in`, `lives_in`).
-* **Collection of Properties:** Edges ke andar bhi key-value pairs save kiye ja sakte hain (jaise agar label `married` hai, toh property ho sakti hai `date: "2023-12-08"` ya `location: "London"`).
+* **Collection of Properties:** Edges ke andar bhi key-value pairs save kiye ja sakte hain (jaise agar label `married` hai, toh property ho sakti hai `date: "2023-12-08"` 
+
+
+### Property Graph Data Code Example
+
+```json
+{
+  "graph_data": {
+    "vertices": [
+      {
+        // 1. Unique Identifier
+        "id": "node_lucy_001",
+        // 2. Label
+        "label": "Person",
+        // 3. Outgoing Edges
+        "outgoing_edges": ["edge_lives_in_london"],
+        // 4. Incoming Edges
+        "incoming_edges": ["edge_married_to_alain"],
+        // 5. Collection of Properties
+        "properties": { 
+          "name": "Lucy", 
+          "age": 28, 
+          "nationality": "US" 
+        }
+      },
+      {
+        "id": "node_london_003",
+        "label": "City",
+        "outgoing_edges": [],
+        "incoming_edges": ["edge_lives_in_london"],
+        "properties": { "name": "London", "population": 8900000 }
+      }
+    ],
+    "edges": [
+      {
+        // 1. Unique Identifier
+        "id": "edge_lives_in_london",
+        // 2. Tail Vertex (Start Node)
+        "tail_vertex": "node_lucy_001",
+        // 3. Head Vertex (End Node)
+        "head_vertex": "node_london_003",
+        // 4. Label
+        "label": "lives_in",
+        // 5. Collection of Properties
+        "properties": { "since": "2023-12-01", "status": "current" }
+      }
+    ]
+  }
+}
+
+```
+
+---
+
+### Architectural Explanation
+
+#### A. Vertex (Node) ki Anatomy
+
+* **Unique Identifier (`id`):** `node_lucy_001` database ka internal address hai. Engine jab `Lucy` ko dhoondta hai, toh is ID ke zariye direct disk ke us sector par jata hai jahan yeh record store hai.
+* **Label (`label`):** `Person` bata raha hai ke yeh node kis category ki hai. Engine query run karte waqt `City` ya `Continent` nodes ko ignore kar dega, sirf `Person` nodes check karega.
+* **Outgoing/Incoming Edges:** Yeh `List of IDs` hain. Engine `outgoing_edges` ki list mein `edge_lives_in_london` ID dekhta hai aur foran samajh jata hai ke Lucy kahan connected hai. Yeh pointer-chasing ka pehla step hai.
+* **Properties:** Yeh Lucy ka actual data hai. SQL ki tarah yahan alag column banane ki zaroorat nahi—yahan tum Lucy ke sath koi bhi naya data (jese `height` ya `email`) bagair schema badle add kar sakte ho.
+
+#### B. Edge (Relationship) ki Anatomy
+
+* **Unique Identifier (`id`):** `edge_lives_in_london` is talluq ki apni shanakht hai. Agar Lucy London chor kar Paris chali jaye, toh hum is ID ko delete kar ke naya edge `edge_lives_in_paris` bana denge, Lucy ki node ko chheene bagair.
+* **Tail Vertex (`tail_vertex`):** `node_lucy_001` yeh bata raha hai ke arrow kahan se nikal raha hai (Lucy se).
+* **Head Vertex (`head_vertex`):** `node_london_003` arrow kahan ja kar ruk raha hai (London par). Arrow ka direction `tail` se `head` ki taraf hota hai.
+* **Label (`label`):** `lives_in` rishte ki nature hai. Yeh relationship "married" ya "born_in" se mukhtalif hai.
+* **Properties (`properties`):** Edge ke andar ka data! SQL mein tumhein "Date of moving" save karne ke liye alag table banani parti. Yahan humne edge ke andar hi `since` save kar diya, kyunke yeh talluq (relationship) ki property hai, na ke Lucy ya London ki alag se.
+
 
 ---
 
@@ -2295,7 +2365,7 @@ CREATE INDEX edges_heads ON edges (head_vertex);
 
 Property graphs mein aik bohot critical structural limit hoti hai: **Aik edge hamesha sirf do vertices (aik tail aur aik head) ko hi aaps mein jodh sakta hai.** Isay binary relationship kehte hain.
 
-realtional model mein aik single associative table ki row ke andar teen ya char foreign keys rakh kar aik hi dafa mein 3-way (Ternary) ya higher-degree relationship ko represent kiya ja sakta hai (misaal ke taur par: Kis Supplier ne, kis Part ko, kis Project ke liye supply kiya? Supplier_ID + Part_ID + Project_ID in a single row).
+relational model mein aik single associative table ki row ke andar teen ya char foreign keys rakh kar aik hi dafa mein 3-way (Ternary) ya higher-degree relationship ko represent kiya ja sakta hai (misaal ke taur par: Kis Supplier ne, kis Part ko, kis Project ke liye supply kiya? Supplier_ID + Part_ID + Project_ID in a single row).
 
 Graph database mein is ternary ya higher-degree relationship ko handle karne ke do tareeqay hain:
 
@@ -2332,7 +2402,6 @@ Farz karein marketing team kehti hai ke hum ne application mein health feature a
 2. **Linkage Execution:** Lucy ke vertex aur Peanuts ke vertex ke darmiyan aik edge bana denge jis ka label hoga `allergic_to`.
 3. **Food Integration:** Restaurants ke khano ke liye vertices banayenge (`type: food, name: Chicken Satay`), aur un khano se allergen nodes ki taraf edges nikal denge (`contains`).
 4. **The Safe Query Flow:** Jab Lucy kisi hotel ka menu dekhegi, toh application layer graph traversal query chalaye gi: *"Lucy se nikalne wale allergic_to edges ko scan karo -> Allergen nodes par pohncho -> Un allergen nodes ke incoming contains edges se linked saare food items ko dhoondho -> Aur un items ka menu se minus (exclude) kar do."* Yeh system engineering ko nihayat simple aur clean bana deta hai.
-
 ---
 
 ## Interview aur Mockup System Design Scenario
