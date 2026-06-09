@@ -69,6 +69,177 @@ Is simple database ka data storage format bohot badhiya perform karta hai jab ba
 
 Isi crucial trade-off ki wajah se koi bhi production-grade database har field par automatic index nahi banata. Ek application developer ko apni query patterns ka pta hona chahiye taake wo sirf unhi fields par index lagaye jinki sabse zyada reads required hain, taake writes par faltu overhead na aaye.
 
+Chalo pehle hum ek **proper main.sh** script banate hain jo:
+- `db_set key value` call kare  
+- `db_get key` call kare  
+- Aur runtime par arguments accept kare  
+
+**main.sh (NO INDEX VERSION)**
+
+```bash
+#!/usr/bin/env bash
+
+db_set () {
+  echo "$1,$2" >> database
+}
+
+db_get () {
+  grep "^$1," database | sed -e "s/^$1,//" | tail -n 1
+}
+
+# CLI interface
+if [ "$1" = "set" ]; then
+  db_set "$2" "$3"
+elif [ "$1" = "get" ]; then
+  db_get "$2"
+else
+  echo "Usage:"
+  echo "./main.sh set <key> <value>"
+  echo "./main.sh get <key>"
+fi
+```
+**Stage 2 — Ubuntu terminal par run karna (REAL example)**
+
+### 1) Script ko executable banao
+```bash
+chmod +x main.sh
+```
+
+### 2) Value set karo
+```bash
+./main.sh set 42 '{"city":"Lahore"}'
+```
+
+File `database` ban jayegi:
+
+```
+42,{"city":"Lahore"}
+```
+
+### 3) Dobara update karo
+```bash
+./main.sh set 42 '{"city":"Karachi"}'
+```
+
+File:
+
+```
+42,{"city":"Lahore"}
+42,{"city":"Karachi"}
+```
+
+### 4) Value get karo
+```bash
+./main.sh get 42
+```
+
+Output:
+```
+{"city":"Karachi"}
+```
+
+**Kyunkay tail -n 1 ne latest value return ki.**
+
+**Stage 3 — Ab INDEX version banate hain (fast reads)**  
+Writer ne kaha:
+
+- Without index → read = **O(n)**  
+- With index → read = **O(1)**  
+
+Hum ek **index file per key** banayenge:
+
+```
+index_42  →  line number of latest value
+```
+
+**main_index.sh (WITH INDEX VERSION)**
+
+```bash
+#!/usr/bin/env bash
+
+db_set () {
+  echo "$1,$2" >> database
+
+  # find total lines (latest line number)
+  line_num=$(wc -l < database)
+
+  # update index file for this key
+  echo "$line_num" > "index_$1"
+}
+
+db_get () {
+  if [ ! -f "index_$1" ]; then
+    echo "Key not found"
+    exit 1
+  fi
+
+  line=$(cat "index_$1")
+
+  # read that exact line
+  sed -n "${line}p" database | sed -e "s/^$1,//"
+}
+
+# CLI interface
+if [ "$1" = "set" ]; then
+  db_set "$2" "$3"
+elif [ "$1" = "get" ]; then
+  db_get "$2"
+else
+  echo "Usage:"
+  echo "./main_index.sh set <key> <value>"
+  echo "./main_index.sh get <key>"
+fi
+```
+**Stage 4 — Index version ko Ubuntu par run karna**
+
+### 1) Script executable banao
+```bash
+chmod +x main_index.sh
+```
+
+### 2) Value set karo
+```bash
+./main_index.sh set 42 '{"city":"Lahore"}'
+```
+
+File `database`:
+```
+42,{"city":"Lahore"}
+```
+
+File `index_42`:
+```
+1
+```
+
+### 3) Dobara update
+```bash
+./main_index.sh set 42 '{"city":"Karachi"}'
+```
+
+File `database`:
+```
+42,{"city":"Lahore"}
+42,{"city":"Karachi"}
+```
+
+File `index_42`:
+```
+2
+```
+
+### 4) Value get karo
+```bash
+./main_index.sh get 42
+```
+
+Output:
+```
+{"city":"Karachi"}
+```
+
+**Is dafa poora file scan nahi hua — direct line 2 par jump hua.**
+
 ---
 
 ## Mockup System Design Scenario (Interview Style)
