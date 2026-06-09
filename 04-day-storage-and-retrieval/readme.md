@@ -52,7 +52,7 @@ Agar hum is basic code ke data flow aur system behavior ko conceptual level par 
 
 #### 3. Real Log vs Application Log
 
-Distrubuted systems aur databases mein **Log** ka matlab wo nahi hota jo hum application debugging (jaise log.info()) ke liye text files banate hain. Database context mein log ka matlab ek **append-only binary ya text file** hai jahan har naya event ya data state sequentially save hota jata hai. Real databases ko is ke sath sath concurrency (ek sath kai writes), disk compaction (purane data ko clean karna taake disk bhaar na jaye), aur crash recovery (agar darmiyan mein system band ho jaye toh data rescue karna) bhi handle karni parti hai.
+Distributed systems aur databases mein **Log** ka matlab wo nahi hota jo hum application debugging (jaise log.info()) ke liye text files banate hain. Database context mein log ka matlab ek **append-only binary ya text file** hai jahan har naya event ya data state sequentially save hota jata hai. Real databases ko is ke sath sath concurrency (ek sath kai writes), disk compaction (purane data ko clean karna taake disk bhaar na jaye), aur crash recovery (agar darmiyan mein system band ho jaye toh data rescue karna) bhi handle karni parti hai.
 
 ### Performance Analysis & The Indexing Trade-off
 
@@ -332,6 +332,53 @@ Halankeh yeh reads ko bohot tez bana deta hai, magar real-world distributed syst
 * **No Range Queries Support:** Aap is design mein range queries nahi kar sakte (jaise key `10000` se `19999` tak ka data nikalna). Aapko har ek key ko alag se hash map mein individually search karna parega, kyunki data randomly phelá hua hai.
 
 ---
+> #### 1. Writer ka Asal Paigham: "Speed at a Price"
+> 
+> Writer yeh kehna cha raha hai ke:
+> 
+> * <mark>The Goal:</mark> Database engineering ka sab se bara dushman "Random Disk I/O" hai. Disk par har jagah data dhoondna (random seek) bohot slow hota hai.
+> * <mark>The Strategy:</mark> Is maslay ko hal karne ke liye, hum data ko disk par "Sequential" (line-by-line) likhte hain. Yeh "Append-only" tareeqa disk ki speed ko maximize kar deta hai.
+> * <mark>The Index:</mark> Disk par toh sequential likha, lekin data dhoondne ke liye humne RAM mein "Index" (Hash Map) bana liya. Yeh RAM index tumhein O(1) read speed deta hai.
+> 
+> Writer ka bottom line: "Yeh architecture simple aur fast hai, lekin yeh aik 'naive' (aasaan) design hai jo sirf chhotay ya specific use-cases mein kaam karta hai. Asal duniya ke databases (jese RocksDB ya Cassandra) is logic ko base bana kar bohot complex ban chuke hain."
+> 
+> #### 2. Yeh Limitations Kyun itni Ahem hain?
+> 
+> Writer ne jo 4 limitations ginwayi hain, woh System Design Interviews aur Architecture ka core hain. Inhein simple kar ke dekho:
+> 
+> #### A. Disk Space Exhaustion (Data Leak)
+> 
+> * Masla: Tumne key `A` ko 100 dafa update kiya. Disk par 100 baar entry likh di gayi. Purani 99 entries disk par pari hain aur space kha rahi hain.
+> * Hal (Jo writer ne ishara nahi kiya): Isay "Compaction" ya "Merging" kehte hain. Databases background mein aik process chalate hain jo purani entries ko delete karta hai aur sirf latest version rakhta hai.
+> 
+> #### B. Slow Crash Recovery
+> 
+> * Masla: RAM mein Hash Map hai. Light gayi -> RAM urri -> Index khatam. Ab database ko 0 se shuru karna hai.
+> * Architecture Lesson: Databases "Snapshotting" ya "Write-Ahead Log" (WAL) use karte hain. Har thori der baad RAM index ka snapshot disk par save karte hain taake crash ke waqt sara index dobara scan na karna pare.
+> 
+> #### C. RAM Constraints (Memory Bottleneck)
+> 
+> * Masla: Agar tumhara database 100GB ka hai aur tumhari keys 10GB ki hain, toh 10GB RAM index ke liye chahiye. Agar keys 100GB ki ho jayein, toh server crash ho jayega.
+> * Architecture Lesson: Isi liye hum LSM-Trees (Log-Structured Merge Trees) banate hain. Hum index ko "Sort" kar ke chotay chotay hisson (SSTables) mein disk par store karte hain taake poora index RAM mein na rakhna pare.
+> 
+> #### D. No Range Queries
+> 
+> * Masla: Hash Map sirf "Exact Match" (key=42) dhoond sakta hai. Yeh "Sorted" nahi hota. 10,000 se 19,999 tak ka data dhoondne ke liye Hash Map be-bas hai.
+> * Architecture Lesson: Isliye hum B-Trees ya Sorted Strings ka istemal karte hain. Range queries ke liye data ka Sorted hona zaroori hai.
+> 
+> #### 3. Architecture ka Evolution (Tumhara Agla Qadam)
+> 
+> Writer ka ishara yeh hai ke tumne aik Log-Structured Storage ka basic model dekh liya. Ab is model ko advance karne ke liye industry yehi 4 cheezein karti hai:
+> 
+> 1. Merge/Compact: Purana data hatane ke liye background compaction chalao.
+> 2. Snapshotting: Crash recovery fast karne ke liye index ka snapshot disk par rakho.
+> 3. LSM-Trees: Agar keys RAM se bari ho jayein, toh index ko sorted blocks mein disk par store karo.
+> 4. B-Trees/Sorted Structure: Agar range queries chahiye, toh hash map chor kar sorted structures use karo.
+> 
+> Summary: Writer tumhein "Design Trade-offs" sikha raha hai. Append-only file writer ke liye fast hai, lekin reader ke liye (aur storage management ke liye) headache hai. Aik system architect ka kaam yahi hai ke woh in headaches ko "Compaction" aur "Indexing" jesi techniques se khatam kare.
+
+
+---
 
 ## The SSTable file format
 
@@ -345,7 +392,7 @@ Inhi masail ko hal karne ke liye hum hash tables ke bajaye ek behtar structure u
 Figure 4-2 is format ke internal architecture ko samjhati hai ke kaise hum saari keys ko RAM mein rakhe bina behtareen reads hasil karte hain:
 
 <div align="center">
-  <img src="./images/02.jpg" width="600"/>
+  <img src="./images/02.jpg" width="700"/>
 </div>
 
 ```plaintext
@@ -365,6 +412,61 @@ Offset 104667: [ handsome:... | handwaving:... | handwriting:... ]
 * **The Concept of Sparse Index:** Hamein RAM mein har ek key ka offset rakhne ki zaroorat nahi hai. Hum data ko kuch kilobytes (e.g., 4 KB) ke chunks ya blocks mein divide karte hain aur un blocks ko compress kar dete hain. RAM ke andar hum sirf har block ki **pehli key** (boundary key) ka record rakhte hain. Isay **Sparse Index** kehte hain.
 * **Search Execution Flow:** Farz karein aapko key `handiwork` dhoondni hai. Aap Sparse Index mein dekhenge ke `handiwork` alphabetically `handbag` aur `handsome` ke darmiyan aati hai. System direct disk par offset `102134` (handbag) par jump karega aur wahan se agla block sequentially scan karna shuru karega jab tak usay `handiwork` mil na jaye ya block khatam na ho jaye.
 * **Compression and I/O Efficiency:** Kyunki data sorted hota hai, isliye sath wali keys milti julti hoti hain (jaise handbag, handcuffs). Aise data ko compress karna bohot efficient hota hai. Yeh hardware level par disk space bhi bachata hai aur disk se data read karte waqt I/O bandwidth ka load bhi kam karta hai, halankeh is mein thoda CPU utilization barh jata hai block ko decompress karne ke liye.
+
+> ### 1. Sparse Index Kya Hai? (The "Dictionary" Analogy)
+>
+> Socho tumhare paas 100,000 words ki dictionary hai.
+>
+> * <mark>Hash Map Index (Previous model):</mark> Iska matlab hota tum har word ka page number alag se yaad rakho. Yeh bohot zyada RAM khata.
+> * <mark>Sparse Index:</mark> Iska matlab hai tum sirf har page ke pehle word ka page number yaad rakho.
+>
+> Dictionary mein tum `handiwork` dhoond rahe ho. Tumhein pata hai ke `handiwork`, `handbag` aur `handsome` ke beech mein aayega. Tum seedha `handbag` wale page par jump karoge aur wahan se line-by-line parhna shuru kar doge. <mark>Tumhein har word ka address yaad rakhne ki zaroorat nahi pari!</mark>
+>
+> ---
+>
+> ### 2. Search Execution Flow (Step-by-Step)
+>
+> Tumhare text mein jo example hai (`handiwork` dhoondna), uska flow aisa hai:
+>
+> 1. <mark>Index Look-up (RAM):</mark> Tumne Sparse Index mein dekha. Index kehta hai:
+>    * `handbag` starts at 102134  
+>    * `handsome` starts at 104667
+>
+> 2. <mark>The Jump (Disk Seek):</mark> Database ko pata chal gaya ke `handiwork` in dono ke beech mein kahin hoga. Woh seedha `102134` (handbag) par jump (seek) marega.
+>
+> 3. <mark>Sequential Scan (Decompression):</mark> Disk se `handbag` wala 4KB ka block RAM mein load hoga (decompress ho kar). Ab database engine `handbag`, `handcuffs`, `handful`, `handicap`... karta hua aage barhega jab tak `handiwork` mil na jaye.
+>
+> <mark>Kyun yeh fast hai?</mark>  
+> Kyunke tumne 100,000 entries ka index nahi rakha, tumne sirf 1,000 entries (blocks) ka index rakha. Yeh 100 guna kam RAM leta hai!
+>
+> ---
+>
+> ### 3. Compression: "The Power of Sorting"
+>
+> Yeh sab kuch isliye mumkin hua kyunke <mark>SSTable mein data sorted (tarteebwar) hai.</mark>
+>
+> Kyunke `handbag`, `handcuffs`, `handful` sab `hand` se shuru ho rahe hain, isliye database engine inke liye pura word `handbag`, `handcuffs` store nahi karta. Woh compression algorithm use karta hai jo "hand" ko sirf aik baar store karta hai aur aage sirf badalte hue hissay likhta hai.
+>
+> * Is se <mark>Disk Space</mark> bachti hai.  
+> * Is se <mark>I/O Bandwidth</mark> bachti hai (kam data disk se RAM mein aana parta hai).
+>
+> ---
+>
+> ### 4. Summary: Hash Map Index vs. Sparse Index
+>
+> | Feature | Hash Map Index (Previous) | Sparse Index (SSTable) |
+> | --- | --- | --- |
+> | <mark>RAM Usage</mark> | Bohot zyada (Har key map karni hai) | Bohot kam (Sirf block starts map karne hain) |
+> | <mark>Search Speed</mark> | O(1) - Instant jump | O(1) jump + small scan |
+> | <mark>Disk Space</mark> | Zyada (Compressed nahi) | Bohot kam (Highly Compressed) |
+> | <mark>Range Queries</mark> | Na-mumkin (Data sorted nahi) | Behtareen (Data sorted hai) |
+>
+> <mark>Architectural Insight:</mark> Writer yahan yeh sikha raha hai ke Trade-off kaise manage karte hain.
+>
+> * Humne thora sa CPU waste kiya (block ko decompress karne ke liye).
+> * Humne thora sa "Search Speed" ka loss liya (scanning block).
+> * Lekin badle mein humne <mark>RAM ki bachat</mark> ki aur <mark>Range Queries</mark> ki taqat hasil kar li.
+
 
 ---
 
@@ -414,12 +516,117 @@ SSTable read karne ke liye toh perfect hai, lekin write karte waqt masla yeh hot
 
 Kyunki disk par bohot saari segment files ban jati hain, reads ko fast rakhne aur space reclaim karne ke liye background mein ek thread chalta hai jo **Compaction and Merging** perform karta hai.
 
+> LSM-Tree (Log-Structured Merge-Tree) aur SSTables ka yeh hybrid model modern distributed databases (jaise Cassandra, RocksDB, aur Bigtable) ki jaan hai. Yeh poora system is buniyaad par khara hai ke <mark>"Disk par data ko overwrite karna ya beech mein insert karna mehenga hai, isliye data ko sirf append karo aur purane data ko background mein saaf karo."</mark>
+>
+> ### 1. Write Path (Memtable aur WAL)
+>
+> Jab bhi koi client naya data write karta hai ya kisi purani key ko update karta hai, toh database engine disk par kisi purani file ko dhoond kar usmein tabdeeli nahi karta.
+>
+> * <mark>Memtable (RAM ka Control):</mark> Write request aate hi data sab se pehle RAM mein maujood Memtable mein jata hai. Memtable aik aisi self-sorting data structure hoti hai (jaise Skip List ya Red-Black Tree) jo naye data ko aate hi uski sahi alphabetical ya numerical tarteeb (sorted order) mein fit kar deti hai. RAM mein data ko sort rakhna bohot sasta aur teez hota hai (O(log N)).
+>
+> * <mark>WAL (Durability ka Bima):</mark> Kyunke Memtable RAM mein hoti hai, isliye agar electricity chali jaye ya server crash ho jaye, toh poora naya data urr sakta hai. Is khadshay ko khatam karne ke liye, data ko Memtable mein dalne ke sath hi parallel mein disk par aik file ke end mein append kar diya jata hai, jise Write-Ahead Log (WAL) kehte hain.
+>
+> * WAL ka Behavior: WAL bilkul sorted nahi hoti, is mein bas chronological order (waqt ke mutabaq) data add hota jata hai. Iska reads se koi lena dena nahi hota. Iska sirf aik hi maqsad hai: Agar system crash ho jaye, toh restart par database is file ko shuru se aakhir tak parh kar RAM mein Memtable ko dubara zinda (rebuild) kar leta hai.
+>
+> ---
+>
+> ### 2. Flushing Memtable to SSTable
+>
+> RAM limited hoti hai, isliye hum Memtable ko hamesha ke liye memory mein nahi rakh sakte.
+>
+> * <mark>The Threshold Trigger:</mark> Jaise hi Memtable ka size aik set limit (e.g., 4 MB ya 64 MB) ko touch karta hai, database engine is Memtable ko Freeze (lock) kar deta hai aur aik nayi khali Memtable bana deta hai taake aglay writes aate rahein.
+>
+> * <mark>Sequential Flush:</mark> Ek background thread is frozen Memtable ke saare data ko uthata hai aur disk par aik nayi file mein sequential write (flush) kar deta hai. Is file ko SSTable (Sorted String Table) Segment kehte hain.
+>
+> * <mark>Zero Sorting Cost:</mark> Kyunke data Memtable ke andar RAM mein pehle se hi perfectly sorted tha, isliye disk par likhte waqt CPU ko koi extra sorting nahi karni parti.
+>
+> * <mark>Immutability Rule:</mark> Aik dafa jab yeh SSTable file disk par likhi jati hai, toh yeh Immutable ban jati hai. Iska matlab hai ke ab is file ko kabhi bhi modify nahi kiya jayega. Jab yeh file disk par successfully save ho jati hai, toh isse mutaliqa purani WAL file ko delete kar diya jata hai.
+>
+> ---
+>
+> ### 3. Read Path Flow
+>
+> Chunke hamara data disk par aik single file mein nahi hai, balkay multiple immutable SSTable files mein bikhra hua hai, isliye read karne ka tarika aik specific sequential chain ko follow karta hai.
+>
+> * <mark>Step 1 (RAM Check):</mark> System sab se pehle active Memtable (RAM) mein dhoondta hai.
+>
+> * <mark>Step 2 (On-Disk Timeline Cascade):</mark> Agar key RAM mein nahi milti, toh system sab se nayi SSTable check karta hai, phir usse purani, phir sab se purani.
+>
+> * <mark>Latest Data Preference:</mark> Agar ek key purani file mein bhi ho aur nayi file mein bhi, toh nayi file ki value ko prefer kiya jata hai.
+>
+> ---
+>
+> ### 4. Background Compaction (Merging)
+>
+> Waqt ke sath jab bohot saari Memtables flush hoti hain, toh disk par saikron choti choti SSTable files jama ho jati hain.
+>
+> Is se do masail hotay hain:
+>
+> 1. <mark>Read Slowdown:</mark> Ek key ko dhoondne ke liye system ko bohot files check karni parti hain.
+> 2. <mark>Space Waste:</mark> Purani values aur deleted records disk par space lete rehte hain.
+>
+> * <mark>The Merge Sort Magic:</mark> Compaction background mein chal kar multiple SSTables ko merge karta hai aur aik badi optimized SSTable banata hai.
+>
+> * <mark>Efficiency:</mark> Kyunke har SSTable pehle se sorted hoti hai, merging bilkul Merge Sort ki tarah fast hoti hai. Duplicate keys me sirf latest value rakhi jati hai.
+>
+> ---
+>
+> ### Mockup System Design Scenario & Execution Example
+>
+> Socho tum ek high-scale user profile system design kar rahe ho jahan users bar-bar apni details update karte hain.
+>
+> #### System Ka Purana State:
+> SSTable_0 (Disk) → [Alain: 30, Lucy: 28]
+>
+> #### Scenario:
+> 1. Hashim: 26  
+> 2. Lucy: 29 (update)
+>
+> ```
+> [ Client Writes ] ---> [ WAL (Append-Only Disk Log) ]
+>                   ---> [ Memtable (RAM: Sorted Tree) ] 
+>                             | (Size touches 4MB)
+>                             v
+>                        [ Flush to Disk ]
+>                             v
+>                        [ SSTable_1 (New Immutable File) ]
+> ```
+>
+> #### Detailed Execution:
+>
+> 1. Memtable (RAM) → [Hashim: 26, Lucy: 29]
+>
+> 2. Flushing → SSTable_1 (Disk) → [Hashim: 26, Lucy: 29]
+>
+> 3. Disk State:
+>    * SSTable_1 (Nayi) → [Hashim: 26, Lucy: 29]  
+>    * SSTable_0 (Purani) → [Alain: 30, Lucy: 28]
+>
+> #### Read Request ("Get Lucy"):
+>
+> 1. Memtable check → Not found  
+> 2. SSTable_1 check → Lucy: 29 (mil gaya)  
+> 3. Purani file check karne ki zaroorat nahi
+>
+> #### Compaction:
+>
+> * Alain → 30  
+> * Hashim → 26  
+> * Lucy → 29 (latest)
+>
+> Final merged file:
+>
+> SSTable_Merged (Disk) → [Alain: 30, Hashim: 26, Lucy: 29]
+>
+> Purani files delete kar di jati hain.
+
+
 ### Figure 4-3 Ka Gehrayi Se Mutaala (SSTable Segments Merging Process)
 
 Figure 4-3 dikhati hai ke kaise **Mergesort** algorithm ke zariye background mein multiple segments ko ek single segment mein transform kiya jata hai:
 
 <div align="center">
-  <img src="./images/03.jpg" width="600"/>
+  <img src="./images/03.jpg" width="700"/>
 </div>
 
 ```plaintext
@@ -444,12 +651,75 @@ Figure 4-3 dikhati hai ke kaise **Mergesort** algorithm ke zariye background mei
 
 LSM-Tree storage engines mein ek bara masla yeh aata hai ke agar koi key database mein maujood hi na ho, ya bohot purani ho, toh system ko saare disk segments aur unke indexes ko check karna parta hai, jo ke bohot zyada disk I/O operations consume karta hai aur reads ko slow kar deta hai. Is bottleneck ko khatam karne ke liye hum **Bloom Filter** use karte hain. Bloom Filter ek probabilistic (imkani) data structure hai jo bohot kam memory mein yeh bata deta hai ke **"Kya yeh key is segment mein maujood hai ya nahi?"**
 
+> LSM-Tree ke liye Bloom Filter dar-asal aik <mark>"Smart Bouncer"</mark> (security guard) ki tarah hai jo database ke har SSTable ke darwaze par khara hai. Iska kaam ye hai ke wo disk ko khole bagair ye bata sake ke "is file mein tumhara data nahi hai, isay check karne ki zaroorat nahi."
+>
+> ### 1. Masla Kya Tha? (The Bottleneck)
+>
+> Jab tumhari LSM-Tree mein 10-20 SSTable files ban jati hain, aur tum koi aisi key dhoond rahe ho jo database mein hai hi nahi, toh system ko majbooran har SSTable file ko disk se RAM mein load karna parta hai, index check karna parta hai, aur phir pata chalta hai "Oh, yahan toh key hai hi nahi."
+>
+> Ye Disk I/O ka bohot bara wastage hai.
+>
+> ### 2. Bloom Filter Kya Hai? (The Simple Logic)
+>
+> Bloom Filter RAM mein rehne wala aik chota sa <mark>"Bit Array"</mark> (zeros aur ones ki list) hai. Ye probabilistic hai, iska matlab hai ye 100% sahi nahi ho sakta, lekin iska aik rule hai:
+>
+> * Ye <mark>kabhi jhoot nahi bolega</mark> agar ye kahe "Data yahan nahi hai." (Zero False Negatives)
+> * Ye kabhi kabhi <mark>ghalti kar sakta hai</mark> jab ye kahe "Data yahan mil sakta hai." (Small chance of False Positives)
+>
+> ### 3. Example Say Samjho
+>
+> Farz karo hamare paas aik Bit Array hai jismein 10 slots hain (sab 0 hain):
+> `[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]`
+>
+> #### Step A: Data Add Karna (SSTable bante waqt)
+>
+> Jab hum SSTable mein data daalte hain, hum key ko "Hash" karte hain.
+>
+> * Key: "Hashim"
+> * Hash Function 1 ne kaha: Position 2 par 1 likho.
+> * Hash Function 2 ne kaha: Position 7 par 1 likho.
+>
+> Bit Array:
+> `[0, 0, 1, 0, 0, 0, 0, 1, 0, 0]`
+>
+> #### Step B: Data Search Karna (Read request)
+>
+> Tumne pucha: "Kya `Hashim` is file mein hai?"
+>
+> * Hash functions ne position 2 aur 7 check ki (dono 1 hain)
+> * Result → <mark>"Maybe"</mark>
+>
+> Tumne pucha: "Kya `Ali` is file mein hai?"
+>
+> * Hash functions ne positions 1 aur 9 check ki (dono 0 hain)
+> * Result → <mark>"Definite NO!"</mark>
+>
+> ### 4. LSM-Tree mein Fayda
+>
+> Jab tum LSM-Tree mein koi key dhoondte ho, toh system Bloom Filter ko check karta hai:
+>
+> 1. SSTable 1 ka Bloom Filter → "NO" → skip  
+> 2. SSTable 2 ka Bloom Filter → "NO" → skip  
+> 3. SSTable 3 ka Bloom Filter → "Maybe" → sirf isi file ko disk se read karo  
+>
+> <mark>Result: Tumne 3 mein se 2 disk reads bacha liye. Ye bohot bara performance boost hai!</mark>
+>
+> ### 5. Architectural Trade-off
+>
+> * <mark>Fayda:</mark> Disk I/O ka bohot bara kharcha bach gaya.
+> * <mark>Qeemat:</mark>
+>   * RAM mein bit array store karna parta hai.
+>   * Agar array chhota ho, toh false positives barh jate hain.
+>   * Hash functions chalane ke liye CPU ka thora sa use hota hai.
+>
+
+
 ### Figure 4-4 Ka Gehrayi Se Mutaala (Probabilistic Key Checking)
 
 Aap Figure 4-4 ke bit array aur hashing flow ko is tarah samajh sakte hain:
 
 <div align="center">
-  <img src="./images/04.jpg" width="600"/>
+  <img src="./images/04.jpg" width="700"/>
 </div>
 
 ```plaintext
