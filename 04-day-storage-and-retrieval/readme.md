@@ -1965,7 +1965,7 @@ Is CPU bottleneck ko khatam karne ke liye modern columnar analytics systems do m
 Aap jo Figure 4-9 dekh rahe hain, wo yeh samjhati hai ke kaise data ko decompress kiye bina direct bitwise vectors par hardware level par operations chalaye jaate hain:
 
 <div align="center">
-  <img src="./images/09.jpg" width="600"/>
+  <img src="./images/09.jpg" width="700"/>
 </div>
 
 ```plaintext
@@ -2016,6 +2016,77 @@ Loop -> Check Query Structure -> Call Function -> Fetch Row 1 -> Process -> Loop
 Load Column Vector (1000 items) ---> [ CPU SIMD Register ] ---> Process 64-bits at once in 1 Clock Cycle
 
 ```
+
+> Trillions of rows aur petabytes of data par jab heavy analytical (SQL) queries chalti hain, toh sirf tez disk (SSD) hona kafi nahi hota. Jab data disk se nikal kar RAM mein aa jata hai, toh asli mukabla CPU ke sath shuru hota hai. Yahan sabse bada bottleneck (rukaawat) **CPU processing time** ban jata hai.
+>
+> Traditional databases mein jab query chalti hai, toh engine query ko chote chotes hisson (**Operators**) mein torta hai aur har ek row par loop chalata hai (jaise koi interpreter kaam karta hai). Trillions of rows par yeh row-by-row kaam itna slow ho jata hai kyunki CPU ka zyada waqt sirf function calls aur upar ke management tasks mein zaya ho jata hai.
+>
+> Is CPU bottleneck ko khatam karne ke liye modern columnar systems do behtareen tareeqay istemaal karte hain: **Query Compilation** aur **Vectorized Processing**. Aaiye inhein aur writer ki di hui Figure 4-9 ko poori detail mein aasaan zabaan mein samajhte hain.
+>
+> ---
+>
+> ## 1. Figure 4-9 Ka Asli Matlab: Direct Compressed Data Par Operations
+>
+> Writer ne jo Figure 4-9 di hai, wo database engineering ka ek bohot bada jadoo samjhati hai: **Data ko bina decompress (khole) kiye direct hardware level par chala dena.**
+>
+> Aapke paas do columns ke Run-Length Encoded (RLE) bitmaps hain (RLE ka matlab ginti ki shakal mein save data, jo humne pichle topic mein parha tha):
+>
+> * **product_sk = 30:** `[ 0 0 0 0 0 1 1 1 1 0 0 0 1 1 1 0 0 0 ]`
+> *(RLE format mein iska matlab hai: 5 zeros, 4 ones, 3 zeros, 3 ones, aur baaki zeros)*
+> * **store_sk = 3:** `[ 0 0 0 0 1 0 1 1 0 0 0 0 0 1 1 1 0 0 ]`
+> *(RLE format mein: 4 zeros, 1 one, 1 zero, 2 ones, 5 zeros, 3 ones, aur baaki zeros)*
+>
+> ### Bitwise AND Operator (&) Ka Jadoo:
+>
+> Jab aap query likhte hain: `WHERE product_sk = 30 AND store_sk = 3`
+>
+> 1. **No Decompression:** Database in dono lambe bit-arrays ko RAM mein poora kholta (expand) nahi hai.
+> 2. **Direct CPU Register Logic:** CPU ke registers direct inhi compressed counts (jaise 5 zeros, 4 ones) ke logic par aapas mein **Bitwise AND (&)** chalate hain.
+> 3. **Compressed Output:** Output bhi direct compressed shakal mein banta hai: `[ 0 0 0 0 0 0 1 1 0 0 0 0 0 1 1 0 0 0 ]` *(RLE: 6, 2, 5, 2)*.
+>
+> Iska faida yeh hota hai ke RAM mein data ko baar baar copy karne aur naye blocks allocate karne ka kharcha aur software overhead bilkul **Zero** ho jata hai.
+>
+> ---
+>
+> ## 2. Approach 1: Query Compilation (Custom Machine Code Banana)
+>
+> **Asaan Alfaaz Mein:** Yeh bilkul aisa hai ke jaise aapko koi kaam diya jaye, aur aap pehle se bani hui guide-book parhne ke bajaye, us kaam ko sabse tezi se karne ke liye ek **custom machine** banakar khari kar dein.
+>
+> * **System Behavior:** Is approach mein query engine SQL query ko dekhte hi usay normal loops mein nahi chalata. Wo foran us specific query ke liye ek **Custom Code** generate karta hai.
+> * **Specialized Code:** Yeh code sirf aur sirf unhi columns ko target karta hai jinki query mein zaroorat hai. Yeh rows par lagatar (sequentially) ghoomta hai, calculation karta hai, aur result ko seedha output buffer mein daalta jata hai.
+> * **LLVM Integration (Machine Code):** Engine is generated code ka software overhead khatam karne ke liye **LLVM Compiler** ka istemaal karta hai. Yeh is code ko direct hardware-level **Machine Code (0s aur 1s)** mein badal deta hai (bilkul Java ke JIT compiler ki tarah).
+> * **Faida:** Jab query chalti hai, toh darmiyan mein koi interpreter ya middleman nahi hota; CPU direct raw machine instructions run karta hai, jo extreme fast hoti hain.
+>
+> ---
+>
+> ## 3. Approach 2: Vectorized Processing (Thok Ke Hisab Se Kaam)
+>
+> **Asaan Alfaaz Mein:** Yeh compilation ke bilkul mukhtalif hai. Yahan naya code compile nahi hota (interpretation hi hoti hai), magar yeh ek ek row uthane ke bajaye **data ka poora batch** ek sath uthata hai.
+>
+> * **System Behavior:** Yeh row-by-row chalne ke bajaye data ke ek pure **Vector (jaise ek column se ek sath 1000 values)** ko utha kar ek hi dafa mein process karta hai.
+> * **Predefined Operators:** Database ke andar pehle se hi bohot high-performance, built-in functions (primitive operators) maujood hote hain.
+> * **Kaam Kaise Hota Hai?** Query engine product_sk column ka poora 1000 values ka block uthayega aur ek hi dafa mein us equality operator function ko pass kar dega. Wo function direct memory cache ke andar tezi se loop chala kar ek hi jhatke mein result bitmap return kar dega. Is se processing functions ko baar baar call karne ki tadad **lakhon guna kam** ho jati hai.
+>
+> ---
+>
+> ## 4. Hardware-Level CPU Optimizations (Asli Power)
+>
+> Chahe database **Query Compilation** ka raasta chuney ya **Vectorization** ka, dono ka aakhri maqsad modern CPU hardware ki physical taqat ka 100% faida uthana hota hai. Yeh engines CPU ke 3 baray features ko use karte hain:
+>
+> ### A. Reducing Cache Misses (Line Se Data Rakhna)
+>
+> CPU ke paas apni bohot tez memory hoti hai jise L1, L2, aur L3 Cache kehte hain. Agar data RAM mein alag alag pointers par bikhra ho, toh CPU ko baar baar RAM ke paas jana parta hai jise *Cache Miss* kehte hain aur CPU idle (vaila) baith jata hai.
+> Dono engines data ko memory mein **Sequential (ek seedhi line mein)** rakhte hain. Is se CPU automatic agla data block pehle se hi khinch kar cache mein rakh leta hai, aur CPU ko kabhi intezar nahi karna parta.
+>
+> ### B. Avoiding Branch Mispredictions (No If/Else Latency)
+>
+> CPU ke andar ek system hota hai jo pehle se andaza lagata hai ke aage `if` wala rasta aane wala hai ya `else` wala (Branch Prediction). Agar andaza galat ho jaye, toh CPU ka instruction pipeline stall (ruk) jata hai.
+> Dono engines **Tight Inner Loops** use karte hain—yani aise chote loops jin mein darmiyan mein koi faltu standard `if/else` checks ya extra function calls nahi hotiin. Is se CPU ka prediction pipeline hamesha busy aur smooth chalta hai.
+>
+> ### C. SIMD Hardware Parallelism (Ek Instruction, Karoron Data)
+>
+> Modern CPUs ke paas ek super-power hoti hai jise **SIMD (Single Instruction, Multiple Data)** kehte hain. Iska matlab hai ke CPU ek hi clock cycle mein, ek hi instruction se, pure array ya vector par operation chala sakta hai. Jaise ek hi jhatke mein 8 ya 16 pairs ko aapas mein plus ya match kar dena. **Vectorized processing** is SIMD feature ka sabse zyadah aur perfect faida uthati hai.
+
 
 ---
 
