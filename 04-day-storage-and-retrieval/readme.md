@@ -1495,7 +1495,7 @@ Traditional data warehouses (jaise Teradata, Vertica, SAP HANA) pehle on-premise
 
 #### 1. Decoupling of Compute and Storage
 
-Purane architectures mein storage disks aur computing CPUs aik hi physical server ke andar lock hote تھے۔ Agar aapka data barh jaye, toh aapko naya server kharidna parta tha jiske computing cores faltu pare rehte the. Cloud data warehouses is coupling ko khatam kar dete hain (**Decoupling compute from storage**).
+Purane architectures mein storage disks aur computing CPUs aik hi physical server ke andar lock hote thay. Agar aapka data barh jaye, toh aapko naya server kharidna parta tha jiske computing cores faltu pare rehte the. Cloud data warehouses is coupling ko khatam kar dete hain (**Decoupling compute from storage**).
 
 Data ko local disks par rakhne ke bajaye intehai sasti cloud object storage (jaise AWS S3 ya Google Cloud Storage) par immutable files ki shakal mein hamesha ke liye persist kar diya jata hai. Jab koi analyst koi heavy query chalata hai, toh database cloud se on-demand serverless compute resources (CPUs/RAM) spin-up karta hai, computational tasks distributed tarike se execute hote hain, aur query khatam hote hi compute nodes delete ho jate hain. Is elasticity ki wajah se storage aur compute ka kharcha alag alag handle hota hai.
 
@@ -1526,6 +1526,67 @@ Cloud ki is elasticity ki wajah se traditional open-source systems (jaise Apache
 * **Storage Format (Parquet, ORC, Lance, Nimble):** Yeh batate hain ke rows ko files ke andar bytes ki shakal mein kaise tightly encode kiya jaye. Yeh ziada tar columnar formats hote hain jo object storage par compress shakal mein pare hote hain taake analytics queries kam se kam bytes read karein.
 * **Table Format (Apache Iceberg, Databricks Delta format):** Parquet files immutable (un-changeable) hoti hain, yani unhein direct edit nahi kiya ja sakta. Table format in files ke upar ek abstraction layer lagata hai jo database ko yeh batati hai ke kaun kaun si files mil kar ek table banti hain. Is layer ki wajah se data lake par row insertion, deletion, ACID transactions, aur **Time Travel** (kisi purani date/time par table ka kya state tha wo query karna) jaisay behtareen features mumkin hote hain.
 * **Data Catalog (Snowflake Polaris, Databricks Unity Catalog):** Table format agar yeh batata hai ke files se table kaise banti hai, toh Data Catalog yeh batata hai ke database ke andar kaun kaun si tables exist karti hain. Yeh aam tor par aik standalone REST-based service hoti hai jahan se query engines metadata ki direct access lete hain. Is decoupling ki wajah se enterprise level par data discovery aur data governance (security/privacy) lagana intehai asaan ho jata hai.
+
+
+> Aaiye Data Analytics (OLAP) ke in advanced storage concepts ko bilkul aasaan aur simple zabaan mein samajhte hain. Writer ne yahan teen main cheezein samjhane ki koshish ki hai: OLTP vs OLAP ka farq, Cloud Data Warehouses ka naya tarika, aur Lakehouse architecture ka breakdown.
+>
+> ---
+>
+> ## 1. OLTP vs OLAP aur HTAP Ka Sach
+>
+> Database ki dunya mein do tarah ka kaam hota hai:
+>
+> * **OLTP (Online Transaction Processing):** Rozmarra ke chote kaam, jaise ATM se paise nikalna ya daraz par order place karna. Isme jaldi se ek row insert ya update karni hoti hai.
+> * **OLAP (Online Analytical Processing):** Bare analytical kaam, jaise pichle 5 saal ki sales ka trend dekhna. Isme aik sath karoron rows ko scan karna parta hai.
+>
+> Chunki dono ka kaam bilkul alag hai, isliye ek hi engine dono workloads ko behtareen tareeqay se handle nahi kar sakta.
+>
+> ### HTAP Databases (Bahar se aik, andar se do!)
+>
+> Kuch databases (jaise SQL Server ya SingleStore) dawa karte hain ke wo transactional (OLTP) aur analytical (OLAP) dono kaam ek sath ek hi product mein kar sakte hain. Unhein **HTAP** kehte hain.
+>
+> > 💡 <mark>Writer ki asli baat:</mark> Writer kehta hai ke inke andarooni dhanchay (internals) mein asal mein **do alag engines** chal rahe hote hain jo ek common SQL interface ke peeche chupe hote hain. Jab aap analytical query chalate hain, toh wo columnar engine par jati hai taake aapka normal transactional flow choke (freeze) na ho.
+>
+> ---
+>
+> ## 2. Decoupling of Compute and Storage (Kharche Aur Power Ki Azaadi)
+>
+> Purane daur ke data warehouses (on-premises) mein aik masla tha: **Storage aur Compute (CPU/RAM) ek hi physical server mein locked hote thay.**
+>
+> * **Masla:** Agar aapka data barh gaya magar queries limited hain, tab bhi aapko naya mahanga server kharidna parta tha. Is se storage toh mil jati thi magar naye server ke CPUs faltu pare rehte thay.
+>
+> ### Cloud Data Warehouses Ka Solution (Snowflake, BigQuery, Redshift)
+>
+> Cloud data warehouses ne in dono ko alag (**Decouple**) kar diya hai:
+>
+> 1. **Storage:** Aapka sara data sasti cloud storage (jaise AWS S3) par permanent files ki shakal mein para rehta hai.
+> 2. **Compute:** Jab koi analyst heavy query chalata hai, toh system on-demand cloud se bohot saare CPUs/RAM udhaar leta hai (spin-up karta hai), query process karta hai, aur kaam khatam hote hi un compute nodes ko delete kar deta hai.
+>
+> **Faida:** Aapko storage ka kharcha alag dena parta hai aur compute ka sirf utna hi dena parta hai jitni der aapne query chalayi.
+>
+> ---
+>
+> ## 3. Open Source Disaggregation (Lakehouse Breakdown)
+>
+> Pehle Apache Hive jaise open-source systems ek single monolithic block (aik hi bari machine/setup) ki tarah hote thay. Magar ab naye modern Data Lakehouse ecosystem mein yeh poora system **4 azaad (decoupled) hisson** mein toot chuka hai:
+>
+> ### 1. Query Engine (Dimagh — Trino, Presto)
+>
+> Inka apna koi storage nahi hota. Yeh sirf aik hoshiyar **Manager/Chef** ki tarah hain. Jab aap SQL query likhte hain, yeh usay samajhte hain, aik plan banate hain, aur distributed servers ke zariye data lake se data nikal kar calculations perform karte hain.
+>
+> ### 2. Storage Format (Almari mein packing — Parquet, ORC)
+>
+> Yeh batate hain ke data ko disk par bytes ki shakal mein kaise tightly pack ya compress karna hai. Yeh hamesha **Columnar format** (data ko rows ke bajaye columns mein rakhna) use karte hain taake jab query sirf `sales` ka column maangay, toh baki saare columns ko parhne mein disk bandwidth zaya na ho.
+>
+> ### 3. Table Format (Files ka Map — Apache Iceberg, Delta)
+>
+> Chunki Parquet files immutable (un-changeable) hoti hain, unhein direct edit nahi kiya ja sakta. Table format in files ke upar ek management layer lagata hai jo database ko yeh batata hai ke *"kaun kaun si files mil kar ek mukammal table banti hain"*.
+>
+> * Isi layer ki wajah se data lake par **ACID transactions** (data kharab na hona) aur **Time Travel** (yeh dekhna ke 2 din pehle table ki kya halat thi) jaise advanced features mumkin hote hain.
+>
+> ### 4. Data Catalog (Phone Book / Directory — Unity, Polaris)
+>
+> Table format agar yeh batata hai ke files se table kaise banti hai, toh Data Catalog yeh batata hai ke database ke andar **kaun kaun si tables kis jagah exist karti hain**. Yeh aik central directory hai jahan se query engine ko address milta hai. Is se enterprise level par security aur data privacy (governance) lagana intehai asaan ho jata hai.
 
 ---
 
