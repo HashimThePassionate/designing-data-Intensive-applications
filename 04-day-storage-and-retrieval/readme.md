@@ -1,5 +1,144 @@
 # Storage and Retrieval
 
+<details>
+<summary style="font-size: 1.3em; font-weight: bold; cursor: pointer; padding: 10px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 8px; margin: 20px 0;">
+  📖 Table of Contents
+</summary>
+
+### 📑 Complete Navigation Guide
+
+#### **🎯 Part 1: OLTP Storage Fundamentals**
+- [1.1 Storage and Indexing for OLTP](#storage-and-indexing-for-oltp)
+  - [1.1.1 Architectural & System Behavior Breakdown](#architectural--system-behavior-breakdown)
+  - [1.1.2 Data Write Flow (db_set)](#1-data-write-flow-db_set)
+  - [1.1.3 Data Read Flow (db_get)](#2-data-read-flow-db_get)
+  - [1.1.4 Real Log vs Application Log](#3-real-log-vs-application-log)
+  - [1.1.5 Performance Analysis & Indexing Trade-off](#performance-analysis--the-indexing-trade-off)
+- [1.2 Mockup System Design Scenario (OLTP)](#mockup-system-design-scenario-interview-style)
+
+#### **📝 Part 2: Log-Structured Storage Engines**
+- [2.1 Log-Structured Storage](#log-structured-storage)
+  - [2.1.1 LSM Tree Architecture](#lsm-tree-architecture)
+  - [2.1.2 Memtable & Immutable Store](#memtable--immutable-store)
+  - [2.1.3 Compaction Process](#compaction-process)
+- [2.2 Mockup System Design Scenario (LSM)](#mockup-system-design-scenario-interview-style-1)
+
+#### **🗂️ Part 3: SSTable Format & Merging**
+- [3.1 The SSTable File Format](#the-ssTable-file-format)
+  - [3.1.1 Sorted String Tables](#sorted-string-tables)
+  - [3.1.2 Block Format](#block-format)
+- [3.2 Constructing and Merging SSTables](#constructing-and-merging-sstables)
+  - [3.2.1 Building SSTables](#building-sstables)
+  - [3.2.2 Merge Process](#merge-process)
+- [3.3 Mockup System Design Scenario (SSTable)](#mockup-system-design-scenario-interview-style-2)
+
+#### **🔍 Part 4: Index Optimization Techniques**
+- [4.1 Bloom Filters](#bloom-filters)
+  - [4.1.1 How Bloom Filters Work](#how-bloom-filters-work)
+  - [4.1.2 Space-Time Trade-off](#space-time-trade-off)
+- [4.2 Compaction Strategies](#compaction-strategies)
+  - [4.2.1 Level-based Compaction](#level-based-compaction)
+  - [4.2.2 Size-tiered Compaction](#size-tiered-compaction)
+
+#### **💾 Part 5: Embedded Storage Engines**
+- [5.1 Embedded Storage Engines](#embedded-storage-engines)
+  - [5.1.1 RocksDB Architecture](#rocksdb-architecture)
+  - [5.1.2 LevelDB Structure](#leveldb-structure)
+- [5.2 Mockup System Design Scenario (Embedded)](#mockup-system-design-scenario-interview-style-3)
+
+#### **🌳 Part 6: B-Trees**
+- [6.1 B-Trees](#b-trees)
+  - [6.1.1 Structure & Characteristics](#structure--characteristics)
+  - [6.1.2 vs Log-Structured Engines](#vs-log-structured-engines)
+- [6.2 Making B-Trees Reliable](#making-b-trees-reliable)
+  - [6.2.1 Write-Ahead Logging (WAL)](#write-ahead-logging-wal)
+  - [6.2.2 Locking & Concurrency](#locking--concurrency)
+- [6.3 Using B-Tree Variants](#using-b-tree-variants)
+  - [6.3.1 B+ Trees](#b-trees-variants)
+  - [6.3.2 Clustered vs Non-Clustered Indexes](#clustered-vs-non-clustered-indexes)
+- [6.4 Mockup System Design Scenario (B-Trees)](#mockup-system-design-scenario-interview-style-4)
+
+#### **📊 Part 7: OLAP Analytics Storage**
+- [7.1 Data Storage for Analytics](#data-storage-for-analytics)
+  - [7.1.1 OLTP vs OLAP](#oltp-vs-olap)
+  - [7.1.2 Star Schema](#star-schema)
+- [7.2 Mockup System Design Scenario (Analytics)](#mockup-system-design-scenario-interview-style-5)
+
+#### **🎨 Part 8: Column-Oriented Storage**
+- [8.1 Column-Oriented Storage](#column-oriented-storage)
+  - [8.1.1 Row vs Column Format](#row-vs-column-format)
+  - [8.1.2 Memory Access Patterns](#memory-access-patterns)
+- [8.2 Column Compression](#column-compression)
+  - [8.2.1 Dictionary Encoding](#dictionary-encoding)
+  - [8.2.2 Run-Length Encoding (RLE)](#run-length-encoding-rle)
+  - [8.2.3 Bitmap Indexes](#bitmap-indexes)
+- [8.3 Sort Order in Column Storage](#sort-order-in-column-storage)
+  - [8.3.1 Primary Sort Order](#primary-sort-order)
+  - [8.3.2 Secondary Indexes](#secondary-indexes)
+- [8.4 Writing to Column-Oriented Storage](#writing-to-column-oriented-storage)
+  - [8.4.1 Write Amplification](#write-amplification)
+- [8.5 Mockup System Design Scenario (Column Storage)](#mockup-system-design-scenario-interview-style-6)
+
+#### **⚡ Part 9: Query Execution Optimization**
+- [9.1 Query Execution: Compilation and Vectorization](#query-execution-compilation-and-vectorization)
+  - [9.1.1 Expression Compilation](#expression-compilation)
+  - [9.1.2 Vectorization](#vectorization)
+  - [9.1.3 SIMD Processing](#simd-processing)
+- [9.2 Mockup System Design Scenario (Query Execution)](#mockup-system-design-scenario-interview-style-7)
+
+#### **📈 Part 10: Advanced Analytics Features**
+- [10.1 Materialized Views and Data Cubes](#materialized-views-and-data-cubes)
+  - [10.1.1 Materialized Views](#materialized-views)
+  - [10.1.2 OLAP Cubes](#olap-cubes)
+  - [10.1.3 Star Schema vs Snowflake Schema](#star-schema-vs-snowflake-schema)
+- [10.2 Mockup System Design Scenario (Materialized Views)](#mockup-system-design-scenario-interview-style-8)
+
+#### **🔎 Part 11: Special Index Types**
+- [11.1 Multidimensional and Full-Text Indexes](#multidimensional-and-full-text-indexes)
+- [11.2 Full-Text Search](#full-text-search)
+  - [11.2.1 Inverted Indexes](#inverted-indexes)
+  - [11.2.2 Analysis & Tokenization](#analysis--tokenization)
+  - [11.2.3 Relevance Scoring](#relevance-scoring)
+- [11.3 Mockup System Design Scenario (Full-Text)](#mockup-system-design-scenario-interview-style-9)
+
+#### **🤖 Part 12: Vector Embeddings & Semantic Search**
+- [12.1 Vector Embeddings](#vector-embeddings)
+  - [12.1.1 Embedding Models](#embedding-models)
+  - [12.1.2 Vector Distance Metrics](#vector-distance-metrics)
+  - [12.1.3 Approximate Nearest Neighbor (ANN)](#approximate-nearest-neighbor-ann)
+  - [12.1.4 HNSW Algorithm](#hnsw-algorithm)
+  - [12.1.5 IVF (Inverted File) Index](#ivf-inverted-file-index)
+  - [12.1.6 Production Vector Databases](#production-vector-databases)
+- [12.2 Mockup System Design Scenario (Vector Search)](#mockup-system-design-scenario-interview-style-10)
+
+---
+
+### ⚡ Quick Jump Links
+
+| Category | Links |
+|----------|-------|
+| **OLTP** | [Storage](#storage-and-indexing-for-oltp) • [Indexing](#performance-analysis--the-indexing-trade-off) • [B-Trees](#b-trees) |
+| **LSM & Log-Structured** | [LSM Trees](#log-structured-storage) • [SSTables](#the-ssTable-file-format) • [Bloom Filters](#bloom-filters) |
+| **OLAP & Analytics** | [Column Storage](#column-oriented-storage) • [Compression](#column-compression) • [Data Cubes](#materialized-views-and-data-cubes) |
+| **Search** | [Full-Text](#full-text-search) • [Vector Search](#vector-embeddings) • [Indexes](#multidimensional-and-full-text-indexes) |
+| **Optimization** | [Query Execution](#query-execution-compilation-and-vectorization) • [Compaction](#compaction-strategies) |
+
+---
+
+### 🎓 Study Strategy
+
+1. **Quick Overview**: Start with Quick Revision Sheets at the end of each major section
+2. **Concept Deep Dive**: Read detailed architectural explanations
+3. **Interview Prep**: Focus on "Mockup System Design Scenario" sections
+4. **Trade-off Analysis**: Understand LSM vs B-Trees, Row vs Column storage
+5. **Real-World Applications**: See how concepts apply to production systems
+
+---
+
+</details>
+
+---
+
 Richard Feynman ka 1985 ka yeh khayal bohot gehri sachai bayan karta hai: computer asal mein sirf hisab-kitab (arithmetic) nahi karte, balkay yeh bunyadi tor par **filing systems** hain jo data ko manage aur store karte hain. Ek database ka sabse basic aur core maqsad sirf do cheezon par khara hai: jab aap usay data dein toh wo usay mehfooz (store) kar le, aur jab aap baad mein mangein toh wo bina kisi galti ke wo data aapko wapas de de.
 
 Ek application developer ke tor par aapko yeh samajhna kyun zaroori hai ke database andarooni tor par (under the hood) data kaise store aur retrieve karta hai? Halankeh aap apna khud ka storage engine zero se code nahi karenge, lekin jab aapko apni application ke liye koi database select karna hoga, toh uski performance ka inhasar isi baat par hoga ke aapne apni application ke **workload** ke mutabaq sahi storage engine chuna hai ya nahi. Sahi configuration aur tuning ke liye database ke internal mechanism ka rough idea hona laazmi hai.
