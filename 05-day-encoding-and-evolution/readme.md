@@ -1185,3 +1185,215 @@ Is dafa `Wallet-Service` jab Redis cache check karti hai, toh use `trip_999` peh
 * **Idempotence:** Aik hi network request ko baar-baar chalane par bhi server ki state par koi duplicate asar na parna.
 
 ---
+
+## Durable Execution and Workflows
+
+Microservices ya service-based architectures mein aik single application ka kaam mukhtalif chote chote components (services) mein banta hua hota hai. Farz karein hamare paas aik payment processing application hai jiska kaam user ke credit card se paise katna aur unhein bank account mein jama karna hai. Is pure process ko chalanay ke liye backend par fraud detection service, credit card integration service, aur banking service jaisay components aaps mein coordinate karte hain.
+
+Jab aik payment request aati hai, toh use poora karne ke liye in sabhi services ko aik makhsoos tartoob (sequence) mein call karna parta hai. Is sequence ko hum **Workflow** kehte hain, aur is workflow ke har aik individual step ko **Task** kaha jata hai. Workflows buniyadi taur par tasks ka aik graph bante hain. Inki definitions ko likhne ke liye developers general-purpose programming languages (jaise Python, Go), Domain-Specific Languages (DSL), ya phir XML/JSON markup languages ka istemal karte hain.
+
+---
+
+### Tasks, activities, and functions
+
+Mukhtalif workflow engines tasks ko alag-alag naamon se pukarte hain. Maslan, **Temporal** engine mein task ko **Activity** kaha jata hai. Kuch doosre frameworks mein ise **Durable Function** bhi kehte hain. Naam chahe jo bhi ho, in sab ka core concept bilkul aik hi hai: *"Aik chota, aazad kaam jo workflow ka hissa ho."*
+
+Workflows ko chalanay ki zimmedari aik **Workflow Engine** ki hoti hai. Engine yeh faisla karta hai ke kaun sa task kab aur kis machine par chalega. Agar koi machine chalte-chalte crash ho jaye, toh task ko dobara kaise handle karna hai, aur kitne tasks aik sath parallel mein chal sakte hain—yeh sab engine control karta hai.
+
+Buniyadi taur par workflow engine ke do baray hisse hote hain:
+
+* **Orchestrator:** Yeh dimag hai jo tasks ko schedule karta hai aur flow ko control karta hai.
+* **Executor:** Yeh wo worker node hai jo actual mein us task ke code ko execute karta hai.
+
+---
+
+### Figure 5-7 ka Deep Breakdown (BPMN Workflow)
+
+mein aik payment workflow ko **BPMN (Business Process Model and Notation)** ke zariye dikhaya gaya hai. Chaliye iske graphical flow aur data behavior ko step-by-step bilkul bacho ki tarah samajhte hain:
+
+<div align="center">
+  <img src="./images/07.png" width="600"/>
+</div>
+
+```plaintext
+[ Payment Requested ] 
+         |
+         v
++---------------------------+
+| Compute fraud risk score  |
++---------------------------+
+         |
+         v
+   / Fraud Risk? \
+  <               > --- (High Risk) ---> [ Transaction Rejected ]
+   \   Low Risk  /
+         |
+         v
++---------------------------+
+|     Debit credit card     |
++---------------------------+
+         |
+         v
+   / Authorized? \
+  <               > --- (Declined) ----> [ Transaction Rejected ]
+   \  Authorized /
+         |
+         v
++---------------------------+
+|    Credit bank account    |
++---------------------------+
+         |
+         v
+[ Transaction Complete ]
+
+```
+
+#### Architectural Flow Explanation:
+
+1. **Payment Requested:** Aik event trigger hota hai (jaise user ne 'Pay' button dabaya).
+2. **Compute fraud risk score:** Sab se pehle fraud check service ko call jati hai jo aik score nikalti hai.
+3. **Fraud Risk Decision Gateway:** * **High Risk:** Agar fraud ka khatra zyada hai, toh flow direct neechay cross (`+`) gateway par jata hai aur transaction hamesha ke liye **Reject** ho jati hai.
+* **Low Risk:** Agar khatra nahi hai, toh flow aage barhta hai.
+
+
+4. **Debit credit card:** Agla task credit card gateway (jaise Stripe/Visa) ko call karke user ke card se paise deduct karta hai.
+5. **Authorization Decision Gateway:**
+* **Declined:** Agar bank ne card decline kar diya (paise nahi the ya card block tha), toh flow neechay jata hai aur transaction **Reject** ho jati hai.
+* **Authorized:** Agar paise safely kat gaye, toh agla step trigger hota hai.
+
+
+6. **Credit bank account:** Aakhri task paise company ke main bank account mein deposit (credit) karta hai.
+7. **Transaction Complete:** Dono side par data balance ho gaya aur transaction successfully complete ho gayi.
+
+> **Distributed Architecture ka Asal Masla:** Farz karein aapne Step 4 par user ka credit card charge kar diya (paise kat gaye), lekin Step 5 ke baad banking service ko call lagte hi **server crash ho gaya ya network down ho gaya**. Ab user ke paise kat chuke hain lekin bank mein jama nahi huay! Distributed systems mein hum poore flow par aik standard database transaction SQL `BEGIN...COMMIT` nahi laga sakte kyunke isme teesri party ke APIs shamil hote hain. Is mushkil ka hal **Durable Execution** hai.
+
+---
+
+## Centralized Workflow Orchestration Engine
+
+Mukhtalif use cases ke liye market mein bohot se workflow engines hain:
+
+* **Data ETL Engines (Airflow, Dagster, Prefect):** Yeh data science aur data engineering pipelines ko manage karte hain jahan baray baray data chunks ko transfer aur transform karna hota hai.
+* **Graphical Engines (Camunda, Orkes):** Yeh non-engineers aur business managers ko BPMN diagrams ke zariye direct drag-and-drop workflow banane ki izazat dete hain.
+* **Durable Execution Engines (Temporal, Restate):** Yeh microservices ke darmiyan transactionality aur state consistency faraham karte hain.
+
+Durable execution frameworks ka maqsad system ko **Exactly-once semantics** (yani har kaam poori dunya mein sirf aik hi dafa complete ho) dena hai.
+
+> **Replay Mechanics (Bachon ki tarah samjhein):** Durable execution framework ko aik video game ke **Checkpoints / Save State** ki tarah samjhein. Agar aap level 3 par ja kar marr jatay hain, toh aap game bilkul shuru se (credit card dobara charge karne se) start nahi karte. Framework background mein chalne wali har RPC call aur state change ko aik surakshit log (Write-Ahead Log) mein likhta rehta hai.
+> Jab system crash hone ke baad dobara zinda (recover) hota hai, toh orchestrator code ko dobara chalta hai. Lekin jab wo purane successfully executed steps par pahunchta hai, toh wo actual network call **dobara nahi karta**. Wo chup-chaap database se purana saved response uthata hai aur code ko aage barha deta hai. Is tarah duplicate charges se bacha jata hai.
+
+Chaliye Temporal framework ka aik modern Python code snippet dekhte hain jo is architecture ko implement karta hai:
+
+### Example 5-5. A Temporal workflow definition fragment
+
+```python
+from datetime import timedelta
+from temporalio import workflow
+
+# Assuming activities are defined elsewhere
+@workflow.defn
+class PaymentWorkflow:
+    @workflow.run
+    async def run(self, payment: 'PaymentRequest') -> str:
+        # Step 1: Fraud Risk Score Validation
+        is_fraud = await workflow.execute_activity(
+            "check_fraud",
+            payment,
+            start_to_close_timeout=timedelta(seconds=15),
+        )
+        if is_fraud:
+            return "PaymentResultFraudulent"
+            
+        # Step 2: Debit Credit Card via Third Party Gateway
+        credit_card_response = await workflow.execute_activity(
+            "debit_credit_card",
+            payment,
+            start_to_close_timeout=timedelta(seconds=15),
+        )
+        
+        # Step 3: Credit Bank Account (Logic continues...)
+        return "PaymentResultSuccess"
+
+```
+
+### Code Logic Breakdown:
+
+* `@workflow.defn`: Yeh decorator Python class ko batata hai ke yeh aik formal Temporal Workflow contract hai.
+* `workflow.execute_activity(...)`: Yeh direct function call nahi hai. Yeh orchestrator ko kehta hai ke `"check_fraud"` naam ki activity ko schedule kare. Agar yeh kamyab ho gayi, toh iska nateeja Temporal ke state log mein hamesha ke liye save ho jayega.
+* `start_to_close_timeout`: Agar worker node 15 seconds ke andar task ka jawab nahi deta, toh engine use dead samajh kar kisi doosre worker machine par task automatically retry kar dega.
+
+---
+
+## Durable Execution ke 2 Baday Gotchas (The Challenges)
+
+Durable execution jitni taqatwar technique hai, iske andar code likhte waqt do intahai baray architectural khatray hote hain:
+
+### 1. Code Brittleness (Code badalne par tabahi)
+
+Chunke durable execution frameworks event logs ko aamne-saamne rakh kar poore code ko bilkul usi tartoob mein **Replay** karte hain, is liye agar aapne code mein functions ki tartoob badal di (maslan step 2 ko step 1 se pehle kar diya), toh replay engine confuse ho jayega. Wo log mein pehla event string dhoond raha hoga aur code mein use integer milega, jis se system mein undefined behavior paida ho jayega.
+
+* **The Solution:** Kabhi bhi purane chalte huay workflow ka code modify mat karein. Hamesha code ka **Naya Version (`v2`)** alag se deploy karein taake jo transactions pehle se chal rahi hain wo purane code par replay hon, aur nayi requests naye code par chalein.
+
+### 2. The Determinism Absolute Rule (Ghair-yakeeni code par pabandi)
+
+Workflow code ka **Deterministic** hona lazmi hai—yani agar aap use aik hi input 100 dafa dein, toh 100 ki 100 dafa output bilkul same aana chahiye. Is wajah se workflow block ke andar niche di gayi cheezein chalana sakht mana hai:
+
+* `datetime.now()` (System Clock): Replay karte waqt time badal jayega, jis se execution diverge ho jayegi.
+* `random.uuid()` (Random Numbers): Har replay par naya ID banega jo purane log se match nahi karega.
+* Direct Network Calls: Kisi bhi external API ko direct class mein call na karein, hamesha use `activity` ke andar wrap karein taake uska response log ho sake.
+
+---
+
+## Mockup System Design Scenario (Interview Prep)
+
+### Scenario Context
+
+Aap aik Food Delivery Platform (jaise Foodpanda) ka Order Management Workflow design kar rahe hain. Workflow ke steps hain:
+
+1. Customer ke wallet se paise deduct karna.
+2. Restaurant ko order notify karna.
+3. Rider allocate karna.
+*Interviewer aap se poochta hai:* "Farz karein rider allocation ke waqt system crash ho jata hai. Aap bina user ko dobara charge kiye aur restaurant ka order duplicate kiye baghair pure workflow ki state ko kaise resume karenge?"
+
+### Architectural Design Implementation
+
+Hum is stateful problem ko hal karne ke liye **Temporal Orchestration Engine** aur **Idempotency Tagging Architecture** design karenge:
+
+```plaintext
+                                +---------------------------+
+                                |    Temporal Orchestrator  |
+                                +---------------------------+
+                                  /           |           \
+           Replays Log (Skips)   /            |            \  Executes Fresh
+                                v             v             v
+                     [ 1. Wallet Service ]  [ 2. Restaurant ]  [ 3. Rider Service ]
+                     Status: SUCCESS         Status: SUCCESS     Status: FAILED (Retrying)
+                     (Returns Cached)        (Returns Cached)    (Finds fresh Rider)
+
+```
+
+### Comprehensive Architectural Explanation
+
+1. **State Event Logging via Orchestrator:**
+Jab customer order place karta hai, toh main workflow start hota hai. Orchestrator har step ko chalanay se pehle state store mein entry daalta hai. Wallet service paise katti hai -> Event logged. Restaurant order accept karta hai -> Event logged.
+2. **Crash Recovery (The Replay Engine):**
+Rider search ke dauran agar workflow worker crash ho jata hai, toh Temporal ka naya worker active hotay hi state logs ko read karega. Wo shuru se code chalana shuru karega.
+* **Step 1 Replay:** Code dekhega `Wallet Service` call karni hai. Temporal engine actual network call block karega aur dekhega ke log mein pehle se response mojud hai. Wo wahi response bina call kiye return kar dega.
+* **Step 2 Replay:** `Restaurant Service` ke liye bhi call bypass hogi aur purana success status inject ho jayega. Restaurant ko duplicate notification nahi jayegi.
+* **Step 3 execution:** Ab code us point par pohanchega jahan event missing tha (Rider Allocation). Yahan engine actual fresh network call trigger karega aur rider dhoond kar transaction ko bina data loss ke `Exactly-Once` complete kar dega.
+
+
+
+---
+
+## Quick Revision & Key Takeaways
+
+* **Core Summary:** Microservices mein distributed transactions lagana namumkin hota hai. Durable Execution frameworks (jaise Temporal) har network call aur state change ko secure write-ahead log mein save karte hain taake crash ke baad system unhein replay karke safely resume kar sake.
+* **The Architectural Rule:** Workflow orchestrator ke andar likha hua code strictly **Deterministic** hona chahiye. Kabhi bhi workflow block ke andar direct system clocks, random number generators, ya un-logged third party network calls ka istemal mat karein.
+* **Flash-Card Points:**
+* **Workflow:** Tasks/activities ka aik directed graph jo kisi business process ko poora karta hai.
+* **Durable Execution:** Crash ke bawajood application state aur functions ke child executions ko safely yaad rakhne ka nizam.
+* **Exactly-Once Semantics:** Yeh guarantee dena ke koi bhi critical billing ya system activity duplicate execute nahi hogi.
+* **Determinism:** Aik aisa code jo har dafa chalne par identical inputs ke sath bilkul identical output aur function call sequence generate kare.
+
+---
