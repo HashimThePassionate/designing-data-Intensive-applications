@@ -1694,6 +1694,237 @@ Jab dono engineers offline honge, unka `Sync Engine (Client)` har mutation ko lo
 * **Local-First:** System design ka wo contract jahan data primary taur par client device ka asset hota hai, software vendor ke server shutdown hone par bhi app hamesha chalti rehti hai.
 * **16ms Limit:** 60 Hz display system ka frame budget jiske andar sync engine app ko reactively status change render karwana parta hai.
 
+---
+
+## Dealing with Conflicting Writes
+
+Multi-leader replication ka sabsay bada aur khatarnak sir-dard (challenge)—chahe wo mukhtalif regions mein mojud servers hon ya aapke mobile/laptop dunya mein chalne wale local-first sync engines hon—yeh hai ke ismein **Concurrent Writes** ki wajah se data ke takraao (Conflicts) paida hote hain jinhein hal karna lazmi hota hai.
+
+Farz karein ek Wiki Page hai jise aik hi waqt mein do alag-alag users edit kar rahe hain. User 1 us page ka title badal kar **A se B** kar deta hai, aur bilkul ussi waqt User 2 ussi page ka title aazadana taur par **A se C** kar deta hai. Dono users ke local leaders unke naye data ko successfully accept kar lete hain. Lekin jab yeh badlao background mein asynchronously aik doosre node par replicate hone ke liye safar karte hain, toh system mein ek bhari conflict detect hota hai. Yeh masla single-leader architecture mein kabhi paida nahi hota kyunke wahan saari requests aik hi line (queue) mein aati hain.
+
+> **Concurrency ka Asal Matlab (Bacho ki tarah samjhein):** Distributed systems mein do writes ko tab concurrent kaha jata hai jab unmein se kisi bhi write ko likhte waqt doosre write ke hone ka pata na ho (causal ignorance). Yeh bilkul zaroori nahi hai ke wo dono kamray ki ghari ke mutabaq ek hi millisecond par execute huay hon. Agar ek user offline baith kar subah kaam kare aur doosra user kisi doosre shehar mein offline baith kar dopahar ko kaam kare, tab bhi agar dono ne ek doosre ka data dekhe bina tabdeeli ki hai, toh unke operations concurrent hi mane jayenge.
+
+---
+
+### Conflict avoidance
+
+Conflicts se nipatne ka sabsay aasan aur behtareen tareeqa yeh hai ke unhein paida hi na hone diya jaye (**Conflict Avoidance**). Agar hamari application yeh pakka kar le ke kisi makhsoos record ke saare writes hamesha **ek hi single leader** se guzar kar jayenge, toh poora database tier multi-leader hone ke bawajood us record par kabhi conflict nahi aayega.
+
+Bhale hi yeh offline sync engines par mumkin nahi hai, lekin geo-replicated server architectures mein iska use bohot aam hai:
+
+* **The Home Region Architecture:** Ek aisa social media system jahan user sirf apna personal data (posts, profile) edit kar sakta hai, wahan load balancer user ke physical location ke mutabaq uski saari requests hamesha uske qareeb tareen region (e.g., Asia region) ke leader par lock kar deta hai. User ke liye yeh system bilkul single-leader ki tarah safe behave karta hai.
+* **The Breakdown Point:** Yeh nizam tab toot jata hai jab aapko kisi wajah se us record ka designated leader badalna paray. Maslan, agar Asia ka region down ho jaye aur aap traffic ko US region par reroute karein, ya user flight le kar doosre mulk chala jaye aur naye region se connect ho. Is transition (badlao) ke dauran agar user ne write press kar diya, toh data purane aur naye dono leaders par takra jayega aur aapko conflict resolution chalana hi paregi.
+* **Odd/Even ID Generation Hack:** Conflict avoidance ki ek aur misal unique primary keys banana hai. Agar do leaders concurrent rows insert kar rahe hain, toh hum unke autoincrementing counters ko is tarah set kar sakte hain ke **Leader 1 sirf Odd numbers (1, 3, 5...)** generate kare aur **Leader 2 sirf Even numbers (2, 4, 6...)** generate kare. Is tarah dono ke keys kabhi aaps mein nahi takrayenge.
+
+---
+
+### Last write wins (discarding concurrent writes)
+
+Agar application conflicts ko avoid nahi kar sakti, toh unhein hal karne ka sabsay aasan aur bacha-jaana tareeqa yeh hai ke har write operation ke sath ek **Timestamp** (waqt ka thappa) attach kar diya jaye, aur jis write ka timestamp sabsay bada (greatest) hoga, use jeetwa kar baqi saare concurrent writes ko khamoshi se **discard (delete)** kar diya jaye.
+
+```plaintext
+[ User 1 (Title='B', TS: 11:00) ] ---> [ Leader 1 ] --+
+                                                       | ---> (LWW Resolution) ---> [ Winner: Title='B' ]
+[ User 2 (Title='C', TS: 10:59) ] ---> [ Leader 2 ] --+                            [ Discarded: Title='C' ]
+
+```
+
+#### Low-Level Mechanics aur Iska Dhoka (The LWW Catch):
+
+Is model ko **Last Write Wins (LWW)** kehte hain. Yeh naam intahai dhoka-deh (misleading) hai, kyunke concurrent writes mein asli dunya ka chronological order taye karna namumkin hota hai. Asal mein LWW ka sach yeh hai ke jab ek hi key par do concurrent writes aate hain, toh database unmein se **kisi ek ko randomly select karta hai aur baqi data ko silently mita deta hai**, bhale hi unke local leaders ne use safely `OK` keh diya tha.
+
+* **The Data Loss Cost:** Yeh system eventual consistency toh achieve kar leta hai (saare nodes par ek jaisa data freeze ho jata hai), lekin iski keemat data loss ki shakl mein chukani parti hai. Agar aapke nizam mein updates ko drop karna acceptable nahi hai, toh LWW aapke liye aik khatarnak choice hai.
+* **The Clock Drift Vulnerability:** LWW poori tarah physical clocks (Unix timestamps) par depend karta hai jo distributed systems mein bhatak jati hain (clock drift). Agar Node A ka clock galti se Node B se 5 seconds aage chal raha hai, toh Node B par baad mein hone wala real write bhi hamesha lower timestamp ki wajah se reject ho jayega, jo data ki reality ko tabah kar deta hai. Isse bachne ke liye structural **Logical Clocks** ka use kiya jata hai.
+
+---
+
+### Manual conflict resolution
+
+Agar aap data ko randomly mitaana nahi chahte, toh agla rasta yeh hai ke database conflict ko khud hal karne ke bajaye un saare concurrent values ko alag-alag shakl mein safe rakh le, jinhein **Siblings** kaha jata hai.
+
+Jab koi wiki page badal kar ek taraf B aur doosri taraf C kiya jata hai, toh database dono ko store kar leta hai. Agli dafa jab application database se wo record query karegi, toh database single string dene ke bajaye **vavulues ka poora array/set** return karega (`[B, C]`). Ab yeh application code ki zimmedari hai ke wo in siblings ko parse kare, unhein aaps mein merge kare (jaise string ko concatenate karke `B/C` bana de) ya user ke samne ek screen khol kar puche ke *"Aap dono mein se kaun sa data rakhna chahte hain?"*, bilkul Git merge conflict ki tarah.
+
+#### Siblings ke 4 Bade Architectural Flaws (The Git-Like Pain):
+
+1. **API Schema Deformation:** Database ka return type achanak badal jata hai. Jo field pehle ek normal `string` returns karti thi, wo ab `List<String>` ban jati hai. Is se application ka frontend aur mapping logic intahai pechida aur awkward ho jata hai.
+2. **User Friction Overhead:** User ke samne bar-bar merge conflict ka dabba (UI) kholna bad customer experience hai. Aam users confuse ho jate hain ke unse kya pucha ja raha hai.
+3. **The Amazon Shopping Cart Anomaly (Figure 6-10):** Amazon ka purana shopping cart system isi sibling merge pattern par chalta tha. Unka rule tha ke jab do carts aaps mein takrayenge, toh system unka **Set Union** le lega (yaani dono carts ki saari items ko mila kar ek kar dega).
+* **The Bug:** Is se aik bada ajeeb anomly paida hua. Agar ek customer ne apne laptop (Device 1) se ek **Book** remove ki, aur ussi waqt uske mobile (Device 2) par internet lag hone ki wajah se cart mein wo Book mojud thi, toh jab dono carts aaps mein merge huay, toh set union ki wajah se **delete ki hui Book cart mein silently dobara zinda ho kar dikhne lagi!**
+
+
+4. **Resolution Cascading Conflicts:** Agar do mukhtalif nodes aik hi waqt mein siblings ko parh kar unhein automatic merge karne ki koshish karein, toh wo khud naye conflicts paida kar dete hain. Agar Node 1 data ko `B/C` likhe aur Node 2 use `C/B` likhe, toh aglay sync cycle par database unka merge `B/C/C/B` bana dega jo data ko bilkul kachra kar deta hai.
+
+---
+
+### Automatic conflict resolution
+
+Bohot si modern applications ke liye sabsay behtareen tareeqa yeh hota hai ke wo aisi advanced algorithms ka use karein jo background mein bina user ko pareshan kiye concurrent writes ko **Automatic Merge** karke ek single consistent state par le aayein.
+
+Jab aap eventual consistency ke sath yeh pakka nateeja jor dete hain ke saare nodes par data ka final structure har haal mein exact same converge hoga, toh is guarantee ko distributed systems ki dunya mein **Strong Eventual Consistency** kehte hain. Niche mukhtalif data types ke liye automatic merge ke structural rules diye gaye hain:
+
+* **Text Encodings:** Agar data plain text string hai, toh algorithm indexes ke bajaye characters ke levels par insertions aur deletions ko track karta hai, taake dono users ke likhe huay alphabets bina data loss ke deterministic order mein safe merge ho sakein.
+* **Collections / Shopping Carts:** Amazon wale masle se bachne ke liye modern collections sirf items ko add nahi kartin, balkay delete hone wali items ke sath ek invisible **Tombstone (maut ka thappa)** tag kar deti hain. Merge ke waqt agar kisi item par tombstone laga ho, toh use final cart se strictly bahar phenk diya jata hai.
+* **Counters (Likes & Retweets):** Agar kisi post ke likes ka counter badhana ho, toh system absolute value (`likes = 100`) bhejye ke bajaye increments aur decrements ka raw delta (`+1`, `-2`) bhejta hai. Engine saare nodes ke deltas ko aapas mein plus-minus karke absolute accurate mathematically score nikal leta hai, jisse double counting ka risk zero ho jata hai.
+
+---
+
+### Conflict-free replicated datatypes and operational transformation
+
+Automatic conflict resolution ko dunya mein implement karne ke liye do baray mashhoor algorithm khandani patterns hain: **Operational Transformation (OT)** aur **Conflict-free Replicated Datatypes (CRDTs)**.
+
+Chaliye hum in dono ke farq ko unke internal data integration aur mechanics ke mutabaq deeply break karte hain. Farz karein hamare paas ek string hai jo shuru mein `"ice"` thi. User 1 shuru mein `n` lagakar use `"nice"` banana chahta hai, jabke User 2 aakhir mein `!` lagakar use `"ice!"` banana chahta hai. Hamara goal bina data loss ke final state `"nice!"` achieve karna hai.
+
+#### 1. OT (Operational Transformation) - The Index Shifter
+
+OT ka core falsafa string ke **Array Indexes** par chalta hai.
+
+* User 1 kehta hai: `Insert('n', index=0)`.
+* User 2 kehta hai: `Insert('!', index=3)`.
+* Jab yeh operations network par exchange hote hain, toh agar User 2 ka operation (`index=3`) direct `"nice"` par chala diya jaye, toh string `"nic!e"` ban jayegi jo ke bilkul ghalt hai.
+* OT algorithm is operation ko mathematically transform (modify) kar deta hai. Wo dekhta hai ke pehle `n` insert hone se string ki length ek step barh chuki hai, isliye wo `index=3` ko auto-shift karke **`index=4`** kar deta hai. Nateeje mein humein exact `"nice!"` mil jata hai. *Real-world Tech:* Yeh model real-time text editing ke liye **Google Docs** aur Wave protocols mein use hota hai.
+
+#### 2. CRDTs (Conflict-free Replicated Datatypes) - The Immutable ID Grid
+
+CRDTs ka design pattern index transformation ke jhanjhat se bilkul aazad hota hai. Yeh string ke har single character ko dunya mein ek **Unique, Immutable ID** assign kar deta hai.
+
+* Maslan: `i=1A`, `c=2A`, `e=3A`.
+* User 2 jab `!` insert karega, toh wo operation index nahi bhejega, wo bhejega: *"Mera naya character `4B` hai, aur use strictly character `3A` ('e') ke baad hi insert karna hai"*.
+* User 1 jab `n` insert karega, wo kahega: *"Mera naya character `4A` hai, aur use `nil` (string ke shuru) mein insert karna hai"*.
+* Jab saare nodes in operations ko receive karte hain, toh unhein kisi transformation ki zaroorat nahi parti. Wo unique IDs ke graph pointers ko dekh kar naturally aik single stable state `"nice!"` par converge ho jate hain. *Real-world Tech:* CRDTs distributed databases jaise Redis Enterprise, Riak, aur Azure Cosmos DB mein built-in hote hain, aur sync engines mein **Yjs aur Automerge** ki shakl mein use kiye jate hain.
+
+---
+
+### Types of conflict
+
+Distributed monitoring mein conflicts do tarah ke hote hain: ek hote hain bilkul saaf aur wazeh conflicts, aur doosre hote hain intahai barik aur khufia conflicts.
+
+* **Explicit Conflicts (Wazeh Takraao):** Jab do users concurrent aakar database ke aik hi record ke aik hi specific field ko alag-alag values se overwrite karne ki koshish karein (jaise wiki page ka title badalna). Ise detect karna database engine ke liye bohot aasan hota hai.
+* **Implicit Semantic Conflicts (Khufia Takraao):** Yeh conflicts field level par nahi hote, balkay business domain ke rules (Invariants) ko tor dete hain.
+* *The Meeting Room Example:* Farz karein ek office meeting room booking system hai. Jab koi room book hota hai, toh system purane record ko update nahi karta, balkay database mein ek **Nayi Row Insert** karta hai.
+* Rule yeh hai ke ek room ek waqt mein sirf ek hi group book kar sakta hai. Do users aate hain aur aik hi waqt par Room 101 ko dopahar 12 baje ke liye book karte hain.
+* Dono jab button dabate hain, toh unke local leaders check karte hain ke database mein abhi tak 12 baje ki koi row nahi hai (room khali hai). Dono leaders successfully do alag rows insert kar dete hain. Jab data sync hota hai, toh database bina kisi low-level field error ke dono rows accept kar leta hai, lekin business level par **Double Booking Anomaly** paida ho jati hai jo software ko tabah kar deti hai. Is pechide transaction conflict ko hal karne ke liye hum agay chal kar *Serializable Transactions* aur distributed validation protocols ka deep study karenge.
+
+
+
+---
+
+## Plaintext Architecture Diagrams & Deep Breakdowns
+
+### Figure 6-9: Write Conflict on a Shared Record
+
+<div align="center">
+  <img src="./images/09.png" width="600"/>
+</div>
+
+```plaintext
+[ Client 1 ] ---> (Op: title='B') ---> [ Leader 1 (Region US) ] --+
+                                                                     | ---> (Asynchronous Sync Network)
+[ Client 2 ] ---> (Op: title='C') ---> [ Leader 2 (Region PK) ] --+                            |
+                                                                                                v
+                                                                                   [ Conflict State Detected ]
+                                                                                   Database holds Siblings: [B, C]
+
+```
+
+**Comprehensive Breakdown:** Is flow mein `Client 1` aur `Client 2` aapas mein bina coordinate kiye local regions ke alag leaders par hit marde hain. Leader 1 titles ko 'B' aur Leader 2 titles ko 'C' locked kar deta hai. WAN cross-sync network par jab dono records merge hone ke liye aate hain, toh database unke concurrent structure ko dekh kar conflict frame khara karta hai aur data mitaane ke bajaye unhein `Siblings Array` mein merge kar deta hai.
+
+### Figure 6-10: Amazon Shopping Cart Set Union Bug
+
+<div align="center">
+  <img src="./images/10.png" width="600"/>
+</div>
+
+```plaintext
+Device 1 (Laptop) ---> Original Cart: {DVD, Book} ---> Removes 'Book' ---> Local Cart: {DVD} --------+
+                                                                                                      |
+                                                                                                      v
+                                                                                       [ Asynchronous Merge Union ]
+                                                                                       Result: {DVD, Book, Soap} (BUG!)
+                                                                                                      ^
+                                                                                                      |
+Device 2 (Mobile) ---> Original Cart: {DVD, Book} ---> Removes 'DVD', Adds 'Soap' -> Local Cart: {Book, Soap} -+
+
+```
+
+**Comprehensive Breakdown:** Yeh diagram Amazon ke set-union bug ke core data flow ko trace karta hai. Device 1 ne book delete ki, Device 2 ne DVD delete ki aur soap add kiya. Jab database ne bina deletion tracking ke dono ka set union (`{DVD} U {Book, Soap}`) liya, toh delete ki hui items dobara merge stream mein filter ho kar cart mein wapas aa gaein.
+
+### Figure 6-11: Operational Transformation (OT) vs CRDT Merge Mechanics
+
+<div align="center">
+  <img src="./images/10.png" width="600"/>
+</div>
+
+```plaintext
+Operational Transformation (OT) Timeline:
+[ Initial: "ice" ] ---> Op 1: Insert('n', idx=0) ---> Local: "nice" 
+              \                                          |
+               \---> Op 2: Insert('!', idx=3) ---> [ Shifted via OT to idx=4 ] ---> Final: "nice!"
+
+CRDT Text-Grid Timeline:
+Character ID Registry: [ i=1A, c=2A, e=3A ]
+Replica 1 Operation: Insert(Char: 'n', ID: 4A, Before: 1A) --+
+                                                              | ---> Natural Graph Assembly ---> Final: "nice!"
+Replica 2 Operation: Insert(Char: '!', ID: 4B, After: 3A)  --+
+
+```
+
+**Comprehensive Breakdown:** Upper graph mein OT ka index-shifting runtime mechanism dikhaya gaya hai jahan indices ko live transform kiya ja raha hai taake formatting text break na ho. Lower graph mein CRDT architecture ko dikhaya gaya hai jahan position transformation ke bajaye immutable structural character IDs (`4A`, `4B`) ke absolute constraints ko use karke stream ko safe kiya gaya hai.
+
+---
+
+## Mockup System Design Scenario (Interview Prep)
+
+### Scenario Context
+
+Aap ek global Flight Booking Platform ke Principal Infrastructure Architect hain. System multi-leader server deployment par chal raha hai taake ticket booking ki operations zero latency ke sath execute hon.
+*Interviewer aap se ek critical scenario poochta hai:* "Farz karein dunya mein sirf ek aakhri seat bachi hai. Lahore ka user local leader par use book karta hai aur exact ussi millisecond par New York ka user local US leader par use book kar leta hai. Dono ko transaction `SUCCESS` chali jati hai. Aap is data tier ko multi-leader setting mein kaise design karenge ke data background mein sync hote waqt split-brain ya double seat allocation na ho?"
+
+### Architectural Design Implementation
+
+Hum is absolute consistency requirement ke liye Multi-Leader grid par strict **Token-Fencing Reservation Layer** aur **Conflict Avoidance Shard Allocation** deploy karenge.
+
+```plaintext
+[ Passenger LAH ] ---> POST /book_seat ---> [ API Gateway / Load Balancer ]
+                                                     |
+                                        (Hashes Flight_Number to Home Shard)
+                                                     v
+                                        [ Designated Leader Node (Region US) ]
+                                                     ^
+                                                     | (Forced WAN Coordinate routing)
+[ Passenger NYC ] ---> POST /book_seat -------------+
+                                                     |
+                                                     v (Executes Atomic Linear Check)
+                                        [ Final Database Single Source ]
+
+```
+
+### Comprehensive Architectural Explanation
+
+1. **Why Multi-Leader Fails for Hard Constraints:**
+Interviewer ko clear batayein ke seating allocation ya ticket booking ek **Strict Invariant Constraint** hai. Agar hum is transaction ko dono regions ke alag leaders par fully aazad active/active chalne denge, toh data automatically double allocate ho jayega aur flight over-book ho jayegi, jo business legal limits ko tor deta hai. Is tarah ke unique hard locks ke liye true multi-leader zero-conflict automation namumkin hai.
+2. **The Strategic Conflict Avoidance Solution:**
+Hum design level par seat patterns ko layout badal denge. `Flight_Number` (e.g., *PK-302*) ka consistent hash nikal kar poori dunya mein us specific flight ka **Designated Master Shard Leader** strictly ek hi region (e.g., US datacenter) ko assign kar denge.
+3. **The Execution Flow:**
+* Jab Lahore ka passenger ticket book karega, gateway request ko direct Pakistan ke leader par process karne ke bajaye background WAN link ke zariye strictly target router **US Region Master Shard** par route karega.
+* New York ke passenger ki request bhi ussi same leader par land karega.
+* US Leader ab pure single-leader mechanics ke tehat aik pipeline queue khari karega. Jo request pehle land karegi (chahe wo 1 microsecond pehle ho), use seat mill jayegi, aur doosri request furan `SEAT_NOT_AVAILABLE` ka exception return kar degi. Conflict paida hone se pehle hi architecture level par permanently avoid ho jayega!
+
+
+
+---
+
+## Quick Revision & Key Takeaways
+
+* **Core Summary:** Multi-leader architectures ka sabsay bada bottleneck write conflicts hain, jo tab paida hote hain jab do concurrent nodes aik doosre ke state se anjaan data modify karte hain. Inhein hal karne ke liye conflict avoidance (routing filter), LWW (random deletion with time risks), manual resolution (siblings tracking with cart anomalies), ya automatic text convergence mechanics use hote hain.
+* **The Architectural Rule:** Uniqueness guarantees (Usernames, Bank Accounts, Room Bookings) wale scenarios mein multi-leader write path lagane se parhez karein. Aise strict invariants par hamesha structural **Conflict Avoidance routing** ya centralized token registries ka use lazmi karein.
+* **Flash-Card Points:**
+* **Concurrent Writes:** Aise do operations jisme se kisi ko bhi aik doosre ke execution status ka current database state mein pata na ho.
+* **Conflict Avoidance:** Record level writes ko hamesha ghum-firakar aik hi single leader node par stream karne ki approach.
+* **Last Write Wins (LWW):** Timestamp base data merging jo consistency lane ke liye weak durability layegi aur updates silently dropped karegi.
+* **Siblings:** Database mein takraao ke waqt dono conflict values ko aik sath array form mein hold karne ka intermediate state.
+* **Operational Transformation (OT):** Index adjustment algorithms jo real-time online document editors (Google Docs) mein editing content merge karte hain.
+* **CRDT (Conflict-free Replicated Datatype):** Immutable markers aur unique IDs par mushtamil distributed datatypes jo bina text conversion coordinates ke updates automatically merge kar dete hain.
+
 
 
 ---
