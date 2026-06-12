@@ -450,6 +450,142 @@ Random updates ke resource overhead ko hal karne ke liye hum **LSM-Tree (Log-Str
 * **Zero-Disk Architecture (ZDA):** Aik aisa infrastructure jahan nodes ke paas koi local persistent disk state nahi hoti, saara data direct S3 par save hota hai.
 * **Compare-And-Set (CAS):** Object stores ka conditional write feature jo cluster leader election aur data concurrency control karne mein madad deta hai.
 
+---
 
+## Handling Node Outages
+
+Distributed system mein koi bhi node kisi bhi waqt down ho sakta hai. Yeh achanak kisi fault (hardware failure, power loss) ki wajah se bhi ho sakta hai, aur **Planned Maintenance** (jaise operating system ka security patch daalne ke liye machine ko reboot karna) ki wajah se bhi. System ke operational nizam ko smooth rakhne ke liye yeh bohot bada advantage hai ke hum baqi system ko down kiye bina individual nodes ko reboot kar sakein. Isliye hamara asli goal yeh hota hai ke agar koi node outage (failure) ho bhi jaye, toh pure system par uska asar na ke barabar ho aur **High Availability (HA)** barkarar rahe.
+
+---
+
+## Follower failure: Catch-up recovery
+
+Har follower node apni local disk par ek sakht change log barkarar rakhta hai, jisme leader se aane wali har data tabdeeli (replication stream) save hoti hai. Agar koi follower achanak crash ho jaye aur dobara restart ho, ya phir leader aur follower ke darmiyan network ki taar temporary toot jaye, toh iska recovery process kafi simple aur auto-managed hota hai:
+
+* **The Recovery Logic:** Restart hote hi follower apni local disk ke log ko parhta hai. Use furan pata chal jata hai ke crash hone se pehle usne aakhri transaction kaun si process ki thi. Phir wo leader se network par dubara raabta (connect) karta hai aur kehta hai: *"Main itne duration ke liye offline tha, mujhe is specific transaction ID ke baad ke saare data changes de do."*
+* **Backlog Replay:** Leader us gap ka saara data stream naye follower ko bhejta hai. Follower un saare writes ko sequentially apply karta hai, aur jab wo backlog khatam kar leta hai, toh wo leader ke sath live sync mein aa jata hai (it has caught up).
+
+### Performance aur Log Retention ka Bada Dilemma
+
+Bhale hi follower recovery sunne mein simple lagti hai, real-world production mein iske sath do bade **architectural performance bottlenecks** aate hain:
+
+1. **Catch-up Performance Catch:** If the system has high write throughput (yaani database par lagatar bohot tezi se data write ho raha hai) ya follower kafi dino tak offline raha ho, toh catch-up ke dauran aik massive backlog jama ho jata hai. Jab follower recover ho raha hota hai, toh leader par data send karne ka aur follower par data execute karne ka **CPU aur Network load** drastically barh jata hai, jo live user queries ko slow kar sakta hai.
+2. **The Leader's Storage Dilemma:** Leader apne change logs ko tabhi safely delete kar sakta hai jab saare followers confirm kar dein ke unhone data read kar liya hai. Lekin agar aik follower lambe arse tak gayab rahe, toh leader ke paas do mushkil raste hote hain:
+* **Option A:** Wo logs ko delete na kare aur follower ka wait kare. Iska khatra yeh hai ke leader ki apni **disk full** ho jayegi aur poora database crash ho jayega.
+* **Option B:** Leader logs ko delete kar de. Iska nuksan yeh hoga ke jab purana follower wapas aayega, toh wo log se catch up nahi kar payega. Use dubara zinda karne ke liye humein poora data snapshot (backup) shuru se load karna padega, jo bohot expensive operation hai.
+
+
+
+---
+
+## Leader failure: Failover
+
+Follower node ka girna aasan tha, lekin **Leader Node ka crash hona intahai mushkil aur pechida (tricky) challenge hai**. Agar leader fail ho jaye, toh system mein naye writes aana band ho jayenge. Is tabahi se bachne ke liye humein aik upgraded process chalana parta hai jise **Failover** kehte hain. Failover mein:
+
+* Kisi aik follower node ko promote karke naya leader banaya jata hai.
+* Saare clients ko reconfigure kiya jata hai taake wo naye writes naye leader ko bhejein.
+* Baqi bache huay followers ko bataya jata hai ke ab se wo purane leader ke bajaye naye leader ke change stream ko consume karein.
+
+Failover ka kaam haath se (manually) bhi kiya jata hai (jahan admin ko alert jata hai aur wo manually commands chalata hai) ya phir tools ke zariye **Automatically** hota hai. Ek automatic failover nizam standard taur par in 3 steps par chalta hai:
+
+1. **Failure Detection (Heartbeat Timeout):** Nodes aapas mein continuously chote messages (ping/pong) bhejte rehte hain. Agar leader node kisi makhsoos duration (jaise 30 seconds) tak koi jawab na de, toh system use murda (dead) tasawwur kar leta hai. *(Agar planned maintenance ho toh yeh rule apply nahi hota kyunke leader shutdown hone se pehle safely apni leadership doosre node ko handoff kar deta hai).*
+2. **Choosing a New Leader (The Consensus Problem):** Baqi bache huay healthy replicas aapas mein aik election algorithm chalate hain (ya phir aik centralized controller node naya leader appoint karta hai). Sabsay behtareen candidate wo follower hota hai jiska data leader se sabsay zyada synced ho (highest Log Sequence Number - LSN), taake data loss minimum ho. Saare nodes ka aik naye leader par razi hona aik **Consensus Problem** hai.
+3. **System Reconfiguration:** Saare clients ke write routers ko naye leader ka IP address pakda diya jata hai. Agar purana leader galti se dubara network par zinda ho jaye, toh system use forced step-down karwata hai aur use naye leader ka follower bana deta hai.
+
+---
+
+### Failover ke 4 Bade Nightmares (Things that go wrong)
+
+Automatic failover software engineering mein sabsay khatarnak operations mein se aik hai. Ismein niche di gayi 4 bari tabahiyan aa sakti hain:
+
+* **The Durability Breach (Unreplicated Writes Loss):** Agar system mein *asynchronous replication* chal rahi thi, toh leader fail hone se exact pehle jo naye writes followers tak nahi pohanchaye ja sakay the, wo purane leader ke paas hi reh gaye. Jab naya leader banta hai, toh wo un missing writes ke bina hi naya data accept karna shuru kar deta hai. Agar purana leader dubara network par aata hai, toh uske un-replicated writes ko **discard (delete)** kar diya jata hai. Iska matlab hai ke client ko jo write `SUCCESS` mila tha, wo asal mein durable nahi tha aur gayab ho gaya.
+* **The Cross-System Inconsistency (GitHub Case Study):** Data discard karna tab tabah-kun sabit hota hai jab database ke bahar koi aur caching tier (jaise Redis) chal raha ho.
+> **Real-World Incident (GitHub):** GitHub par ek aisa hi incident hua jahan ek out-of-date MySQL follower ko galti se leader bana diya gaya. MySQL naye rows ko primary key dene ke liye aik autoincrementing counter use karta tha. Chunke naya leader data mein piche tha, uska counter purane leader se piche reh gaya tha. Usne naye rows ko dubara wahi primary keys assign karna shuru kar dein jo purana leader pehle hi kisi aur data ko de chuka tha. Yeh primary keys external Redis store mein bhi mapping ke liye use ho rahi thin. Nateeja yeh nikala ke primary keys ke reuse hone ki wajah se database aur Redis out-of-sync ho gaye, aur **kuch users ka private data galti se bilkul galat users ko screen par show ho gaya!**
+
+
+* **The Split-Brain Catastrophe:** Yeh distributed systems ki sabsay khofnak bimari hai. Network partition ki wajah se ho sakta hai ke purana leader aur baqi followers aapas mein baat na kar sakein. Followers samjhenge leader marr gaya aur wo naya leader chun lenge. Lekin purana leader zinda hoga aur wo sochega main hi king hoon. Ab system mein **do active leaders** ban jayenge aur dono clients se writes accept kar rahe honge. Agar inke conflicts ko resolve na kiya jaye, toh poora database data corruption ka shikar ho jata hai. Is se bachne ke liye **Fencing (Fencing/STONITH)** mechanisms se purane leader ko goli maari jati hai (shut down kiya jata hai).
+* **The Timeout Calibration Dilemma:** Heartbeat timeout taye karna aik makhsoos talmel (balance) chahta hai. Agar timeout bohot lamba rakhenge, toh failover der se hoga aur system itni der tak down rahega. Agar timeout zaroorat se zyada chota (short) rakh diya, toh network mein achanak traffic spike ya temporary delay aane par system galti se chalte huay leader ko dead samajh kar **unnecessary failovers** trigger kar dega, jo chalte huay load ko mazeed tabah kar dega.
+
+---
+
+### Core Core Failover aur Reconfiguration Flow
+
+Leader failure ke baad naye leader ke election aur client redirection ke data flow ko is plaintext diagram se samjhein:
+
+```plaintext
+[ Healthy Client ] ---> (Tries Write) ---> [ Crashed Leader (No Response) ]
+                                                       |
+                                            (Timeout Triggered: 30s)
+                                                       v
+                                          [ Consensus Election Tier ]
+                                  (Selects Follower with Highest LSN / Sync)
+                                                       |
+                                                       v
+[ Healthy Client ] <--- 2. Updates Routing 계약 --- [ New Leader Elected ]
+       |                                                |
+       +--------------- 3. Sends New Writes ----------->| ---> 4. Replicates Data
+                                                        |
+                                                        v
+                                             [ Follower 2 (Redirected) ]
+
+```
+
+#### Comprehensive Diagram Explanation:
+
+1. **The Timeout Trigger:** Client jab `Crashed Leader` par write bhejta hai, toh use response nahi milta. System ka internal monitoring engine 30 seconds ka timeout detect karke `Consensus Election Tier` ko trigger karta hai.
+2. **The Democratic Election:** Replicas aapas mein votes calculate karte hain aur sabsay highest data sequence wale node ko `New Leader` elect kar lete hain.
+3. **The Routing Flip:** Client ka network proxy router naye leader ke IP par flip ho jata hai aur naye incoming writes safely execute hone lagte hain. Baqi bache huay nodes ko naye leader ke change stream se attach kar diya jata hai.
+
+---
+
+## Mockup System Design Scenario (Interview Prep)
+
+### Scenario Context
+
+Aap aik high-frequency multi-region Crypto Exchange Platform ke Lead Database Engineer hain. System automatic failover par set hai. Ek din network split ki wajah se Asia region aur US region ka aapas mein connection toot jata hai. Asia waala node sochega US wala dead hai aur leadership claim kar lega, jabke US wala pehle se active leader tha. Beide nodes active writes accept karna shuru kar dete hain.
+*Interviewer aap se poochta hai:* "Aap is split-brain anomaly ko production tier par aane se kaise rokenge? Aur data integrity bachane ke liye kaun sa fencing pattern implement karenge?"
+
+### Architectural Design Implementation
+
+Hum is stateful catastrophe se bachne ke liye **Lease-Based Fencing Engine (Distributed Locks)** aur **Quorum Majority Validation Pattern** deploy karenge.
+
+```plaintext
+                                +---------------------------+
+                                | Central Coordinator (etcd)|
+                                +---------------------------+
+                                  /                       \
+                 1. Holds Active /                         \ 2. Denies Lease
+                    Lease       v                           v   (No Majority)
+         +--------------------------+           +--------------------------+
+         |  US Node (Valid Leader)  |           | Asia Node (Blocked Node) |
+         +--------------------------+           +--------------------------+
+         | Status: Safe to Write    |           | Status: Fenced / Fails   |
+         +--------------------------+           +--------------------------+
+
+```
+
+### Comprehensive Architectural Explanation
+
+1. **Implementing Lease-Based Fencing (Distributed Locks):**
+Interviewer ko batayein ke split-brain se bachne ke liye leader node ko absolute permanent power nahi di ja sakti. Leader ko aik centralized storage engine (jaise *etcd* ya *ZooKeeper*) se aik temporary **Lease / Lock** lena padega (e.g., for 5 seconds). Leader tabhi tak writes accept karega jab tak uski lease valid hai aur wo use har 2 seconds baad refresh kar raha hai.
+2. **Handling the Network Split Execution:**
+* **The US Node Flow:** US node ke paas lease mojud hai. Agar network partition aata hai aur Asia node alag ho jata hai, toh US node checking karega: kya uske paas baqi nodes ki majority (Quorum) mojud hai? Agar US node ke sath cluster ke 5 mein se 3 nodes connected hain, toh wo apni lease refresh kar lega aur safely chalta rahega.
+* **The Asia Node Isolation:** Asia node jab alag hoga, toh wo dekhega ke uske paas majority quorum (only 2 out of 5 nodes) nahi hai. Wo chah kar bhi naya leader nahi ban sakega kyunke consensus algorithm use naye node validation ki izazat nahi dega.
+
+
+3. **The Final Safety Catch (Token Fencing):**
+Agar purana node galti se disconnected state mein database disk par write karne lagega, toh hum storage layer par aik monotonically increasing token number checking system chalayenge. Storage tier check karega ke naye token number `Token: 42` aa chuka hai, isliye purane leader ke `Token: 41` wale saare requests ko network gateway par hi **Fenced (Reject)** kar diya jayega. Data corruption ka khatra zero ho jayega!
+
+---
+
+## Quick Revision & Key Takeaways
+
+* **Core Summary:** Follower crash hone par local change log aur **LSN** ke zariye leader se backlog maang kar aasan recovery (**Catch-up**) kar leta hai. Leader crash hone par **Failover** process chalta hai jahan naya leader elect hota hai, lekin isme data loss, database counters lag (GitHub incident), aur do leaders ka aik sath zinda ho jana (**Split-Brain**) jaisay bade risk shamil hote hain.
+* **The Architectural Rule:** Automatic failover design karte waqt timeout ko zaroorat se zyada chota mat rakhein warna network jitters unnecessary failovers ki tabahi layenge, aur hamesha distributed split-brain se bachne ke liye **Lease Fencing** aur **Quorum Majority** contracts lagayein.
+* **Flash-Card Points:**
+* **Failover:** Old leader ke crash hone par kisi follower ko master tier par promote karne aur routing badalane ka operation.
+* **Split-Brain Anomaly:** Network split ki wajah se aik hi cluster mein do nodes ka khud ko leader samajh baithna aur writes accept karna.
+* **Fencing (Fencing Token):** Purane leader ke network requests aur disk writes ko lock coordinate check karke system se block/reject karne ka mechanism.
+* **LSN Preference in Election:** Failover ke dauran hamesha us follower ko vote dena jiska log sequence number sabsay high ho taake zero data loss ho.
 
 ---
