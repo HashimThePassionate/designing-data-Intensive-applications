@@ -1397,3 +1397,159 @@ Rider search ke dauran agar workflow worker crash ho jata hai, toh Temporal ka n
 * **Determinism:** Aik aisa code jo har dafa chalne par identical inputs ke sath bilkul identical output aur function call sequence generate kare.
 
 ---
+
+## Event-Driven Architectures
+
+Distributed systems mein data flow karne ka aik aur intahai behtareen tareeqa **Event-Driven Architecture (EDA)** hai. RPC (Remote Procedure Call) ke mukable mein yahan data ke flow ka nizam bilkul badal jata hai.
+
+EDA ke context mein jab aik process kisi doosre process ko koi request bhejti hai, toh use hum request nahi balkay **Event ya Message** kehte hain. Is architecture ki sabsay bari khubsurti yeh hai ke data bhejne wala (Sender) kabhi bhi samne wale (Recipient) ke jawab ka intezar nahi karta. Wo message bhej kar apna baqi kaam shuru kar deta hai, jise hum **Asynchronous Communication** kehte hain.
+
+Sath hi, sender aur recipient ke darmiyan koi direct network connection nahi hota. Unke darmiyan aik teesra component baithta hai jise **Message Broker** (ya Event Broker, Message Queue, Message-Oriented Middleware) kaha jata hai. Sender apna message broker ke hawale karta hai, aur broker use temporarily apne paas store kar leta hai jab tak recipient use utha na le.
+
+### RPC ke mukable mein Message Broker istemal karne ke 5 Bade Fawaid (Advantages)
+
+* **System Reliability (As a Buffer):** Agar kisi wajah se message receive karne wali service down hai ya us par traffic ka bohot zyada load (overload) hai, toh system crash nahi hota. Message Broker aik **Buffer** ka kaam karta hai aur saare messages ko apne paas safe rakhta hai. Jab receive karne wali service zinda ya normal hoti hai, wo aahista-aahista messages process kar leti hai.
+* **Automatic Redelivery (Crash Protection):** Agar koi worker process kisi message ko parhte waqt achanak crash ho jaye, toh message broker ko pata chal jata hai. Broker us message ko automatically kisi doosre zinda worker node par **redeliver (dobara send)** kar deta hai, jis se koi bhi data loss nahi hota.
+* **No Service Discovery Needed:** RPC mein client ko server ka IP aur Port dhoondna parta hai. Lekin Message Broker ke lagne se services ko aik doosre ka IP address janne ki koi zaroorat nahi hoti. Senders ko sirf Message Broker ka IP pata hona chahiye, wo wahan message drop kar dete hain.
+* **Fan-out Capability (Multiple Recipients):** Aik hi message ko aik hi waqt mein **multiple alag-alag services** ko bheja ja sakta hai. Maslan, jaise hi "Order Placed" ka event aaye, use Inventory, Billing, aur Notification teeno services aik sath receive kar sakti hain.
+* **Logical Decoupling (Aazad Nizam):** Sender aur Recipient aik doosre se bilkul aazad (decoupled) ho jate hain. Sender bas message publish karta hai aur use is baat se koi farq nahi parta ke us message ko kaun si service consume kar rahi hai ya backend par kya logic chal rahi hai.
+
+```plaintext
+[ Sender Process ] ---> (Publishes Event) ---> [ Message Broker (Buffer Storage) ]
+                                                            |
+                                                            +---> [ Consumer Node A (Processes) ]
+                                                            |
+                                                            +---> [ Consumer Node B (Crashed -> Redeliver) ]
+
+```
+
+### Comprehensive Diagram Explanation
+
+Is architectural flow mein dikhaya gaya hai ke `Sender Process` direct consumers se baat nahi kar raha. Wo sirf event generate karke `Message Broker` ko bhej deta hai. Broker us message ko disk ya memory mein buffer karta hai. Aage se `Consumer Node A` apna message safely utha leta hai. Agar `Consumer Node B` message process karte waqt crash ho jaye, toh Message Broker automatic detection ke zariye us message ko dubara queue mein daal kar kisi aur healthy node ko bhej deta hai.
+
+---
+
+## Message brokers
+
+Guzashta barson mein Message Brokers ki dunya par barhi barhi commercial companies ka raaj tha (jaise TIBCO, IBM WebSphere, aur webMethods). Lekin aaj ke modern open-source aur cloud ecosystem mein **RabbitMQ, Apache Kafka, Redpanda, NATS, aur ActiveMQ** bohot widespread hain. Iske sath cloud providers ki apni managed services bhi hain jaise **Amazon Kinesis, Azure Service Bus, aur Google Cloud Pub/Sub**.
+
+Har broker ke andar data deliver karne ke rules (semantics) thode mukhtalif hote hain, lekin motay taur par **do main message distribution patterns** istemal kiye jate hain:
+
+### 1. Named Queue Pattern (Point-to-Point)
+
+Is pattern mein aik process message ko aik makhsoos naam wali queue (Queue) mein dalta hai. Agar is queue ke aage aik se zyada consumers (Workers) lage huay hain, toh message un sab ko nahi milta, balkay **unmein se sirf kisi aik single consumer** ko deliver hota hai. Yeh pattern tab use hota hai jab aapko workload ko multiple machines par barabar baantna (Load Balance) ho.
+
+### 2. Named Topic Pattern (Publish/Subscribe - Pub/Sub)
+
+Is pattern mein sender message ko aik makhsoos **Topic** par publish karta hai. Is topic ke jitne bhi **Subscribers** (recipients) honge, Message Broker wo message **un sab ko deliver karega**. Har subscriber ke paas us message ki apni aik alag copy pahuchegi.
+
+### Data Models, Schemas aur Durability ka Nizam
+
+Message Brokers aam taur par data ke structure par koi pabandi nahi lagate (they don't enforce a data model). Unke liye aapka message sirf aik **raw byte sequence** hai jisme kuch metadata attach hota hai. Is liye aap kisi bhi format (JSON, Protocol Buffers, ya Avro) mein data encode kar ke bhej sakte hain. Production mein log yahan bhi **Schema Registry** lagate hain taake data compatible rahe, aur messaging ke contracts ko define karne ke liye **AsyncAPI** (jo OpenAPI ka messaging equivalent hai) ka use kiya jata hai.
+
+* **Durability vs Databases:** Databases ka maqsad data ko hamesha ke liye store rakhna hota hai. Lekin zyadatar Message Brokers ka usool yeh hota hai ke **jaise hi consumer message ko parh leta hai (consume kar leta hai), broker use automatic delete kar deta hai**. Haam, crash safety ke liye ye messages ko disk par write zaroor karte hain. Kuch modern brokers (jaise Apache Kafka) ko hum configure kar sakte hain ke wo messages ko hamesha (independently) store rakhein, jo ke **Event Sourcing** architectures ke liye lazmi shart hai.
+
+> **Khatra (The Forwarding Data-Loss Gotcha):** Distributed workflows mein aksar aisa hota hai ke aik Consumer broker se message uthata hai, usme thoda badalao karta hai, aur use kisi doosre Topic par wapas republish (forward) kar deta hai. Agar is dauran rolling upgrade chal raha ho aur aapka consumer purane code par ho, toh wo naye fields ko drop kar dega. Jab wo message dobara forward karega, toh **data silently delete ho jayega** (bilkul waisay hi jaise database ke Figure 5-1 wale case mein hua tha). Is liye unknown fields ko memory mein preserve rakhna yahan bhi critical hai.
+
+```plaintext
+Queue Pattern (Point-to-Point):
+[ Message ] ---> [ Named Queue ] ---> [ Consumer 1 (Gets Message) ]
+                                 ---> [ Consumer 2 (Idle / Misses it) ]
+
+Topic Pattern (Pub/Sub):
+[ Message ] ---> [ Named Topic ] ---> [ Subscriber 1 (Gets Copy) ]
+                                 ---> [ Subscriber 2 (Gets Copy) ]
+
+```
+
+### Comprehensive Diagram Explanation
+
+* **Queue Model:** Is structural layout mein jab data `Named Queue` mein jata hai, toh load balancing algorithm ke tehat message sirf `Consumer 1` ke paas jata hai, jabke `Consumer 2` khali rehta hai. Aik message do jagah nahi ja sakta.
+* **Topic Model:** Jab wahi message `Named Topic` par bheja jata hai, toh broker fan-out mechanism chalata hai. `Subscriber 1` aur `Subscriber 2` dono ko identical data packets deliver hote hain, kyunke dono ne us topic ko subscribe kiya hua hai.
+
+---
+
+## Distributed actor frameworks
+
+**Actor Model** aik programming model hai jo aik single process ke andar multi-threading (concurrency) ko aasan banane ke liye design kiya gaya hai. Aam taur par threads ke sath kaam karte waqt engineers ko race conditions, deadlocks, aur locking ke dangerous masail ka samna karna parta hai. Actor model in sab ko khatam kar deta hai.
+
+Actor model mein saari business logic **Actors** ke andar band (encapsulate) hoti hai. Aik actor dunya mein aik single client ya entity ko darshata hai. Iska apna aik **Local State** hota hai jo dunya ka koi doosra actor direct touch ya dekh nahi sakta. Actors aaps mein baat karne ke liye sirf aur sirf **Asynchronous Messages** ka sahara lete hain.
+
+Distributed Actor Frameworks (jaise **Akka, Orleans, ya Erlang/OTP**) isi local actor model ko uthakar poore data center ke **multiple server nodes** par scale kar dete hain.
+
+### Location Transparency in Actor Model
+
+Actor frameworks mein **Location Transparency** ka concept RPC ke mukable mein bohot behtareen aur robust tarike se kaam karta hai. Iski wajah bohot dilchasp hai:
+
+RPC ka khwab tha ke remote network call local jaisi dikhe, jo ke fail ho gaya kyunke local calls kabhi fail/lost nahi hotin par network calls hoti hain. Lekin Actor Model mein shuru se hi (aik hi process ke andar bhi) yeh maan kar chala jata hai ke **messages raste mein gum (lost) ho sakte hain** aur communication hamesha asynchronous hi hogi.
+
+Chunke actor model ka core design hi network ke behavior se match karta hai, is liye jab do actors mukhtalif nodes par baith kar baat karte hain, toh framework background mein unke messages ko transparently bytes mein encode karta hai, network par bhejta hai, aur doosri taraf decode kar deta hai. Client code ko farq nahi parta ke samne wala actor usi RAM mein hai ya dunya ke doosre kone mein mojud server par.
+
+* **Rolling Upgrade Challenge:** Distributed actor frameworks aik tarah se message broker aur application logic ko aik hi jaan bana dete hain. Lekin agar aapko apni actor app ka rolling upgrade karna hai, toh forward aur backward compatibility ka khayal rakhna hi padega. Kyunke jab naya node deploy hoga, toh wo purane node wale actor ko message bhejega. Agar unka serialization format (Protobuf/Avro) tight na hua, toh communication toot jayegi.
+
+```plaintext
+Node A (New Version)                             Node B (Old Version)
++-----------------------+                        +-----------------------+
+|  [ Actor X ]          |                        |  [ Actor Y ]          |
+|       |               |                        |       ^               |
+|       v               |                        |       |               |
+| (Sends Message)       |                        | (Decodes Message)     |
+|  Enchodes via Avro    |                        |  Handles Old Fields   |
++-----------------------+                        +-----------------------+
+            \                                               ^
+             \_______ (Network Byte Stream Stream) ________/
+
+```
+
+### Comprehensive Diagram Explanation
+
+Is architecture mein `Node A` par naya code (`v2`) chal raha hai aur `Node B` par purana code (`v1`) chal raha hai. Jab `Actor X` network par `Actor Y` ko message bhejta hai, toh framework use background mein binary streams mein encode kar deta hai. Chunke humne compatibility rules apply kiye hain, `Node B` par baitha `Actor Y` naye binary format ko bina crash huay decode kar leta hai aur unknown fields ko safely handle ya ignore kar deta hai.
+
+---
+
+## Mockup System Design Scenario (Interview Prep)
+
+### Scenario Context
+
+Aap aik global E-Commerce Platform (jaise Amazon) ka Order Processing System design kar rahe hain. Jab user order place karta hai, toh teen mukhtalif kaam hone hote hain: Warehouse se inventory reserve karna, credit card charge karna, aur email send karna. System high-scale par chalna chahiye aur koi component down ho toh data stream break nahi honi chahiye.
+*Interviewer aap se poochta hai:* "Aap is pure flow ke liye gRPC (RPC model) use karenge ya Apache Kafka (Event-Driven Model)? Apne architectural choice ke trade-offs ko detail mein samjhein."
+
+### Architectural Design Implementation
+
+Hum high availability, fault tolerance, aur scaling guarantees ke liye **Apache Kafka (Event-Driven Architecture)** ka intekhab karenge. Niche iska complete dataflow aur design layout diya gaya hai:
+
+```plaintext
+[ Order Service (Producer) ] ---> Publishes "Order_Placed" Event ---> [ Apache Kafka Cluster ]
+                                                                             |
+                     +-----------------------+-----------------------+-------+
+                     |                       |                       |
+                     v                       v                       v
+         [ Inventory Service ]       [ Payment Service ]     [ Notification Service ]
+         (Topic Subscriber)          (Topic Subscriber)      (Topic Subscriber)
+
+```
+
+### Comprehensive Architectural Explanation
+
+1. **RPC (gRPC) Model ka Failure Analysis:**
+Interviewer ko batayein ke agar hum gRPC use karein, toh `Order Service` ko aik sath teeno services ko call lagani paregi. Agar us waqt `Notification Service` overload ya down hui, toh poori gRPC request fail ho jayegi aur user ko screen par error dikhega, jo ke bad customer experience hai.
+2. **Event-Driven (Kafka) Solutions & Trade-offs:**
+* **Data Decoupling:** Kafka Pub/Sub model lagane se `Order Service` sirf `Order_Placed` ka event Kafka topic par phenk deti hai aur user ko "Order Received" ka screen dikha deti hai.
+* **Fault Tolerance:** Agar `Notification Service` 10 minute ke liye down bhi ho jaye, toh Kafka uske messages ko disk par buffer rakhega. Jaise hi service up hogi, wo purane offset se messages read karke emails send kar degi—zero message loss!
+* **Independent Scaling:** Agar sale ke dino mein inventory par load zyada ho, toh hum Kafka ke partition mechanism ke tehat sirf `Inventory Service` ke consumers ko scale (horizontal scaling) kar sakte hain, baqi billing service normal chalti rahegi.
+
+
+
+---
+
+## Quick Revision & Key Takeaways
+
+* **Core Summary:** Event-Driven architectures mein data direct network calls ke bajaye **Message Brokers** ke zariye asynchronously flow karta hai. Distributed Actor frameworks (Akka/Orleans) is messaging pattern ko in-memory actors ke sath integrate karke poore cluster par system design ko location-transparently scale karte hain.
+* **The Architectural Rule:** Message pipeline ke andar jab koi consumer data read karke aage forward (republish) kar raha ho, toh parser ko hamesha unknown fields memory mein preserve karne ke liye configure karein, warna rolling upgrades ke dauran data khamoshi se delete ho jayega.
+* **Flash-Card Points:**
+* **Asynchronous Communication:** Message send karke bina kisi blocking response ke intezar ke aage nikal jana.
+* **Named Queue:** Point-to-point pattern jahan ek message sirf aik hi unique worker process ko milta hai.
+* **Named Topic:** Pub/Sub pattern jahan ek message saare active subscribers ko delivered hota hai (Fan-out).
+* **Location Transparency (Actors):** Aik aisa design jahan local actor call aur remote network actor call ka programming format bilkul identical hota hai.
+
+---
