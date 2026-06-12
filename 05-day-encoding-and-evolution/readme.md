@@ -480,3 +480,242 @@ Protobuf parsers automatically unknown fields ko ek alag raw buffer ya opaque va
 * **Repeated Fields:** Protobuf mein bina kisi explicit array wrapper ke, ek hi tag ko baar-baar binary format mein repeat karke list banayi jati hai.
 
 ---
+
+## Avro
+
+Apache Avro ek aur intehai power-pack binary encoding format hai, jise 2009 mein Apache Hadoop ke ek sub-project ke taur par shuru kiya gaya tha. Isko banane ki wajah yeh thi ke Google ka Protocol Buffers Hadoop ke analytics aur massive data processing ke use cases mein poori tarah fit nahi baith raha tha.
+
+Protobuf ki tarah, Avro ko bhi data encode aur decode karne ke liye **Schema** ki zaroorat hoti hai. Avro ke paas do tarah ki schema languages hain:
+
+1. **Avro IDL (Interface Definition Language):** Yeh insaano ke parhne aur manually edit karne ke liye aasan aur clear hoti hai.
+2. **JSON-Based Schema:** Yeh machines aur automated scripts ke liye parhna aur generate karna bohot aasan hoti hai.
+
+Agar hum apne pichle user record wale example ko Avro IDL mein likhein, toh schema aisa dikhega:
+
+```protobuf
+record Person {
+ string userName;
+ union { null, long } favoriteNumber = null;
+ array<string> interests;
+}
+
+```
+
+Aur agar isi schema ko mashino ke liye JSON format mein likha jaye, toh yeh is tarah dikhega:
+
+```json
+{
+ "type": "record",
+ "name": "Person",
+ "fields": [
+ {"name": "userName", "type": "string"},
+ {"name": "favoriteNumber", "type": ["null", "long"], "default": null},
+ {"name": "interests", "type": {"type": "array", "items": "string"}}
+ ]
+}
+
+```
+
+### Sab se Chota Data Size (32 Bytes ka Record)
+
+Aapko yaad hoga ke isi record ne JSON text mein **81 bytes** liye, MessagePack mein **66 bytes** liye, aur Protobuf mein **33 bytes** liye. Lekin **Avro ne is pure record ko sirf 32 bytes mein compress kar diya!** Yeh ab tak ka sab se compact size hai.
+
+Is extreme bachat ki wajah yeh hai ke Avro ke binary payload ke andar **na toh field names hote hain aur na hi koi field tags (numbers) hote hain**.
+
+---
+
+### Figure 5-4 ka Deep Byte Breakdown
+
+Chaliye  mein dikhaye gaye 32 bytes ke sequence ko bilkul bacho ki tarah step-by-step samajhte hain ke Avro ne bina kisi tag ya naam ke data ko kaise pack kiya:
+
+<div align="center">
+  <img src="./images/04.png" width="600"/>
+</div>
+
+```plaintext
++------+--------------------------+------+--------+------+----------------------------+
+| 0x0c | "Martin" (6 bytes ASCII) | 0x02 | f2  14 | 0x04 | 0x16 | "daydreaming" (11B) |
++------+--------------------------+------+--------+------+----------------------------+
+| 0x0e | "hacking" (7 bytes ASCII)| 0x00 |
++------+--------------------------+------+
+
+```
+
+#### 1. Pehla Field: `userName` ("Martin")
+
+* **`0x0c` (Length Prefix):** Avro integers aur lengths ko encode karne ke liye *Variable-length ZigZag encoding* use karta hai. Iska asan formula yeh hai ke jo bhi actual length hoti hai, use $2$ se multiply kiya jata hai. Chunke "Martin" ki length 6 characters hai, toh $6 \times 2 = 12$, aur 12 ko hex mein **`0x0c`** kehte hain.
+* **`4d 61 72 74 69 6e`:** Yeh pure 6 bytes hain jo ASCII/UTF-8 mein `"Martin"` likhte hain. Pura payload parhte waqt kahin nahi likha ke yeh ek string hai ya iska naam `userName` hai, parser sirf schema dekh kar samajhta hai ke pehla field string hi hoga.
+
+#### 2. Dusra Field: `favoriteNumber` (1337)
+
+* **`0x02` (Union Branch Index):** Schema mein `favoriteNumber` ek union type hai: `["null", "long"]`. Iska matlab hai ke isme ya toh null aa sakta hai ya long number. Avro binary payload mein batata hai ke kaun sa branch select hua hai. `null` pehla branch hai (Index 0) aur `long` dusra branch hai (Index 1). Formula ke mutabaq Index $1 \times 2 = 2$, jise hex mein **`0x02`** likha gaya hai. Yeh batata hai ke *"Agay null nahi, balkay long value aa rahi hai!"*
+* **`f2 14` (The Value 1337):** Yeh do bytes variable-length integer encoding ke zariye `1337` ke number ko store karte hain.
+
+#### 3. Tisra Field: `interests` (Array)
+
+* **`0x04` (Array Item Count):** Array shuru hote hi Avro batata hai ke is block mein kitne items hain. Hamare paas 2 items hain ("daydreaming" aur "hacking"). Formula ke mutabaq $2 \times 2 = 4$, yaani hex mein **`0x04`**.
+* **`0x16` aur "daydreaming":** `0x16` decimal mein 22 banta hai. Formula reverse karein toh $22 / 2 = 11$, yaani 11 characters lambi string. Agle bytes `"daydreaming"` ka data hain.
+* **`0x0e` aur "hacking":** `0x0e` decimal mein 14 banta hai. Reverse formula: $14 / 2 = 7$, yani 7 characters lambi string. Agle bytes `"hacking"` ka data hain.
+* **`0x00` (End of Array):** Array ke aakhir mein `0x00` lagaya jata hai, jo batata hai ke array ke items ab khatam ho chuke hain (0 items follow).
+
+> **Crucial Insight:** Agar aap is 32-byte ke raw data ko bina schema ke kisi decode karne wale ko de dein, toh wo kabhi nahi jaan payega ke iska kya matlab hai. Wo ise sirf random bytes samjhega. Avro ko decode karne ka akela tareeqa yeh hai ke aap exact usi tartib (order) se bytes ko parhein jo schema mein likhi hui hai.
+
+---
+
+## The writer’s schema and the reader’s schema
+
+Chunke binary data mein koi tag ya field name nahi hota, toh phir Avro mein Schema Evolution (badlao) kaise mumkin hai? Iska jawab Figure 5-5 aur Figure 5-6 mein chipa hai. Avro do alag-alag schemas ka concept use karta hai:
+
+* **Writer’s Schema:** Jab koi application data ko encode karke write karti hai, toh wo us waqt ke apne mojooda schema version ko use karti hai. Is ko Writer's Schema kehte hain.
+* **Reader’s Schema:** Jab koi application data ko read aur decode karti hai, toh wo apne paas mojood schema version ke mutabaq data expect karti hai. Is ko Reader's Schema kehte hain.
+
+### Schema Resolution (Figure 5-5 aur Figure 5-6 ka Breakdown)
+
+<div align="center">
+  <img src="./images/05.png" width="600"/>
+</div>
+
+Figure 5-5 dikhata hai ke Protobuf mein encoding aur decoding ke dauran sirf unke apne-apne schema versions use hote hain kyunke unke paas numeric tags hote hain. Lekin Avro mein decoding ke waqt **Reader's Schema aur Writer's Schema dono ka hona lazmi hai**.
+
+<div align="center">
+  <img src="./images/06.png" width="600"/>
+</div>
+
+Figure 5-6 ke mutabaq, jab data read hota hai, toh Avro ka library engine dono schemas ko aamne-saamne rakhta hai aur unke darmiyan farq ko **resolve (translate)** karta hai:
+
+* **Field Order Mismatch:** Agar Writer's schema mein `userName` pehle hai aur `favoriteNumber` baad mein, lekin Reader's schema mein unka order ulta hai, toh Avro ka reader field ke **Names** ko aapas mein match karke data ko automatisch sahi variable mein map kar deta hai.
+* **Ignoring Extra Fields:** Agar Writer's schema mein koi aisa field (`photoURL`) hai jo Reader's schema mein mojood nahi hai, toh reader schema resolution ke dauran us field ke bytes ko chup-chaap ignore karke skip kar deta hai.
+* **Filling Missing Fields:** Agar Reader kisi aise field (`userID`) ki umeed kar raha hai jo purane Writer's data mein tha hi nahi, toh Reader's schema mein di gayi **Default Value** se us field ko fill kar diya jata hai.
+
+---
+
+## Schema evolution rules
+
+Avro mein forward aur backward compatibility barkarar rakhne ke liye kuch intehai sakht rules hain:
+
+* **Default Values ka Lazmi Hona:** Aap Avro schema mein sirf wahi field add ya remove kar sakte hain jiske sath ek **default value** define ki gayi ho (jaise hamare schema mein `favoriteNumber` ki default value `null` rakhi gayi thi).
+* **Backward Compatibility Break:** Agar aap aisa field add karenge jiski default value nahi hai, toh naya reader jab purana data parhega (jisme wo field missing hoga), toh uske paas koi fallback value nahi hogi aur decoding fail ho jayegi.
+* **Forward Compatibility Break:** Agar aap aisa field remove karenge jiski default value nahi thi, toh purana reader jab naye writer ka data parhega, toh use wo field nahi milega aur wo crash ho jayega.
+
+
+* **The Union Null Constraint:** Bohot si programming languages mein har variable by-default `null` ho sakta hai, lekin Avro mein aisa nahi hai. Agar aap kisi field ko null allow karna chahte hain, toh aapko **Union Type** use karna padega (jaise `["null", "string"]`). Aur rule yeh hai ke **`null` ko hamesha union ka pehla branch hona chahiye**, tabhi aap use default value ke taur par set kar sakte hain.
+* **Type Conversion & Aliases:** Avro fields ke datatypes ko convert kar sakta hai (jaise `int` se `long` mein promote karna). Agar aap field ka naam badalna chahte hain, toh aap Reader's schema mein **Aliases** ka use karte hain. Is se data backward compatible toh rehta hai lekin forward compatible nahi rehta.
+
+---
+
+## But what is the writer’s schema?
+
+Ab ek bada architectural sawaal paida hota hai: *Agar reader ko decode karne ke liye exact wahi Writer's Schema chahiye jo encoding ke waqt use hua tha, toh reader ko wo schema milega kaise?* Hum har record ke sath poora schema text (JSON) toh nahi bhej sakte, warna binary format ka size bachat ka poora maqsad hi khatam ho jayega.
+
+Distributed systems mein is challenge ko handle karne ke **3 main contexts** hain:
+
+### 1. Large file with lots of records (Hadoop/Big Data Context)
+
+Jab aap millions of rows ka data ek bari file mein save karte hain (jaise HDFS par data warehousing ke liye), toh Avro ek khass file format use karta hai jise **Object Container File** kehte hain. Is file ke **shuru (header) mein poora Schema sirf ek dafa** likh diya jata hai, aur uske baad niche lakhon records bina kisi metadata ke pure binary bytes mein dump hote rehte hain.
+
+### 2. Database with individually written records (Kafka/Stream Context)
+
+Agar ek distributed message queue (jaise Apache Kafka) ya database mein har ek record alag waqt par alag schema version se write ho raha hai, toh hum har record ke shuru mein sirf ek **choti 1-byte ya 4-byte ki Schema Version ID** attach kar dete hain.
+System mein ek alag **Central Schema Registry** database hota hai. Reader jab message uthata hai, wo shuru ki ID parhta hai, Schema Registry se us ID ka exact Writer's Schema download karta hai, aur data ko decode kar leta hai.
+
+### 3. Sending records over a network connection (RPC Context)
+
+Jab do microservices aapas mein bidirectional network connection (RPC) ke zariye baat karti hain, toh wo connection bante waqt (handshake ke dauran) aapas mein schema version negotiate kar leti hain. Jab tak wo connection zinda rehta hai, unhein baar-baar schema bhejne ki zaroorat nahi parti.
+
+---
+
+## Dynamically generated schemas
+
+Protobuf ke mukable mein Avro ka sab se bada aur unfair advantage yeh hai ke yeh **Dynamically Generated Schemas** ke liye nihayat friendly hai.
+
+### Real-World Example (Relational DB Data Dump):
+
+Farz karein aapko ek Relational Database (jaise PostgreSQL ya MySQL) ka poora data har raat dump karke binary files mein store karna hai.
+
+* **Avro approach:** Aap ek automatic script likh sakte hain jo database ka structure parhegi (Table Columns) aur column ke names ko direct Avro fields bana kar ek JSON schema generate kar degi. Agar agle din database administrator table mein ek naya column add karta hai ya purana delete karta hai, toh aapki script bina kisi insani madad ke naya Avro schema auto-generate karke naya data dump kar degi. Chunke Avro names par mapping karta hai, purane aur naye files ka data bina kisi maslay ke aapas mein match ho jayega.
+* **Protobuf approach:** Protobuf mein har field ke sath ek unique hand-assigned numeric tag (1, 2, 3) hona zaroori hai. Agar aap ise automate karne ki koshish karenge, toh automated script ke liye yeh track rakhna bohot mushkil ho jayega ke purane tables ke kis column ko kya tag diya tha, aur galti se kisi deleted column ka tag naye column ko assign hone par data corrupt ho sakta hai. Protobuf is dynamic use-case ke liye design hi nahi kiya gaya tha.
+
+---
+
+## Technical Architecture & Schema Resolution Pipeline
+
+Avro ke dono schemas ke milne aur serialization lifecycle ke core data flow ko samajhne ke liye is architectural structure ko dekhein:
+
+```plaintext
+[ Writer Side ]
+[ In-Memory Object ] + [ Writer's Schema (v1) ] ---- (Encode) ----> [ Raw Bytes Stream (No Tags) ]
+                                                                             |
+                                                                             | (Network / File)
+                                                                             v
+[ Reader Side ]                                                     [ Raw Bytes Stream ]
+                                                                             |
+[ Reader's Schema (v2) ] <---+                                               |
+                             |                                               v
+                             +--- (Schema Resolution Engine) <------- [ Decoder Parser ]
+                                             |
+                                             v
+                                  [ Target In-Memory Object ]
+
+```
+
+### Comprehensive Diagram Explanation
+
+1. **Encoding Phase:** Writer node data object ko memory se uthata hai aur apne paas mojood Schema v1 ke sath map karke pure binary stream mein convert kar deta hai. Is stream mein koi names ya tags nahi hote.
+2. **Decoding Phase:** Reader node jab un bytes ko receive karta hai, toh decoder parser direct bytes ko read nahi kar sakta.
+3. **Resolution Processing:** Schema Resolution Engine simultaneous taur par Reader's Schema v2 aur data ke sath aaye huay Writer's Schema v1 dono ko read karta hai. Yeh engine dono ke field names ko match karta hai, missing fields par default values apply karta hai, aur nateeje mein reader ki application ke liye ek perfect target in-memory object khara kar deta hai.
+
+---
+
+## Mockup System Design Scenario (Interview Prep)
+
+### Scenario Context
+
+Aap ek Data Platform Architect hain. Company ke paas 500 se zyada microservices hain jo alag-alag relational databases use karti hain. Aapko ek Central Data Lake (Big Data Warehouse) design karna hai jahan in saare databases ka badalta hua data har waqt bina downtime ke replicate ho sake.
+*Interviewer aap se poochta hai:* "Aap is automated replication pipeline ke liye serialization format ke taur par Protobuf chunenge ya Avro? Aur schemas ke continuously badalne (evolution) ko cloud scale par kaise handle karenge?"
+
+### Architectural Design Pattern
+
+Hum is problem ko hal karne ke liye Apache Avro aur ek Distributed Schema Registry Registry ka multi-tier design apply karenge:
+
+```plaintext
+  [ Core App Databases ] 
+     (PostgreSQL/MySQL)
+             |
+             v  (CDC - Change Data Capture)
+  [ Replication Kafka Connect ] <---> Downloads/Registers Schema <---> [ Confluent Schema Registry ]
+             |
+             |  (Encodes data into Avro with a 4-byte Schema ID)
+             v
+  [ Kafka Distributed Topics ] 
+             |
+             v  (Stream Consumer)
+  [ Cloud Storage / S3 Data Lake ] ---> Stores as [ Avro Object Container Files ] 
+                                         (Schema stored ONCE in file header)
+
+```
+
+### Comprehensive Architectural Explanation
+
+1. **Avro Channe ki Wajah (The Dynamic Factor):**
+Interviewer ko batayein ke microservices ke databases ka schema humare control mein nahi hota, developers columns add/remove karte rehte hain. Chunke Avro ko numeric tags ki zaroorat nahi hoti, hum database metadata se directly JSON schema auto-generate kar sakte hain. Is liye Avro hamara perfect choice hai.
+2. **Handling Runtime Schema Evolution via Schema Registry:**
+* **Writes:** Kafka Connect pipeline jab database se naya transaction uthayegi, toh wo check karegi ke kya schema badla hai. Agar badla hai, toh naya schema **Schema Registry** mein register hoga aur ek unique ID (e.g., `ID: 105`) milegi. Data payload ko `[ID: 105] + [Raw Binary Bytes]` ki shakl mein Kafka par bhej diya jayega.
+* **Data Lake Dumping:** Jab data Kafka se uth kar S3 Storage par jayega, toh hum lakhon records ko ek sath **Avro Object Container File** mein daal denge. Us file ke header mein registry se laya hua schema ek hi dafa write ho jayega.
+
+
+3. **Trade-offs aur Safety Management:**
+Is design ka trade-off yeh hai ke Schema Registry hamara single point of failure (SPOF) ban sakti hai. Isko resolve karne ke liye Registry nodes ko high-availability (HA) mode mein chalaya jata hai aur consumer side par schemas ko local memory mein cache kiya jata hai taake har message par registry ko network hit na karna pade.
+
+---
+
+## Quick Revision & Key Takeaways
+
+* **Core Summary:** Apache Avro dunya ka sab se tight binary format hai jo bina kisi tags ya field names ke data store karta hai. Yeh decoding ke waqt data parhne ke liye simultaneous taur par *Writer's Schema* aur *Reader's Schema* ke comparison (resolution) par depend karta hai.
+* **The Architectural Rule:** Avro mein forward aur backward compatibility ko zinda rakhne ka wahid usool yeh hai ke **har naye ya delete honay wale field ki ek default value hona lazmi hai**, aur null fields ke liye union type ka pehla branch strictly `null` hona chahiye.
+* **Flash-Card Points:**
+* **Writer's Schema:** Wo schema version jisse data originally encode aur write kiya gaya tha.
+* **Reader's Schema:** Wo schema version jisse reading application data expect aur decode kar rahi hai.
+* **Object Container File:** Avro ka ek khass big data file format jo header mein sirf ek dafa poora schema likhta hai aur niche millions of records bina metadata overhead ke dump karta hai.
+* **ZigZag Encoding:** Avro ka internal math compression mechanism jo integers ki length ko double ($2 \times \text{value}$) karke dynamic lengths optimize karta hai.
+
+---
