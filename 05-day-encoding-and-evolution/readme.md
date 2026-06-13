@@ -1,5 +1,123 @@
 # Encoding and Evolution
 
+<details open>
+<summary><strong>✨ Complete Table of Contents ✨</strong></summary>
+
+### 📋 Compatibility & Evolution
+- [Evolvability aur Data Schema Changes](#evolvability-aur-data-schema-changes)
+- [Code Deployments aur Coexistence ki Realities](#code-deployments-aur-coexistence-ki-realities)
+  - [Server-Side Applications aur Rolling Upgrades](#server-side-applications-aur-rolling-upgrades)
+  - [Client-Side Applications](#client-side-applications)
+- [APIs ke Context mein Compatibility Dynamics](#apis-ke-context-mein-compatibility-dynamics)
+- [Data Loss Dilemma (Figure 5-1)](#data-loss-dilemma-figure-5-1)
+  - [Architectural Step-by-Step Flow](#architectural-step-by-step-flow)
+
+### 🏗️ System Design & Architecture
+- [Mockup System Design Scenario (Interview Prep) - First](#mockup-system-design-scenario-interview-prep)
+  - [Scenario Context](#scenario-context)
+  - [Architectural Design Implementation](#architectural-design-implementation)
+  - [Comprehensive Architectural Explanation](#comprehensive-architectural-explanation)
+
+### 📊 Data Encoding Formats
+- [Formats for Encoding Data](#formats-for-encoding-data)
+  - [Comprehensive Diagram Explanation](#comprehensive-diagram-explanation)
+- [Language-Specific Formats (Language-Specific Encodings)](#language-specific-formats-language-specific-encodings)
+- [JSON, XML, and Binary Variants (Text-Based Encodings)](#json-xml-and-binary-variants-text-based-encodings)
+- [JSON Schema](#json-schema)
+  - [Code Explanation](#code-explanation)
+- [Binary encodings](#binary-encodings)
+  - [Figure 5-2 ka Deep Breakdown (MessagePack Byte Sequence)](#figure-5-2-ka-deep-breakdown-messagepack-byte-sequence)
+  - [Detailed Breakdown of Bytes](#detailed-breakdown-of-bytes)
+
+### 🔧 Protocol Buffers
+- [Protocol Buffers](#protocol-buffers)
+  - [Schema aur Code Generation ka Mechanics](#schema-aur-code-generation-ka-mechanics)
+  - [Size Reduction (33 Bytes ka Jadu)](#size-reduction-33-bytes-ka-jadu)
+- [Figure 5-3 ka Deep Breakdown](#figure-5-3-ka-deep-breakdown)
+  - [Pehli Entry: user_name ("Martin")](#1-pehli-entry-user_name-martin)
+  - [Dusri Entry: favorite_number (1337)](#2-dusri-entry-favorite_number-1337)
+  - [Tisri Entry: interests (Array/List)](#3-tisri-entry-interests-arraylist)
+- [Field tags and schema evolution](#field-tags-and-schema-evolution)
+  - [Forward Compatibility (Purana Code + Naya Data)](#forward-compatibility-purana-code--naya-data)
+  - [Backward Compatibility (Naya Code + Purana Data)](#backward-compatibility-naya-code--purana-data)
+  - [Schema Evolution ke Sakht Rules](#schema-evolution-ke-sakht-rules)
+- [Technical Architecture & Data Serialization Lifecycle](#technical-architecture--data-serialization-lifecycle)
+  - [Comprehensive Diagram Explanation](#comprehensive-diagram-explanation-1)
+- [Mockup System Design Scenario (Interview Prep) - Protocol Buffers](#mockup-system-design-scenario-interview-prep-1)
+  - [Scenario Context](#scenario-context-1)
+  - [Architectural Design Implementation](#architectural-design-implementation-1)
+  - [Comprehensive Architectural Explanation](#comprehensive-architectural-explanation-1)
+- [Quick Revision & Key Takeaways (Protocol Buffers)](#quick-revision--key-takeaways)
+
+### 📦 Avro
+- [Avro](#avro)
+  - [Sab se Chota Data Size (32 Bytes ka Record)](#sab-se-chota-data-size-32-bytes-ka-record)
+  - [Figure 5-4 ka Deep Byte Breakdown](#figure-5-4-ka-deep-byte-breakdown)
+    - [Pehla Field: userName ("Martin")](#1-pehla-field-username-martin)
+    - [Dusra Field: favoriteNumber (1337)](#2-dusra-field-favoritenumber-1337)
+    - [Tisra Field: interests (Array)](#3-tisra-field-interests-array)
+- [The writer's schema and the reader's schema](#the-writers-schema-and-the-readers-schema)
+  - [Schema Resolution (Figure 5-5 aur Figure 5-6 ka Breakdown)](#schema-resolution-figure-5-5-aur-figure-5-6-ka-breakdown)
+- [Schema evolution rules](#schema-evolution-rules)
+- [But what is the writer's schema?](#but-what-is-the-writers-schema)
+  - [Large file with lots of records (Hadoop/Big Data Context)](#1-large-file-with-lots-of-records-hadoopbig-data-context)
+  - [Database with individually written records (Kafka/Stream Context)](#2-database-with-individually-written-records-kafkastream-context)
+  - [Sending records over a network connection (RPC Context)](#3-sending-records-over-a-network-connection-rpc-context)
+- [Dynamically generated schemas](#dynamically-generated-schemas)
+  - [Real-World Example (Relational DB Data Dump)](#real-world-example-relational-db-data-dump)
+- [Technical Architecture & Schema Resolution Pipeline](#technical-architecture--schema-resolution-pipeline)
+  - [Comprehensive Diagram Explanation](#comprehensive-diagram-explanation-2)
+- [Mockup System Design Scenario (Interview Prep) - Avro](#mockup-system-design-scenario-interview-prep-2)
+  - [Scenario Context](#scenario-context-2)
+  - [Architectural Design Pattern](#architectural-design-pattern)
+  - [Comprehensive Architectural Explanation](#comprehensive-architectural-explanation-2)
+- [Quick Revision & Key Takeaways (Avro)](#quick-revision--key-takeaways-1)
+
+### 🎯 Schema Merits
+- [The Merits of Schemas](#the-merits-of-schemas)
+  - [Ek Tareekhi Haqeeqat: ASN.1 (The Grandfather of Schemas)](#ek-tareekhi-haqeeqat-asn1-the-grandfather-of-schemas)
+  - [Databases ke Apne Khufia Protocols (Proprietary Encodings)](#databases-ke-apne-khufia-protocols-proprietary-encodings)
+    - [Detailed Diagram Explanation](#detailed-diagram-explanation)
+- [Schema-Based Binary Encodings ke 4 Bade Fawaid (The Core Merits)](#schema-based-binary-encodings-ke-4-bade-fawaid-the-core-merits)
+  - [1. Intahai Chota Size (Extreme Compactness)](#1-intahai-chota-size-extreme-compactness)
+  - [2. Har Waqt Up-to-Date Documentation](#2-har-waqt-up-to-date-documentation)
+  - [3. Deployment se Pehle Safety Net (Compatibility Checks)](#3-deployment-se-pehle-safety-net-compatibility-checks)
+  - [4. Compile-Time par Type Safety (Statically Typed Languages)](#4-compile-time-par-type-safety-statically-typed-languages)
+- [Summary & Operational Practice](#summary--operational-practice)
+- [Mockup System Design Scenario (Interview Prep) - Schema Merits](#mockup-system-design-scenario-interview-prep-3)
+  - [Scenario Context](#scenario-context-3)
+  - [Architectural Design Implementation](#architectural-design-implementation-2)
+  - [Comprehensive Architectural Explanation](#comprehensive-architectural-explanation-3)
+- [Quick Revision & Key Takeaways (Schema Merits)](#quick-revision--key-takeaways-2)
+
+### 🔄 Dataflow Modes
+- [Modes of Dataflow](#modes-of-dataflow)
+- [Dataflow Through Databases](#dataflow-through-databases)
+  - [Single-Process Scenario ("Message to your Future Self")](#single-process-scenario-message-to-your-future-self)
+  - [Multi-Process Scenario (Rolling Upgrades)](#multi-process-scenario-rolling-upgrades)
+  - [Comprehensive Diagram Explanation](#comprehensive-diagram-explanation-3)
+- [Different values written at different times](#different-values-written-at-different-times)
+  - [Lazy Schema Evolution & Compaction](#lazy-schema-evolution--compaction)
+- [Archival storage](#archival-storage)
+- [Mockup System Design Scenario (Interview Prep) - Database Dataflow](#mockup-system-design-scenario-interview-prep-4)
+  - [Scenario Context](#scenario-context-4)
+  - [Architectural Design Implementation](#architectural-design-implementation-3)
+  - [Comprehensive Architectural Explanation](#comprehensive-architectural-explanation-4)
+- [Quick Revision & Key Takeaways (Database Dataflow)](#quick-revision--key-takeaways-3)
+
+### 🌐 Services & APIs
+- [Dataflow Through Services: REST and RPC](#dataflow-through-services-rest-and-rpc)
+  - [Services vs Databases (The Core Difference)](#services-vs-databases-the-core-difference)
+- [Web services](#web-services)
+  - [Example 5-3. An OpenAPI service definition in YAML](#example-5-3-an-openapi-service-definition-in-yaml)
+  - [Example 5-4. A FastAPI service implementing the definition](#example-5-4-a-fastapi-service-implementing-the-definition)
+  - [Code Logic Breakdown](#code-logic-breakdown)
+- [The problems with remote procedure calls](#the-problems-with-remote-procedure-calls)
+
+</details>
+
+---
+
 ## Evolvability aur Data Schema Changes
 
 Duniya ka nizam badalta rehta hai, aur yahi usool software applications par bhi lagu hota hai. Waqt ke sath-sath applications mein naye features add hote hain, purane modify hote hain, aur business ki zarooriyat badal jati hain. Jab application ke features badalte hain, toh unke sath-sath **data format aur schemas** ko bhi badalna padta hai. Maslan, kisi user profile mein naya field (jaise profile picture ka URL) add karna ho, ya purane data ko kisi naye andaz mein dikhana ho.
