@@ -2284,7 +2284,7 @@ Buniyadi taur par workflow engine ke do baray hisse hote hain:
 mein aik payment workflow ko **BPMN (Business Process Model and Notation)** ke zariye dikhaya gaya hai. Chaliye iske graphical flow aur data behavior ko step-by-step bilkul bacho ki tarah samajhte hain:
 
 <div align="center">
-  <img src="./images/07.png" width="600"/>
+  <img src="./images/07.png" width="700"/>
 </div>
 
 ```plaintext
