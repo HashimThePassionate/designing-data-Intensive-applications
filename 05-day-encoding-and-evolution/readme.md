@@ -1365,7 +1365,7 @@ Is extreme bachat ki wajah yeh hai ke Avro ke binary payload ke andar **na toh f
 Chaliye  mein dikhaye gaye 32 bytes ke sequence ko bilkul bacho ki tarah step-by-step samajhte hain ke Avro ne bina kisi tag ya naam ke data ko kaise pack kiya:
 
 <div align="center">
-  <img src="./images/04.png" width="600"/>
+  <img src="./images/04.png" width="700"/>
 </div>
 
 ```plaintext
@@ -1408,13 +1408,13 @@ Chunke binary data mein koi tag ya field name nahi hota, toh phir Avro mein Sche
 ### Schema Resolution (Figure 5-5 aur Figure 5-6 ka Breakdown)
 
 <div align="center">
-  <img src="./images/05.png" width="600"/>
+  <img src="./images/05.png" width="700"/>
 </div>
 
 Figure 5-5 dikhata hai ke Protobuf mein encoding aur decoding ke dauran sirf unke apne-apne schema versions use hote hain kyunke unke paas numeric tags hote hain. Lekin Avro mein decoding ke waqt **Reader's Schema aur Writer's Schema dono ka hona lazmi hai**.
 
 <div align="center">
-  <img src="./images/06.png" width="600"/>
+  <img src="./images/06.png" width="700"/>
 </div>
 
 Figure 5-6 ke mutabaq, jab data read hota hai, toh Avro ka library engine dono schemas ko aamne-saamne rakhta hai aur unke darmiyan farq ko **resolve (translate)** karta hai:
@@ -1422,6 +1422,106 @@ Figure 5-6 ke mutabaq, jab data read hota hai, toh Avro ka library engine dono s
 * **Field Order Mismatch:** Agar Writer's schema mein `userName` pehle hai aur `favoriteNumber` baad mein, lekin Reader's schema mein unka order ulta hai, toh Avro ka reader field ke **Names** ko aapas mein match karke data ko automatisch sahi variable mein map kar deta hai.
 * **Ignoring Extra Fields:** Agar Writer's schema mein koi aisa field (`photoURL`) hai jo Reader's schema mein mojood nahi hai, toh reader schema resolution ke dauran us field ke bytes ko chup-chaap ignore karke skip kar deta hai.
 * **Filling Missing Fields:** Agar Reader kisi aise field (`userID`) ki umeed kar raha hai jo purane Writer's data mein tha hi nahi, toh Reader's schema mein di gayi **Default Value** se us field ko fill kar diya jata hai.
+
+> Yeh figure **DDIA** (Designing Data-Intensive Applications) book ka aik bohot ahem hissa hai. Yeh dikhata hai ke **Protocol Buffers (Protobuf)** aur **Avro** schemas ko process karte waqt kitne mukhtalif hain.
+>
+>
+> ### 1. Protobuf: "The ID/Tag System"
+>
+> Protobuf mein encoding aur decoding ke dauran schemas ka aapas mein "milna" zaroori nahi hai.
+>
+> * [Kaise kaam karta hai](ca://s?q=Kaise_kaam_karta_hai_Protobuf) —  
+>   Protobuf mein har field ka aik **Numeric Tag** (e.g., ID=1, Name=2) hota hai.
+>
+> * [Decoding ka process](ca://s?q=Protobuf_decoding_ka_process) —  
+>   Jab Reader (decode karne wala) data parhta hai, toh wo sirf apna Schema dekhta hai.  
+>   Woh dekhta hai: "Oh, Tag 1 aaya hai, mere schema mein Tag 1 ka matlab 'Name' hai."
+>
+> * [Result](ca://s?q=Protobuf_reader_result) —  
+>   Reader ko Writer ke schema ki zaroorat nahi parti. Kyun? Kyunke **Tags** universal hain.  
+>   Agar Writer ne naya field (Tag 4) add kar diya, aur Reader ko uska pata nahi, toh woh bas Tag 4 ko skip kar dega.
+>
+> * [Saadgi](ca://s?q=Protobuf_saadgi) —  
+>   Yeh "Self-contained" hai. Sirf apni dictionary (Reader's Schema) se kaam chal jata hai.
+>
+> ---
+>
+> ### 2. Avro: "The Schema Resolution System"
+>
+> Avro mein mamla thora complex hai kyunke ismein **Numeric Tags nahi hote**.  
+> Ismein fields ko **Names** (e.g., "name", "id") ke zariye pehchana jata hai.
+>
+> * [Kaise kaam karta hai](ca://s?q=Avro_kaise_kaam_karta_hai) —  
+>   Avro encoding mein numeric tags ka bojh nahi daalta, lekin iska nuksan yeh hai ke decoding ke waqt machine ko yeh jan-na hota hai ke Writer ne kis tarteeb (order) mein aur kya naam likhe thay.
+>
+> * [Decoding ka process](ca://s?q=Avro_schema_resolution_process) —  
+>   Isliye Avro decoding mein **Writer's Schema** aur **Reader's Schema** dono ka hona lazmi hai.  
+>   Reader ka system dono schemas ko side-by-side rakhta hai.  
+>   Woh "Matchmaking" karta hai:  
+>   "Writer ka 'name' field, mere 'name' field se match karta hai? Yes.  
+>    Writer ka 'id' field, mere 'id' se match karta hai?"
+>
+> * [Result](ca://s?q=Avro_result) —  
+>   Is process ko **"Schema Resolution"** kehte hain.  
+>   Avro ka decoder dynamically ye faisla karta hai ke kaunsa data kahan jana chahiye.
+>
+> ---
+>
+> ### In dono ka farq (The "Cooking" Analogy)
+>
+> * [Protobuf analogy](ca://s?q=Protobuf_numbered_recipe) —  
+>   Socho hum dono ke paas aik recipe hai jisme ingredients ke naam nahi, balkay **Numbers** hain.  
+>   Recipe: "1: Flour, 2: Eggs".  
+>   Agar main aapko "1: 500g" bhejta hoon, toh aap apne index mein dekhte ho ke "1 ka matlab Flour hai".  
+>   Aapko meri recipe ki zaroorat nahi, aapki apni index kaafi hai.
+>
+> * [Avro analogy](ca://s?q=Avro_named_recipe) —  
+>   Socho recipe mein numbers nahi, sirf **Naam** hain.  
+>   Writer ki Recipe: "Flour: 500g, Eggs: 2".  
+>   Reader ki Recipe: "Eggs: 2, Flour: 500g".  
+>   Ab Reader ko decoding ke liye Writer ki recipe dekhni paregi taake woh samajh sake ke "Flour" wahi hai jo meri recipe mein bhi hai, chahe tarteeb alag kyun na ho.
+>
+> ---
+>
+> ### Why does this matter for DevOps?
+>
+> 1. [Protobuf speed](ca://s?q=Protobuf_fast_kyun_hai) —  
+>    Protobuf fast hai kyunke ismein "Schema Resolution" nahi karni parti. Decoder bas tags parh kar kaam shuru kar deta hai.
+>
+> 2. [Avro flexibility](ca://s?q=Avro_flexible_kyun_hai) —  
+>    Agar aapne fields ki tarteeb badal di, toh Avro phir bhi data ko match kar lega (kyunke woh naam se match kar raha hai), jabke Protobuf mein tags fix hone chahiye.
+>
+> **Nateeja:**  
+> * Protobuf **Speed** ke liye behtar hai (Tags hain).  
+> * Avro **Flexibility** ke liye behtareen hai (Names hain).
+>
+> ---
+>
+> Avro ka schema resolution waqai aik kamaal ki cheez hai. Jesa ke aapne "06.png" mein dekha, Avro ka library engine decoding ke waqt aik "Translator" ya "Matcher" ka kaam karta hai.  
+> Yeh engine **Writer's schema** aur **Reader's schema** ko aamne-saamne rakhta hai aur dono ke darmiyan mapping banata hai.
+>
+> Chaliye, "06.png" mein diye gaye scenario ko breakdown karte hain:
+>
+> * [Field Order Mismatch](ca://s?q=Avro_field_order_mismatch) —  
+>   Writer ke schema mein `userName` pehli field hai, Reader ke schema mein teesri.  
+>   Avro **Field Name** se match karta hai, index se nahi.
+>
+> * [Ignoring Extra Fields](ca://s?q=Avro_ignore_extra_fields) —  
+>   Writer ke schema mein `photoURL` hai, Reader ke schema mein nahi.  
+>   Avro engine isay silently **skip** kar deta hai.
+>
+> * [Filling Missing Fields](ca://s?q=Avro_fill_missing_fields) —  
+>   Reader `userID` mang raha hai, Writer ke record mein nahi.  
+>   Avro **Default Value** daal deta hai.
+>
+> **Asaan Alfaaz mein:**  
+> Avro ka "Schema Resolution" itna powerful isliye hai kyunke yeh **Loose Coupling** provide karta hai.  
+> Writer aur Reader ke schemas alag ho sakte hain, lekin Avro unhe decoding ke waqt **Translate** kar deta hai.
+>
+> Protobuf mein aap tags (1, 2, 3) change nahi kar sakte,  
+> lekin Avro mein aap fields ko aage-peeche kar sakte hain, naye fields add kar sakte hain, ya purane hata sakte hain—  
+> sab kuch "Schema Resolution" ke jadu se manage ho jata hai!
+
 
 ---
 
@@ -1470,6 +1570,67 @@ Farz karein aapko ek Relational Database (jaise PostgreSQL ya MySQL) ka poora da
 
 * **Avro approach:** Aap ek automatic script likh sakte hain jo database ka structure parhegi (Table Columns) aur column ke names ko direct Avro fields bana kar ek JSON schema generate kar degi. Agar agle din database administrator table mein ek naya column add karta hai ya purana delete karta hai, toh aapki script bina kisi insani madad ke naya Avro schema auto-generate karke naya data dump kar degi. Chunke Avro names par mapping karta hai, purane aur naye files ka data bina kisi maslay ke aapas mein match ho jayega.
 * **Protobuf approach:** Protobuf mein har field ke sath ek unique hand-assigned numeric tag (1, 2, 3) hona zaroori hai. Agar aap ise automate karne ki koshish karenge, toh automated script ke liye yeh track rakhna bohot mushkil ho jayega ke purane tables ke kis column ko kya tag diya tha, aur galti se kisi deleted column ka tag naye column ko assign hone par data corrupt ho sakta hai. Protobuf is dynamic use-case ke liye design hi nahi kiya gaya tha.
+
+> Yeh ek bohot hi important <mark>Architectural Decision</mark> hai. Writer yahan yeh samjha raha hai ke <mark>Automation</mark> (khud-ba-khud kaam hona) kis format ke liye aasaan hai aur kiske liye khatarnaak.
+>
+> ### 1. Avro Approach (The "Smart & Flexible" Way)
+>
+> Avro <mark>"Names"</mark> (Naamon) par chalta hai.
+>
+> * [Kaise kaam karta hai](ca://s?q=Avro_kaise_kaam_karta_hai) —  
+>   Misaal ke taur par, aapke database mein aik column hai `user_age`.  
+>   Avro ki automation script database par jati hai, column ka naam parhti hai `user_age`,  
+>   aur schema mein likh deti hai `field_name: "user_age"`.
+>
+> * [Kyun Automation aasaan hai](ca://s?q=Avro_automation_kyun_aasaan_hai) —  
+>   Agar kal ko aap database mein aik naya column `email_address` add kar dein,  
+>   toh script khud-ba-khud isay parh kar naya schema update kar degi.  
+>   Usey koi tension nahi ke purani fields kahan thin, kyunke woh <mark>Names</mark> se match kar rahi hai.
+>
+> * [Result](ca://s?q=Avro_result_flexibility) —  
+>   <mark>Flexibility.</mark>  
+>   Agar data ka structure badal jaye, Avro ka system automatically usay handle kar leta hai  
+>   kyunke "Name" hi uski pehchan hai.
+>
+> ---
+>
+> ### 2. Protobuf Approach (The "Strict & Manual" Way)
+>
+> Protobuf <mark>"Numeric Tags"</mark> (1, 2, 3...) par chalta hai.
+>
+> * [Kaise kaam karta hai](ca://s?q=Protobuf_kaise_kaam_karta_hai) —  
+>   Protobuf mein aapko har field ko aik number dena parta hai.  
+>   Misaal: `user_age` ko Tag `#5`.  
+>   Jab data save hota hai, computer ko sirf <mark>"Tag 5"</mark> yaad rehta hai —  
+>   naam se koi matlab nahi.
+>
+> * [Kyun Automation mushkil hai](ca://s?q=Protobuf_automation_mushkil_kyun) —  
+>   Script ko **yaad rakhna** parega ke pichli baar `user_age` ko `#5` diya tha.  
+>   Agar script ne ghalti se naye column `email_address` ko `#5` assign kar diya,  
+>   toh poora data <mark>corrupt</mark> ho jayega.  
+>   Reader sochega `#5 = user_age`, jabke asal mein `email` parha hoga.
+>
+> * [Result](ca://s?q=Protobuf_result_risk) —  
+>   <mark>Risk.</mark>  
+>   Automation ke liye aapko aik <mark>"Master Ledger"</mark> rakhna parta hai  
+>   jo track kare ke kis column ko kya tag diya gaya tha.  
+>   Zarra si ghalti → data <mark>mix</mark> ho jata hai.
+>
+> ---
+>
+> ### Dono ka Nichhor (Summary)
+>
+> * [Avro best for DB dumps](ca://s?q=Avro_database_dumps_best) —  
+>   Yeh <mark>Dynamic</mark> hai.  
+>   Automation script chalao → schema update ho jata hai.  
+>   Purana + naya data ladte nahi kyunke <mark>Names</mark> same rehte hain.
+>
+> * [Protobuf best for services](ca://s?q=Protobuf_service_communication_best) —  
+>   Yeh <mark>Static</mark> hai.  
+>   Automation nahi chal sakti kyunke <mark>Tag Numbers</mark> ka control insaan ke haath mein hona chahiye.  
+>   Services ke darmiyan communication ke liye perfect —  
+>   field `#1` hamesha `userName` hi rahega, chahe 10 saal baad bhi.
+
 
 ---
 
