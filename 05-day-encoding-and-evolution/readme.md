@@ -1855,7 +1855,7 @@ Farz karein aapke database ko sirf aik hi application access kar rahi hai. Aaj a
 
 ### Multi-Process Scenario (Rolling Upgrades)
 
-Asal production environments mein aik hi waqt mein bohot saare processes database ko hit kar rahe hote hain. Yeh ya toh alag aplikations hoti hain ya aik hi service ke mukhtalif instances (copies) hote hain jo scalability aur fault tolerance ke liye chalaye jate hain.
+Asal production environments mein aik hi waqt mein bohot saare processes database ko hit kar rahe hote hain. Yeh ya toh alag applications hoti hain ya aik hi service ke mukhtalif instances (copies) hote hain jo scalability aur fault tolerance ke liye chalaye jate hain.
 
 Jab rolling upgrade chal raha hota hai, toh kuch instances naye code par chal rahe hote hain aur kuch purane par. Agar koi naya node database mein naya data write kare, aur agle hi lamhe koi purana node use read kar le, toh purane node ko crash nahi hona chahiye. Is wajah se databases mein **Forward Compatibility** ki zaroorat parta hai.
 
