@@ -786,7 +786,7 @@ Distributed systems mein replication lagane ki wajah sirf hardware failure se ba
 
 Online applications mein aam taur par **Read-Heavy Workload** hota hai—yaani log data parhte (Read) lakhon dafa hain jabke naya data likhte (Write) bohot kam hain (jaise social media par feeds parhna vs post upload karna). Is cheez ka faida uthane ke liye ek behtareen design pattern apnaya jata hai jise **Read-Scaling Architecture** kehte hain. Ismein hum saare writes ko ek single leader node par bhejte hain, lekin parhne wali saari requests (Read-only queries) ko bohot saare **Asynchronous Followers** par baant (distribute) dete hain. Is se leader node par se bohot bada bojh hat jata hai.
 
-Lekin is read-scaling design mein ek bohot bada **architectural trade-off** hai: yeh nizam sirf aur sirf **Asynchronous Replication** par hi chal sakta hai. Agar aapne 10 ya 15 followers ko synchronous lock kar diya, toh ek bhi follower ke down hone ya network line kharab ہونے se poora system naye writes accept karna band kar dega. Nodes jitne zyada honge, unke fail hone ka chance utna hi barh jayega, isliye full synchronous configuration intahai unreliable ho jati hai.
+Lekin is read-scaling design mein ek bohot bada **architectural trade-off** hai: yeh nizam sirf aur sirf **Asynchronous Replication** par hi chal sakta hai. Agar aapne 10 ya 15 followers ko synchronous lock kar diya, toh ek bhi follower ke down hone ya network line kharab Honay se poora system naye writes accept karna band kar dega. Nodes jitne zyada honge, unke fail hone ka chance utna hi barh jayega, isliye full synchronous configuration intahai unreliable ho jati hai.
 
 Asynchronous replication use karne ka nateeja yeh nikalta hai ke agar koi follower leader se piche reh gaya hai (lagging), toh user ko purana data dikhai dega. Agar aap ek hi waqt mein leader aur follower dono par same query chalayenge, toh dono alag-alag results bhej sakte hain. Is out-of-sync halat ko distributed architecture ki duniya mein **Eventual Consistency** kaha jata hai.
 
@@ -820,46 +820,213 @@ Is architectural flow mein dikhaya gaya hai ke jab leader par heavy writes aate 
 
 ## Reading your own writes
 
-Read-scaling architecture mein sabsay pehli aur aam tabahi tab aati hai jab koi user database mein naya data submit karta hai aur page reload karke furan use dekhna chahta hai (jaise koi comment likhna ya profile update karna).
+Distributed systems mein asynchronous replication ka ek sabsay bada aur aam masla yeh hota hai ke jab ek user data sub-mit karta hai aur use furan dekhna chahta hai, toh data ghayb milta hai. Farz karein aapne kisi social network par apni profile picture ya status update kiya. Yeh write request strictly aapke **Leader Node** par jati hai aur wahan securely save ho jati hai. Lekin chunke replication background mein aahista-aahista (asynchronously) chal rahi hoti hai, isliye follower nodes tak naya data pohanchne mein thoda time lagta hai jise hum **Replication Lag** kehte hain.
 
-### Figure 6-3 / image_a2d942.png ka Deep Breakdown (The Ghost Deletion Bug)
+Agar aapne update dabane ke exact 5 milliseconds baad page ko refresh kiya aur load balancer ne aapki read request kisi lag-ging follower replica par bhej di, toh aapko wahan purana data hi dikhega. User ke point of view se aisa lagta hai jaise usne jo data bhejeya tha wo hamesha ke liye gum (lost) ho chuka hai.
 
-image_a2d942.png mein isi data anomalies ko timeline chart ke zariye samjhaya gaya hai. Chaliye is pure flow ko step-by-step break karte hain:
+Is problem ko hal karne ke liye humein **Read-after-write consistency (yaani read-your-writes consistency)** ka design pattern lagana parta hai. Yeh aik aisi clear guarantee hai jo yeh taye karti hai ke agar kisi user ne khud koi data update kiya hai, toh page reload karne par use apna badla hua naya data **hamesha 100% fresh** dikhega. Yeh doosre users ke liye koi promise nahi karti (unhein thoda der baad dikh sakta hai), lekin likhne wale user ka validation experience kharab nahi hone deti.
+
+---
+
+### Asynchronous Replication Lag and Read-Your-Writes Anomaly
+
+Figure 6-3 ke mutabaq jab data pipeline sequence out-of-sync hoti hai, toh under-the-hood data flow kuch is tarah chalta hai:
+
+<div align="center">
+  <img src="./images/03.png" width="700"/>
+</div>
 
 ```plaintext
-User 1234                                Leader Node                           Follower 2 (Stale)
-    |                                         |                                         |
-    |--- 1. UPDATE picture_url='new.jpg' ---->|                                         |
-    |                                         |--- 2. Send Async Log (Slow Network) --->|
-    |<-- 3. Return 'INSERT OK' (Success) -----|                                         |
-    |                                         |                                         |
-    |--- 4. SELECT * FROM users (Read) ------------------------------------------------>|
-    |<-- 5. Returns 'me-old.jpg' (No Results!) ----------------------------------------|
-    v                                                                                   v
-[ User Thinks Photo is LOST! ]
+[ User Client App ] ---- 1. POST /update_profile (picture='new.jpg') ----> [ Leader Node ]
+         |                                                                       |
+         |                                                 2. Async Sync Stream  | (Network Delayed)
+         | <--- 3. Returns HTTP 200 OK (Write Success) -------------------------|                     v
+         |                                                                                        [ Follower Replica ]
+         |                                                                                        (Still holds 'old.jpg')
+         |                                                                                             |
+         +---- 4. Immediate Page Reload (SELECT /profile) ---------------------------------------------+
+         |
+         v (Reads Stale State)
+   [ Screen Shows 'old.jpg'! User thinks data is lost ]
 
 ```
 
-1. **The Update Operation:** **User 1234** apni nayi profile picture upload karta hai. Request leader node par jati hai aur database mein `picture_url = 'me-new.jpg'` update ho jata hai.
-2. **The Slow Async Leak:** Leader node us change ka binary packet asynchronously `Follower 2` ki taraf rawangi karta hai, lekin network slow hone ki wajah se wo packet raste mein hi hota hai.
-3. **The Success Illusion:** Leader user ko furan HTTP 200 OK bhej deta hai ke *"Aapki photo safely update ho gayi hai"*.
-4. **The Stale Read Request:** User ka browser screen refresh karta hai aur profile photo read karne ke liye load balancer ke zariye `Follower 2` ko query bhejta hai.
-5. **The Disaster:** Chunke `Follower 2` abhi tak purane data par baitha hai, wo user ko purani photo URL (`me-old.jpg`) return kar deta hai. User ko lagta hai ke jo photo usne abhi upload ki thi, wo database ne kahin gum ya delete kar di hai, jis se user bad-mushkil naraz ho jata hai.
+#### Comprehensive Diagram Explanation:
 
-Is khofnak anomaly se bachne ke liye humein **Read-after-write consistency (yaani Read-your-writes consistency)** ki guarantee deni parti hai. Yeh guarantee yeh dawa karti hai ke agar kisi user ne khud koi data badla hai, toh page refresh karne par use apna badla hua data **hamesha 100% fresh dikhega**. Yeh doosre users ke liye daway nahi karti, par us makhsoos user ka apna dil behla rehta hai ke uska data save ho chuka hai.
+1. **The Ingestion:** Client mobile ya desktop se profile update ka payload leader node par bhejta hai. Leader use disk par local stream mein commit kar leta hai.
+2. **The Delayed Pipeline:** Leader is change event ko asynchronously forward karta hai, lekin network throughput full hone ki wajah se packet follower replica tak foran nahi pohanch pata.
+3. **The Response:** Client ko leader se confirmation `OK` mil jata hai ke aapka data save ho gaya hai.
+4. **The Broken Read:** Client bina waqt zaya kiye page reload karta hai. Load balancer request ko direct us lagging follower par drop kar deta hai jahan abhi tak naya block apply nahi hua tha. Result mein user ko purani picture dikhti hai, jo system ki state ko non-sensical bana deti hai.
 
-### Implementation Techniques (Is anomaly ko khatam karne ke 3 tareeqay)
+---
 
-* **The Ownership Routing Rule (Editable Fields):** Jo data sirf wo makhsoos user hi edit kar sakta hai (jaise uski apni user profile, settings, ya private dashboard), usko read karne ke liye rule bana dein ke wo request **hamesha leader node par ya synchronous follower par hi jayegi**. Baqi saare doosre users jab us profile ko dekhna chahenge (Public view), toh unki requests asynchronous followers par divert ki jayengi.
-* **The Time-Based Guard Pattern:** Agar application mein aisi cheezain hain jo koi bhi badal sakta hai, toh ownership rule kaam nahi karega (kyunke har request leader par chali jayegi aur read scaling tabah ho jayegi). Iska hal yeh hai ke application layer par user ke last update ka timestamp track kiya jaye. **Update button dabane ke exact 1 minute baad tak** us user ki saari read queries compulsory leader node par bheji jayen. Sath hi, hum un followers ko query karne se block kar sakte hain jinka replication lag 1 minute se zyada high ho.
-* **Logical LSN Tracking (The Client Timestamp):** Client app (mobile or browser) apne paas sab se aakhri write transaction ka sequence number (LSN ya GTID) yaad rakhti hai. Jab client parhne ke liye request bhejta hai, toh wo database cluster ko apna LSN marker batata hai. Cluster us request ko sirf usi follower node ke hawale karta hai jo kam az kam us LSN number tak sync ya catch-up ho chuka ho. Agar follower piche hoga, toh query wait karega jab tak follower wahan tak pohanch nahi jata.
+### Implementation Techniques (Read-Your-Writes ko safe karne ke 3 tareeqay)
 
-### Cross-Device Consistency ka Challenge (Desktop + Mobile)
+Production environments mein is consistency contract ko barkarar rakhne ke liye application layer aur database router par niche diye gaye structural mechanisms deploy kiye jate hain:
 
-Agar user ek hi waqt mein laptop browser aur mobile app dono se login hai, toh challenge mazeed complex ho jata hai jise **Cross-device read-after-write consistency** kehte hain (yaani mobile par photo update ki, toh laptop par reload karne par naye photo dikhni chahiye). Ismein do bade architectural masail aate hain:
+#### 1. Asset Ownership Routing Rule
 
-1. Laptop ke browser ko nahi pata ke mobile app ne kya naye updates kiye hain, isliye metadata timestamp ko client par rakhne ke bajaye **centralized layer (Redis/Session Store)** par sync rakhna padega.
-2. Cloud computing mein alag-alag networks (Home Wi-Fi vs Mobile 4G/5G) ki wajah se requests alag regions mein ja sakti hain. **Cloud Region** buniyadi taur par ek geographic location mein mojud mukhtalif datacenters (Availability Zones) ka collection hota hai. Agar mobile US-East region ko hit kar raha hai aur laptop US-West ko, toh jab tak aap requests ko central leader region ki taraf **sticky route** nahi karenge, cross-device consistency toot jayegi.
+Jo data application mein strictly sirf wo makhsoos user hi edit kar sakta hai (jaise uski apni user profile, settings, account details, ya private comments), usko read karne ka logic yeh set kiya jata hai ke uski query **hamesha directly Leader Node ya kisi synchronous follower se serve hogi**. Jabke baqi dunya ke doosre users jab us profile ko dekhna chahenge (Public View), toh unka traffic read scaling barhane ke liye hamesha asynchronous followers par distribute kiya jayega. Is tarah leader par her request ka load nahi aata.
+
+#### 2. The Time-Based Update Window Guard
+
+Agar application mein aisi cheezain hain jo koi bhi user edit kar sakta hai (jaise collaborative doc ya shared dashboard), toh ownership rule fail ho jata hai kyunke har cheez leader par bhejni paregi aur read scaling ka faida khatam ho jayega. Iska hal yeh hai ke application logic memory cache (jaise Redis) mein user ke update dabane ka timestamp track karti hai. **Update hone ke exact 1 minute baad tak** us makhsoos user ki saari read requests ko strictly leader par pin (route) kiya jata hai. Sath hi, monitoring subsystem un followers ka replication lag track karta hai aur agar koi follower 1 minute se zyada piche ho, toh uspar read queries bhejni block kar di jati hain.
+
+#### 3. Client-Side Logical LSN Watermarking
+
+Client application (browser context ya mobile memory) apne paas sab se aakhri committed write ka logical sequence number—jaise PostgreSQL ka **LSN (Log Sequence Number)** ya MySQL ka **GTID (Global Transaction Identifier)**—yaad rakhti hai.
+
+
+> ### 1. <mark>Asset Ownership Routing Rule</mark> (Personal vs. Public)
+>
+> Yeh technique tab best hai jab system mein <mark>"Individual"</mark> aur <mark>"General"</mark> data ka farq saaf ho.
+>
+> * [Concept](ca://s?q=Asset_ownership_concept) —  
+>   Har cheez ko <mark>Leader</mark> par bhejne ki zaroorat nahi.  
+>   Hum traffic ko <mark>split</mark> kar dete hain.
+>
+> * [Example](ca://s?q=Asset_ownership_example) —  
+>   Agar aap apni <mark>Profile</mark> edit kar rahe hain,  
+>   toh aapka application logic ensure karta hai ke aapka "Read" hamesha  
+>   <mark>Leader</mark> ya <mark>Synchronous Follower</mark> se aaye.  
+>   Aap ko kabhi <mark>puraana data</mark> nahi dikhega.
+>
+> * [Doosron ke liye](ca://s?q=Asset_ownership_public_reads) —  
+>   Public view kisi bhi <mark>Asynchronous Follower</mark> se aa sakta hai.
+>
+> * [Fayda](ca://s?q=Asset_ownership_fayda) —  
+>   <mark>Leader load</mark> bohot kam ho jata hai.
+>
+> ---
+>
+> ### 2. <mark>The Time-Based Update Window Guard</mark> (Cool‑down period)
+>
+> Jab ownership rule kaam na aaye, tab hum <mark>Time</mark> ka sahara lete hain.
+>
+> * [Concept](ca://s?q=Time_based_consistency_concept) —  
+>   Hum mante hain ke <mark>replication lag</mark> kuch seconds ka hota hai.
+>
+> * [Example](ca://s?q=Time_based_example) —  
+>   Agar aap ne <mark>Shared Doc</mark> update kiya,  
+>   toh app note karti hai ke "Last update <mark>10:00:05</mark> par hui."  
+>   Agle <mark>1 minute</mark> tak har read <mark>Leader</mark> par jata hai.
+>
+> * [Safety Net](ca://s?q=Time_based_safety_net) —  
+>   Agar follower <mark>1 minute</mark> se zyada peeche ho,  
+>   system us par read bhejna band kar deta hai.
+>
+> * [Fayda](ca://s?q=Time_based_fayda) —  
+>   Jab owner identify nahi hota,  
+>   yeh technique <mark>consistency</mark> ensure karti hai.
+>
+> ---
+>
+> ### 3. <mark>Client‑Side Logical LSN Watermarking</mark> (The Receipt/Token)
+>
+> Yeh sab se zyada <mark>accurate</mark> aur <mark>professional</mark> tareeqa hai.
+>
+> * [Concept](ca://s?q=LSN_watermarking_concept) —  
+>   Database har update ko ek <mark>Sequence Number</mark> deta hai (LSN/GTID).  
+>   Yeh ek <mark>"Receipt"</mark> hoti hai.
+>
+> * [Example](ca://s?q=LSN_watermarking_example) —  
+>   1. Aap ne write kiya → Leader ne kaha:  
+>      *"Aap ka kaam <mark>LSN 500</mark> par save ho gaya."*  
+>   2. Client is <mark>500</mark> ko yaad rakhta hai.  
+>   3. Read request bhejte waqt client kehta hai:  
+>      *"Mujhe woh data do jo <mark>500</mark> tak update ho chuka ho."*  
+>   4. Agar follower <mark>499</mark> par ho,  
+>      woh wait karega ya request <mark>Leader</mark> ko forward karega.
+>
+> * [Fayda](ca://s?q=LSN_watermarking_fayda) —  
+>   Ismein <mark>guessing</mark> nahi hoti.  
+>   System exact <mark>tracking</mark> karta hai.
+>
+> ---
+>
+> ### <mark>In Teeno ka Khulasa</mark> (The Bottom Line)
+>
+> | Technique | Kab use karein? | Logic |
+> | --- | --- | --- |
+> | **Asset Ownership** | Jab cheez sirf <mark>"Aapki"</mark> ho. | <mark>"Sirf Owner ko Leader par bhejo."</mark> |
+> | **Time-Based** | Jab cheez <mark>"Shared"</mark> ho. | <mark>"Update ke 1 minute tak Leader par raho."</mark> |
+> | **LSN/Watermark** | Jab <mark>"Precision"</mark> chahiye ho. | <mark>"Receipt (LSN) se match karo."</mark> |
+>
+> Production mein bade systems (jaise <mark>Twitter</mark> ya <mark>Facebook</mark>)  
+> in teeno ko mix karke use karte hain taake user ko kabhi yeh na lage  
+> ke usne data save kiya aur woh <mark>gayab</mark> ho gaya.
+
+
+---
+
+```plaintext
+[ Client App (Holds LSN: 8900) ] ---> Reads Data with Header: X-Min-LSN=8900 ---> [ Read Router Gateway ]
+                                                                                           |
+                                                                          +----------------+----------------+
+                                                                          | (Checks Follower Status)        |
+                                                                          v                                 v
+                                                             [ Follower A (Current LSN: 8850) ]    [ Follower B (Current LSN: 8910) ]
+                                                             Status: Piche hai / STALE             Status: Caught Up / FRESH
+                                                             Action: REJECTS / BLOCKS Request      Action: PROCESSES & Returns Data!
+
+```
+
+#### Comprehensive Diagram Explanation:
+
+Jab client database se read query chalata hai, toh wo request ke sath apna saved LSN watermark (`LSN: 8900`) bhejta hai. Database ka `Read Router Gateway` har replica ka status check karta hai. `Follower A` ka local counter abhi `8850` par hai, yani wo user ke pichle write se piche chal raha hai. Gateway is node par request process nahi karega. Wo request ko direct `Follower B` (jo `8910` par catch up ho chuka hai) par route karega, ya phir request ko tab tak block (hold) rakha jayega jab tak follower local log replay karke us number tak pohanch nahi jata.
+
+---
+
+### Cross-Device aur Multi-Region Complexity ka Challenge
+
+Jab ek hi user apni application ko do mukhtalif devices (jaise desktop web browser aur mobile app) se chalata hai, toh humein **Cross-device read-after-write consistency** ki zaroorat parti hai (yaani mobile se status badla, toh laptop reload karne par naya status hi dikhna chahiye). Is modern pattern mein do bade distributed infrastructure issues aate hain:
+
+1. **Centralized Metadata Dependency:** Laptop ke browser ko bilkul nahi pata ke mobile app ne kya naye data updates kiye hain. Isliye user ke last write ka logical timestamp metadata ab client par isolated nahi rakha ja sakta; use backend par ek highly available, low-latency central cache (jaise Redis layer) par lock rakhna parta hai.
+2. **Network Routing Jitter across Regions:** Agar aapke database replicas poori dunya mein alag-alag geographical locations par bikhre huay hain, toh user ka laptop ho sakta hai ghar ke broadband se connect ho kar region 1 (US datacenter) ko hit kare, aur uska mobile phone cellular network par hone ki wajah se region 2 (Europe datacenter) par land kar jaye. Agar requests ko cross-device fresh rakhna hai, toh router ko user ID ka hash nikal kar us user ke saare devices ka read/write traffic strictly **aik hi single geographic region** ki taraf sticky route karna padega jahan main database leader active baitha hai.
+
+---
+
+## Regions and Availability Zones
+
+Cloud infrastructure ko secure aur fault-tolerant banane ke liye cloud providers datacenters ko Regions aur Availability Zones (AZs) ke hierarchy mein divide karte hain.
+
+* **Region:** Yeh ek specific geographic location (jaise North Virginia, Frankfurt, ya Singapore) ko darshata hai jahan cloud provider ke apne datacenters mojud hote hain.
+* **Availability Zone (AZ):** Ek region ke andar mukhtalif alag-alag physical datacenters hote hain. Har datacenter ko ek **Availability Zone** ya simple *Zone* kaha jata hai. Har zone ki apni physical facility hoti hai jiska apna isolated power grid, cooling system, aur physical security hoti hai taake agar ek datacenter mein aag lagay ya power outage ho, toh doosra datacenter zinda rahe.
+
+---
+
+### Intra-Region vs Cross-Region Replication Topology
+
+Ek cloud region ke andar availability zones ka low-latency connection aur regions ke darmiyan hone wali long-distance asynchronous streaming ka network layout is format mein kaam karta hai:
+
+```plaintext
+========================================================================================================
+[ CLOUD CLUSTER REGION 1 (e.g., US-East) ]                                                             
+  
+  +---------------------------------------+        Ultra High-Speed       +---------------------------------------+
+  | Availability Zone 1A (Datacenter 1)   | <===========================> | Availability Zone 1B (Datacenter 2)   |
+  | [ Main Database Leader Node ]         |       (Latency < 1ms to 2ms)  | [ Synchronous Follower Replica ]      |
+  +---------------------------------------+                               +---------------------------------------+
+========================================================================================================
+                                    |
+                                    | Asynchronous WAN Log Shipping (Public Internet / Dedicated Fiber)
+                                    | High Latency ($100\text{ ms} - 300\text{ ms}$ / Cross-Continent Network Jitter)
+                                    v
+========================================================================================================
+[ CLOUD CLUSTER REGION 2 (e.g., EU-Central) ]                                                          
+  
+  +---------------------------------------+                               +---------------------------------------+
+  | Availability Zone 2A (Datacenter 3)   |                               | Availability Zone 2B (Datacenter 4)   |
+  | [ Asynchronous Cross-Region Replica ]  |                               | [ Read-Only Analytical Replica ]      |
+  +---------------------------------------+                               +---------------------------------------+
+========================================================================================================
+
+```
+
+#### Comprehensive Diagram Explanation:
+
+* **The Intra-Region Low Latency Grid:** `Region 1` ke andar zone 1A aur zone 1B aaps mein makhsoos dedicated dark-fiber networks se joray hote hain. Inke darmiyan network latency intahai low ($1\text{ ms}$ se $2\text{ ms}$) hoti hai. Is high speed ka faida uthakar distributed databases in zones ke darmiyan bina application performance slow kiye **Strict Synchronous Replication** chalate hain. Agar poora zone 1A flood ya disaster se down ho jaye, toh zone 1B bina ek bit ke data loss ke instantly operations resume kar leta hai.
+* **The Cross-Region High Latency WAN:** Lekin agar poora geographic region hi down ho jaye (Regional Outage), toh us disaster se bachne ke liye data ko `Region 2` (jo hazaron miles door doosre continent par hai) bhejni parta hai. Regions ke darmiyan latency bohot high aur network lines unpredictable hotin hain. Agar hum yahan synchronous locking lagayenge, toh network speed slow hone se poori application baith jayegi. Isliye cross-region replication ko compulsory hamesha **Asynchronous Log Shipping** par rakha jata hai, jahan data background change streams ke zariye travel karta hai aur cross-region networking bills ko optimize karne ke liye batches mein data transfer kiya jata hai.
 
 ---
 
@@ -867,9 +1034,13 @@ Agar user ek hi waqt mein laptop browser aur mobile app dono se login hai, toh c
 
 Asynchronous replication lag ki doosri barhi anomaly yeh hai ke user ko lagta hai ke **waqt dunya mein piche ki taraf chal raha hai (Time moving backward)**.
 
-### Figure 6-4 / image_a2d5c0.png ka Deep Breakdown (The Time Machine Anomaly)
+### Figure 6-4 ka Deep Breakdown (The Time Machine Anomaly)
 
-Chaliye image_a2d5c0.png ke timing structure ko bacho ki tarah aasan karke break karte hain ke jab load balancer request ko randomly rotate karta hai toh kya ajeeb tamasha banta hai:
+Chaliye Figure 6-4 ke timing structure ko bacho ki tarah aasan karke break karte hain ke jab load balancer request ko randomly rotate karta hai toh kya ajeeb tamasha banta hai:
+
+<div align="center">
+  <img src="./images/04.png" width="700"/>
+</div>
 
 ```plaintext
 User 1234 (Leader Writes) ---> Comment Inserted OK!
