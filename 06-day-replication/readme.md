@@ -2033,6 +2033,10 @@ Jab aap eventual consistency ke sath yeh pakka nateeja jor dete hain ke saare no
 
 ### Conflict-free replicated datatypes and operational transformation
 
+<div align="center">
+  <img src="./images/11.png" width="700"/>
+</div>
+
 Automatic conflict resolution ko dunya mein implement karne ke liye do baray mashhoor algorithm khandani patterns hain: **Operational Transformation (OT)** aur **Conflict-free Replicated Datatypes (CRDTs)**.
 
 Chaliye hum in dono ke farq ko unke internal data integration aur mechanics ke mutabaq deeply break karte hain. Farz karein hamare paas ek string hai jo shuru mein `"ice"` thi. User 1 shuru mein `n` lagakar use `"nice"` banana chahta hai, jabke User 2 aakhir mein `!` lagakar use `"ice!"` banana chahta hai. Hamara goal bina data loss ke final state `"nice!"` achieve karna hai.
@@ -2078,16 +2082,6 @@ Distributed monitoring mein conflicts do tarah ke hote hain: ek hote hain bilkul
 <div align="center">
   <img src="./images/09.png" width="600"/>
 </div>
-
-```plaintext
-[ Client 1 ] ---> (Op: title='B') ---> [ Leader 1 (Region US) ] --+
-                                                                     | ---> (Asynchronous Sync Network)
-[ Client 2 ] ---> (Op: title='C') ---> [ Leader 2 (Region PK) ] --+                            |
-                                                                                                v
-                                                                                   [ Conflict State Detected ]
-                                                                                   Database holds Siblings: [B, C]
-
-```
 
 **Comprehensive Breakdown:** Is flow mein `Client 1` aur `Client 2` aapas mein bina coordinate kiye local regions ke alag leaders par hit marde hain. Leader 1 titles ko 'B' aur Leader 2 titles ko 'C' locked kar deta hai. WAN cross-sync network par jab dono records merge hone ke liye aate hain, toh database unke concurrent structure ko dekh kar conflict frame khara karta hai aur data mitaane ke bajaye unhein `Siblings Array` mein merge kar deta hai.
 
