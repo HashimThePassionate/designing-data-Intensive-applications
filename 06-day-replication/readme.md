@@ -1,5 +1,77 @@
 # Replication
 
+<details>
+<summary><h4 style="display: inline;">📑 Table of Contents</h4></summary>
+
+### Core Concepts
+- [Backups and Replication](#backups-and-replication)
+- [Mockup: Backup & Replication System](#mockup-system-design-scenario-interview-prep)
+
+### Single-Leader Replication
+- [Single-Leader Replication](#single-leader-replication)
+- [Synchronous Versus Asynchronous Replication](#synchronous-versus-asynchronous-replication)
+- [Setting Up New Followers](#setting-up-new-followers)
+- [Databases Backed by Object Storage](#databases-backed-by-object-storage)
+- [Handling Node Outages](#handling-node-outages)
+  - [Follower Failure: Catch-up Recovery](#follower-failure-catch-up-recovery)
+  - [Leader Failure: Failover](#leader-failure-failover)
+
+### Implementation Details
+- [Implementation of Replication Logs](#implementation-of-replication-logs)
+  - [Statement-based Replication](#statement-based-replication)
+  - [Write-ahead Log Shipping](#write-ahead-log-shipping)
+  - [Logical (Row-based) Log Replication](#logical-row-based-log-replication)
+
+### Replication Lag Issues
+- [Problems with Replication Lag](#problems-with-replication-lag)
+- [Reading Your Own Writes](#reading-your-own-writes)
+- [Regions and Availability Zones](#regions-and-availability-zones)
+- [Monotonic Reads](#monotonic-reads)
+- [Consistent Prefix Reads](#consistent-prefix-reads)
+- [Solutions for Replication Lag](#solutions-for-replication-lag)
+
+### Multi-Leader Replication
+- [Multi-Leader Replication](#multi-leader-replication)
+- [Geographically Distributed Operation](#geographically-distributed-operation)
+- [Problems with Different Topologies](#problems-with-different-topologies)
+
+### Sync Engines & Local-First
+- [Sync Engines and Local-First Software](#sync-engines-and-local-first-software)
+- [Real-time Collaboration & Offline-First](#real-time-collaboration-offline-first-and-local-first-apps)
+- [Technical Architecture & Data Synchronization](#technical-architecture--data-synchronization-lifecycle)
+
+### Conflict Resolution
+- [Dealing with Conflicting Writes](#dealing-with-conflicting-writes)
+  - [Conflict Avoidance](#conflict-avoidance)
+  - [Last Write Wins](#last-write-wins-discarding-concurrent-writes)
+  - [Manual Conflict Resolution](#manual-conflict-resolution)
+  - [Automatic Conflict Resolution](#automatic-conflict-resolution)
+  - [Conflict-free Replicated Datatypes (CRDTs)](#conflict-free-replicated-datatypes-and-operational-transformation)
+  - [Types of Conflict](#types-of-conflict)
+
+### Leaderless Replication
+- [Leaderless Replication](#leaderless-replication)
+- [Writing When a Node Is Down](#writing-to-the-database-when-a-node-is-down)
+- [Catching Up on Missed Writes](#catching-up-on-missed-writes)
+  - [Read Repair](#1-read-repair-parhte-waqt-marammat)
+  - [Hinted Handoff](#2-hinted-handoff-udhaar-ki-bachat)
+  - [Anti-entropy](#3-anti-entropy-background-data-saaf-safai)
+- [Using Quorums](#using-quorums-for-reading-and-writing)
+- [Quorum Limitations](#understanding-the-limitations-of-quorum-consistency)
+- [Monitoring Staleness](#monitoring-staleness)
+
+### Performance & Advanced Topics
+- [Single-Leader vs Leaderless Performance](#single-leader-versus-leaderless-replication-performance)
+- [Multi-Region Operation](#multi-region-operation)
+- [Detecting Concurrent Writes](#detecting-concurrent-writes)
+  - [Happens-Before Relation](#the-happens-before-relation-and-concurrency)
+  - [Version Vectors](#capturing-the-happens-before-relationship-single-replica-client-algorithm)
+
+### Summary & Reference
+- [Comparison Table](#summary)
+
+</details>
+
 Distributed systems mein **Replication** ka matlab hota hai aik hi data ki bilkul huba-hu (identical) copies ko mukhtalif machines par rakhna, jo network ke zariye aaps mein connected hon.
 
 Douglas Adams ka aik bohot mashhoor jumla hai ke *"Aik aisi cheez jo kharab ho sakti hai aur aik aisi cheez jo kabhi kharab nahi ho sakti, un mein sabsay bada farq yeh hai ke jab kabhi na kharab hone wali cheez galti se kharab ho jaye, toh use repair karna ya us tak pohanchana namumkin ho jata hai."* Distributed systems par bhi yahi baat lagu hoti hai; hum jitna bhi resilient system bana lein, network aur hardware faults aane hi aane hain. Isliye hum replication ka sahara lete hain.
