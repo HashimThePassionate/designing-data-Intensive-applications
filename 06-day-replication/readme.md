@@ -2202,38 +2202,18 @@ Leaderless systems mein do tarah ke designs hote hain: ya toh client direct boho
 Farz karein aapke paas ek aisa database cluster hai jisme kul 3 replicas hain, aur unmein se ek replica kisi system update ya crash ki wajah se temporary **offline (unavailable)** ho chuka hai.
 
 * **Single-Leader Model mein kya hota tha?** Agar leader down ho jata, toh aapko naye writes chalane ke liye ek bada aur pechida *Failover* process chalana parta tha taake naya leader elect ho sake.
-* **Leaderless Model mein kya hota hai?** Yahan failover jaisa koi jhanjhat hota ہی nahi, kyunke saare nodes barabar (equal) hain aur koi bhi master nahi hai.
+* **Leaderless Model mein kya hota hai?** Yahan failover jaisa koi jhanjhat hota hey nahi, kyunke saare nodes barabar (equal) hain aur koi bhi master nahi hai.
 
 ---
 
-### Figure 6-12 / image_a1fb89.png ka Deep Breakdown
+### Figure 6-12 ka Deep Breakdown
 
-Chaliye image_a1fb89.png ke complete chronological data flow ko bilkul bacho ki tarah aasan karke samajhte hain ke jab ek node down ho, toh data read/write kaise survive karta hai:
+Chaliye Figure 6-12  ke complete chronological data flow ko bilkul bacho ki tarah aasan karke samajhte hain ke jab ek node down ho, toh data read/write kaise survive karta hai:
 
 <div align="center">
   <img src="./images/12.png" width="600"/>
 </div>
 
-```plaintext
-Write Subsystem Flow:
-[ User 1234 ] ====> Fire Write Requests in Parallel ====> [ Replica 1 ] ---> Returns OK (v7)
-                                                    ====> [ Replica 2 ] ---> Returns OK (v7)
-                                                    ====> [ Replica 3 ] ---> [ OFFLINE / MISSED ]
-                                                               |
-                                    (w=2 Quorum Satisfied)    v
-[ User 1234 ] <================ Considers Write SUCCESSFUL ===================================
-
-Read & Repair Subsystem Flow (Later Time):
-[ User 2345 ] <==== Reads in Parallel from All Replicas <==== [ Replica 1 ] ---> Returns value='me-new.jpg' (v7)
-                                                        <==== [ Replica 2 ] ---> Returns value='me-new.jpg' (v7)
-                                                        <==== [ Replica 3 ] ---> Returns value='me-old.jpg' (v7 stale)
-                                                               |
-                                     (Evaluates Latest Version) v
-Client Core Object ---> Picks Version 7 (Fresh Data) to display to User 2345
-       |
-       +-------------> [ Triggers READ REPAIR Background Task ] ===> Overwrites Replica 3 with v7
-
-```
 
 #### Step-by-Step Execution Lifecycle:
 
@@ -2289,28 +2269,13 @@ Lekin workload ke mutabaq aap inhein badal sakte hain. Maslan, agar aapka system
 
 ---
 
-### Figure 6-13 / image_a1f83f.png ka Quorum Overlap Breakdown
+### Figure 6-13 ka Quorum Overlap Breakdown
 
-Chaliye image_a1f83f.png ke mathematical node overlap visualization ko step-by-step detail se samajhte hain ke overlap kaise data safety ki guarantee banta hai:
+Chaliye Figure 6-13 ke mathematical node overlap visualization ko step-by-step detail se samajhte hain ke overlap kaise data safety ki guarantee banta hai:
 
 <div align="center">
   <img src="./images/13.png" width="600"/>
 </div>
-
-```plaintext
-Cluster State Matrix (n = 5 Replicas)
-+-------------+-------------+-------------+-------------+-------------+
-|  Replica 1  |  Replica 2  |  Replica 3  |  Replica 4  |  Replica 5  |
-+-------------+-------------+-------------+-------------+-------------+
-\___________________________/             \___________________________/
-              |                                         |
-     w = 3 Successful Writes Block             r = 3 Successful Reads Block
-              |                                         |
-              +=================== MATCHED =============+
-                                   |
-                     [ Intersection Node: Replica 3 ] <--- Holds Latest Value
-
-```
 
 #### Detailed Structural Mapping:
 
