@@ -1792,7 +1792,7 @@ Agar network latency ki wajah se `Leader 2` (PK) ka update packet `[1, 1]` doosr
 
 Multi-leader replication sirf baday cloud regions aur global datacenters tak makhsoos nahi hai, balkay yeh aapke hath mein maujud mobile phones aur laptops mein bhi istemal hoti hai. Iska sabsay behtareen use case aisi applications hain jo internet se disconnected (offline) hone ke bawajood bina ruke kaam karti hain.
 
-Maslan, aapke mobile aur laptop mein maujud **Calendar App** ko dekhein. Aapko kisi bhi waqt apni meetings dekhni parti hain (Read requests) aur nayi meetings enter karni parti hain (Write requests), chahe aapka device internet se connected ho ya na ho. Agar aap offline state mein koi meeting add ya modify karte hain, toh wo data device par hi save rehta hai, aur jaise ہی aapka device dobara internet se connect hota hai, wo saari changes server aur aapke doosre devices ke sath automatic sync ho jati hain.
+Maslan, aapke mobile aur laptop mein maujud **Calendar App** ko dekhein. Aapko kisi bhi waqt apni meetings dekhni parti hain (Read requests) aur nayi meetings enter karni parti hain (Write requests), chahe aapka device internet se connected ho ya na ho. Agar aap offline state mein koi meeting add ya modify karte hain, toh wo data device par hi save rehta hai, aur jaise hey aapka device dobara internet se connect hota hai, wo saari changes server aur aapke doosre devices ke sath automatic sync ho jati hain.
 
 ### Device As an Extreme Region (Extreme Multi-Leader Paradigm)
 
@@ -1840,7 +1840,7 @@ Is sync engine approach ke **4 bade architectural fawaid (pros)** hote hain:
 
 Sync engines sabsay behtareen tab kaam karte hain jab user ka zaroorat ka **saara data pehle se download (pre-fetched)** hoke client ke device par save ho chuka ho. Yahi wajah hai ke sync engines har tarah ke data tier par kaam nahi kar sakte.
 
-> **The Boundary Line (Bacho ki tarah samjhein):** Agar ek user ke apne banaye huay personal documents ya calendar entries hain, toh un saari files ko phone par download karna bilkul sahi hai (kyunke ek insaan limited data generate karta hai). Lekin agar aap ek *E-Commerce E-commerce Website* design kar rahe hain, toh aap poori website ka lakhon products ka catalog user ke mobile par pre-download nahi kar sakte. Aise scenarios mein sync engine fail ho jata hai aur traditional request-response model hi use karna parta hai.
+> **The Boundary Line (Bacho ki tarah samjhein):** Agar ek user ke apne banaye huay personal documents ya calendar entries hain, toh un saari files ko phone par download karna bilkul sahi hai (kyunke ek insaan limited data generate karta hai). Lekin agar aap ek *E-Commerce Website* design kar rahe hain, toh aap poori website ka lakhon products ka catalog user ke mobile par pre-download nahi kar sakte. Aise scenarios mein sync engine fail ho jata hai aur traditional request-response model hi use karna parta hai.
 
 *Real-World Tech:* Is technology ki shuruat 1980s mein *Lotus Notes* ne ki thi. Aaj hamare paas proprietary enterprise systems bhi hain (jaise Google Firestore, Realm, Ditto) aur local-first ke liye decentralized open-source tools bhi mojud hain jo **CRDTs** par chalte hain (jaise *Automerge, Yjs, PouchDB*).
 
