@@ -2459,7 +2459,7 @@ Application ke use case ke mutabaq developers ke paas multi-region setting mein 
 
 Leaderless dunya ka sabsay khofnak nightmare (challenge) data updates ka out-of-order hona hai. Variable network delays aur temporary link failures ki wajah se ho sakta hai ke data changes mukhtalif nodes par alag-alag sequence mein pohanchen.
 
-### Figure 6-14 / image_a1ed1e.png ka Breakdown (The Permanent Divergence Trap)
+### Figure 6-14 Breakdown (The Permanent Divergence Trap)
 
 Figure 6-14 mein do clients ka concurrent write anomaly timeline par dikhaya gaya hai. Chaliye is poore mechanics ko bariki se samajhte hain ke agar database be-dharak writes accept kare toh kya tabahi hoti hai:
 
@@ -2541,8 +2541,10 @@ Step 5: Client 1 Writes (+bacon, v_prior=3, merged state=[milk, flour, eggs])
 Agar aap Figure 6-16 ke directed graph ko dekhein, toh data do aalaag branches (forks) mein divide ho jata hai:
 
 <div align="center">
-  <img src="./images/16.png" width="600"/>
+  <img src="./images/16.png" width="700"/>
 </div>
+
+---
 
 * **Top Branch:** `Empty` -> `+milk` -> `+flour (v3)` -> `+bacon (v5)`. Is line ko pata tha ke milk pehle se mojud tha, isliye milk ka direct single record overwrite ho kar array banta gaya.
 * **Bottom Branch:** `Empty` -> `+eggs (v2)` -> `+ham (v4)`. Yeh branch parallel mein aalaag chal rahi thi aur ise flour ya bacon ka koi pata nahi tha.
@@ -2565,13 +2567,11 @@ $$\text{Vector} = [R_1: \text{count}, R_2: \text{count}, R_3: \text{count}]$$
 
 ## Summary
 
-Distributed replication infrastructure ko design karne ke poore principles ko is tabular format mein summarize kiya ja sakta hai revision aur quick visualization ke liye:
-
-| Replication Strategy | Write Path Handling | Read Conflict Risk | Fault Tolerance Level | Primary Use Case |
+| Replication Strategy | Boss (Leader) | Write Kahan Hota Hai? | Asli Masla (Risk) | Kab Use Karein? |
 | --- | --- | --- | --- | --- |
-| **Single-Leader** | Strictly via One Master Node | Low (Strict Serial ordering by Leader) | Low (Sensitive to Master outage/Failover lag) | Strict ACID/Financial ledger systems |
-| **Multi-Leader** | Via Multiple Regional Masters | High (Overtaking packets & Key collisions) | High (Survives entire regional cloud outages) | Geo-distributed cross-continent apps |
-| **Leaderless** | Parallel fan-out to $n$ Replicas | High (Out-of-order landings at nodes) | Maximum (Request Hedging bypasses slow nodes) | High-throughput Volumetric data streams |
+| **Single-Leader** | Sirf **1 Boss** (Leader) | Sirf Leader par | Leader crash hua toh poora system ruka | Banks, Financial Apps |
+| **Multi-Leader** | Har region mein **Alag Boss** | Apne apne region mein | Data Conflicts (Jhagray) | Google Docs, Multiplayer Games |
+| **Leaderless** | **Koi Nahi** (Democracy) | Sab nodes par ek saath | Data "Stale" (Purana) dikhna | Shopping Carts, High-traffic Apps |
 
 ---
 
