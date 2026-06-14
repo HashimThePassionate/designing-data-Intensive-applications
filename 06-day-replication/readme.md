@@ -11,6 +11,44 @@ Data ko replicate karne ke **3 bade architectural fawaid (reasons)** hote hain:
 * **Read Throughput ko Scale Out Karna:** Agar system par sudden parhne wali queries (read traffic) ka bohot zyada bojh aa jaye, toh hum replication ke zariye multiple machines khari kar dete hain, jo us traffic ko aaps mein baant (distribute) leti hain.
 
 > **The Core Assumption:** Is poore context mein hum yeh maan kar chal rahe hain ke aapka dataset itna chota hai ke har single machine poore ke poore data ki copy ko apni disk par hold kar sakti hai. Agar data aik machine se bada ho jaye, toh uske liye hum **Sharding (Partitioning)** karte hain, jo hum agay seekhenge.
+> Replication ka matlab hai <mark>"Copy banana"</mark>.  
+> Jab aapke paas ek se zyada <mark>machines (servers)</mark> hon,  
+> aur aap <mark>har single machine</mark> par poore database ki ek <mark>identical (exact) copy</mark> rakh dein,  
+> toh usay hum <mark>replication</mark> kehte hain.
+>
+> Yahan jo baat ho rahi hai, uske main points yeh hain:
+>
+> ### 1. The Core Assumption (Paheli Shart)
+>
+> Aapka total data (let's say <mark>50 GB</mark>) itna chota hai ke woh kisi bhi ek normal machine ki hard disk par aaram se fit ho sakta hai.  
+> Ab agar aapke paas <mark>3 machines</mark> hain, toh teeno machines par wahi 50 GB data poore ka poora <mark>copy</mark> ho kar save rahega.
+>
+> ### 2. Iske Fayde (Why do we do this?)
+>
+> * [Fault Tolerance](ca://s?q=Fault_tolerance_in_replication) —  
+>   Agar <mark>Server A crash</mark> ho jaye, toh aapka system down nahi hoga.  
+>   Server B aur Server C ke paas pehle se <mark>poora data</mark> maujood hai, woh foran traffic sambhal lenge.
+>
+> * [Load Balancing](ca://s?q=Read_scaling_in_replication) —  
+>   Agar <mark>lakhon users</mark> ek saath data read karna chahte hain,  
+>   toh aap unka load teeno machines par <mark>baant</mark> sakte hain,  
+>   kyunki teeno ke paas <mark>complete data</mark> hota hai.
+>
+> ---
+>
+> ### Replication vs Sharding (Aage ki Baat)
+>
+> Jo text aap ne share kiya, woh aik bohat important <mark>boundary line</mark> khinch raha hai:
+>
+> * [Replication](ca://s?q=Replication_explained) —  
+>   Data chota hai, isliye <mark>Same Data</mark> ki multiple copies multiple machines par hoti hain.
+>
+> * [Sharding](ca://s?q=Sharding_explained) —  
+>   Jab aapka data itna <mark>bada</mark> ho jaye (let's say <mark>10 Terabytes</mark>)  
+>   ke woh kisi aik machine ki disk par <mark>sama hi na sakay</mark>,  
+>   toh aap data ke <mark>tukde (shards)</mark> karte hain.  
+>   Phir kuch data <mark>Server A</mark> par jata hai, kuch <mark>Server B</mark> par, aur kuch <mark>Server C</mark> par.
+
 
 Agar aapka data kabhi badalta nahi (Static Data), toh replication dunya ka sabsay aasan kaam hai—aik dafa copy karo aur bhool jao. **Replication ki asli mushkil tab shuru hoti hai jab data continuously badal raha ho (Writes aur Updates ho rahe hon).**
 
@@ -129,7 +167,7 @@ Agar har replica ka data bilkul aik jaisa rakhna hai, toh har write query ko har
 
 1. **The Leader (Sardar Node):** System mein maujud saare replicas mein se aik node ko **Leader** (Primary ya Source) ghoshit (designate) kar diya jata hai. Jab bhi kisi client ko database mein koi naya data likhna (Write) ya badalna (Update/Delete) ho, toh wo apni request strictly sirf aur sirf leader node ko bhej sakta hai. Leader us data ko pehle apne local storage (disk) par write karta hai.
 2. **The Followers (Cheelay Nodes):** Baqi saare nodes ko **Followers** (Read Replicas, Secondaries, ya Hot Standbys) kaha jata hai. Jab bhi leader apne paas koi naya data write karta hai, wo us badlao ko aik **Replication Log ya Change Stream** (tabdeeli ka rasta) ki shakl mein apne saare followers ko network par bhej deta hai. Har follower us log ko parhta hai aur bilkul usi exact order (tartoob) mein un writes ko apne local database par apply karta jata hai jis order mein leader ne execute kiya tha.
-3. **Read/Write Rules:** Clients jab bhi database se data parhna (Read) chahein, wo leader ya kisi bhi follower se parh sakte hain. Lekin naya data likhne (Write) ki izazat sirf aur sirf leader ke paas hoti hai. Followers clients ke liye strictly **Read-Only** hote hain.
+3. **Read/Write Rules:** Clients jab bhi database se data parhna (Read) chahein, wo leader ya kisi bhi follower se parh sakte hain. Lekin naya data likhne (Write) ki ijazat sirf aur sirf leader ke paas hoti hai. Followers clients ke liye strictly **Read-Only** hote hain.
 
 Agar aapka database **Sharded (Partitioned)** hai, yaani data ke baray baray hissay kiye huay hain, toh har single shard ka apna aik makhsoos leader hota hai. Ho sakta hai Shard A ka leader Machine 1 par ho aur Shard B ka leader Machine 2 par, lekin har shard ke paas aik waqt mein sirf aik hi active leader node ho sakta hai.
 
@@ -142,7 +180,7 @@ Yeh single-leader model distributed systems ki dunya mein har jagah raaj kar rah
 ### Figure 6-1 ka Deep Breakdown
 
 <div align="center">
-  <img src="./images/01.png" width="600"/>
+  <img src="./images/01.png" width="700"/>
 </div>
 
 Chaliye ke architectural graph ko step-by-step aur component level par poori bareeki se samajhte hain:
@@ -195,7 +233,7 @@ Distributed database design ka aik bohot hi critical theoretical aspect yeh taye
 ### Figure 6-2  ka Timing Breakdown
 
 <div align="center">
-  <img src="./images/02.png" width="600"/>
+  <img src="./images/02.png" width="700"/>
 </div>
 mein timing charts ke zariye dono replication types ka aaps mein muqabla dikhaya gaya hai. Chaliye is timing flow ko step-by-step dekhte hain:
 
@@ -212,7 +250,7 @@ mein timing charts ke zariye dono replication types ka aaps mein muqabla dikhaya
 
 ### Asynchronous Replication ke Theoretical Trade-offs
 
-* **Fawaid (Pros):** Leader bilkul aazad hota hai. Chahe saare followers network problem ki wajah se ghanton piche (replication lag) kyun na chale जाएं, leader bina ruke high throughput ke sath naye writes confirm karta rehta hai.
+* **Fawaid (Pros):** Leader bilkul aazad hota hai. Chahe saare followers network problem ki wajah se ghanton piche (replication lag) kyun na chale, leader bina ruke high throughput ke sath naye writes confirm karta rehta hai.
 * **Nuksanat (Cons):** Durability kamzoor ho jati hai. Agar user ko `OK` milne ke baad aur Follower 2 tak data pohanchne se pehle leader ka hardware fail ho jaye, toh wo un-replicated writes **hamesha ke liye gum (lost)** ho jayenge. Client ko laga data save ho gaya, par asal dunya mein wo gayab ho chuka hota hai.
 
 ---
