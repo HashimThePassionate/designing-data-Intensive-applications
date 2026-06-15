@@ -144,3 +144,57 @@ Yeh aisa kyun karte hain? Iske peeche do bade technical reasons hain:
 Yeh tamam databases ek single machine ke andar **har CPU core par ek process** chalate hain aur load ko cores ke darmiyan phelane ke liye sharding ka hi sahara lete hain.
 
 ---
+
+## Sharding for Multitenancy
+
+Software as a Service (SaaS) products aur cloud services aksar **multitenant** hoti hain. Multitenant ka aasan matlab yeh hai ke **ek hi software/application ko bohot saare alag-alag customers (tenants) istemal kar rahe ہوتے hain**. Ek single tenant ke andar multiple users login kar sakte hain (jaise ek company ke bohot se employees), lekin har tenant ka apna data bilkul self-contained (apne andar mukammal) hota hai aur doosre tenants se bilkul alag aur alahda rakha jata hai.
+
+> **Real-World Example:** Writer ne yahan ek email marketing service ki misaal di hai. Jab bhi koi business is service par apna account banata hai (sign up karta hai), toh woh ek alag tenant ban jata hai. Us business ke subscribers ki list, newsletters aur delivery data ka doosre businesses ke data se koi taluq nahi hota—dono bilkul alag rehte hain.
+
+Kabhi kabhi is multitenant system ko chalane ke liye sharding ka istemal kiya jata hai. Iske do tareeqay hote hain: ya toh har tenant ko aik **separate shard** de diya jata hai, ya phir bohot saare chote-chote tenants ko mila kar ek **bade shard** mein group kar diya jata hai.
+
+Yeh shards physically alag databases bhi ho sakte hain ya ek bade logical database ke alag-alag hissay bhi ho sakte hain jinhein alag se manage kiya ja sakay.
+
+Multitenancy ke liye sharding use karne ke bohot se behtareen faide hain, jinhein writer ne niche tafseel se bayan kiya hai:
+
+### Resource isolation
+
+Agar ek single tenant database par koi bohot heavy ya computational tor par mehangi (computationally expensive) operation ya query chalata hai, toh doosre tenants ki performance par asar nahi parta. Kyunke woh doosre shards (yaani alag machines) par chal rahe hote hain, is liye unka system slow nahi hota.
+
+### Permission isolation
+
+Yeh security ke hawale se ek bohot bada faida hai. Agar aapke application ke access control logic (permission system) mein koi bug ya galti aa bhi jaye, toh bhi galti se ek tenant ka data doosre tenant ke haath lagne ka khatra bohot kam hota hai, kyunke dono ka data physically hi ek doosre se alag aur separate jagah store hota hai.
+
+### Cell-based architecture
+
+Aap sharding ka concept sirf data storage level par hi nahi, balkay apni application code chalane wali services par bhi apply kar sakte hain. Ek **Cell-based architecture** mein, tenants ke ek makhsoos group ke liye unki application services aur unka storage dono ko mila kar ek mukammal independent block (**self-contained cell**) bana diya jata hai.
+
+Alag-alag cells is tarah set up kiye jate hain ke woh ek doosre se bilkul azad (independently) chal sakein. Iska sab se bada faida **Fault Isolation (Blast Radius Control)** hota hai: agar ek cell mein koi kharabi ya bug aa jaye, toh nuksaan sirf us cell ke tenants tak mahdood rehta hai. Doosre cells mein majood tenants par iska ratti barabar bhi asar nahi hota.
+
+### Per-tenant backup and restore
+
+Chunke har tenant ka shard alag hota hai, is liye aap har tenant ka backup alag se le sakte hain. Agar kisi tenant se galti se apna koi zaroori data delete ya overwrite ho jaye, toh aap baqi kisi bhi tenant ko chhere bina ya disturb kiye bina, sirf us specific tenant ka data backup se restore kar sakte hain.
+
+### Regulatory compliance
+
+Aaj kal data privacy ke sakht qawaneen hain jaise **GDPR** (Europe mein) aur **CCPA** (California mein). Yeh qawaneen aam logon ko yeh haq dete hain ke woh jab chahein businesses se apna data maang sakein (access) ya usay hamesha ke liye mita dene (deletion) ki request kar sakein. Agar har tenant/insan ka data ek separate shard mein organized hoga, toh unka data export karna ya mukammal tor par delete karna database ke liye bohot hi simple operation ban jata hai.
+
+### Data residence
+
+Kuch mumalik ke qanoon ke mutabaq unke citizens ka data physical tor par unhi ki country ki boundary ke andar store hona zaroori hai (Data Residency Laws). Ek region-aware database ka istemal karte hue aap asani se us makhsoos tenant ke shard ko uski country ke geographic region (location) wali machine par assign kar sakte hain.
+
+### Gradual schema rollout
+
+Database ka structure badalna (schema migration) ek bohot hi risky kaam hota hai. Sharding ka faida yeh hai ke aap naya schema ek hi waqt mein poore database par thopne ke bajaye **aik aik tenant kar ke gradually** (ahista ahista) roll out kar sakte hain. Is se risk bohot kam ho jata hai; agar naye structure mein koi masla hua toh pehle hi tenant par pakra jayega aur baqi saare tenants nuqsan se bach jayenge (halankay is cheez ko transactionally manage karna thoda mushkil hota hai).
+
+---
+
+### Challenges of Multitenancy Sharding
+
+Faidon ke sath sath, writer ne is approach ke teen bade **challenges (mushkilat)** bhi bataye hain:
+
+* **Tenant Single Node Se Bada Hona:** Is poore model ka basic assumption yeh hai ke har ek tenant itna chota hoga ke woh ek akeli machine (node) par fit aa sakay. Lekin agar koi ek tenant (customer) itna giant (bada) ho jaye ke woh ek machine par poora hi na aaye, toh aapko us akele tenant ke andar bhi mazeed sharding karni paregi. Yeh aapko dobara scalability wali sharding ke mushkil raste par le jata hai.
+* **Chote Tenants Ka Overhead:** Agar aapke paas bohot saare chote-chote tenants hain aur aap har ek ke liye alag shard banayenge, toh system par bohot zyada faltu bojh (**overhead**) barh jayega. Agar aap is se bachne ke liye kayi chote tenants ko ek bade shard mein group kar dete hain, toh naya masla yeh khara hota hai ke jab un mein se koi tenant bada hoga, toh usay us shard se nikal kar doosre shard mein move (migrate) kaise kiya jaye.
+* **Cross-Tenant Features:** Agar aapko kabhi future mein koi aisa feature banana par jaye jo alag-alag tenants ke data ko aapas mein connect ya combine kare, toh unka data aapas mein **Join** karna bohot hi mushkil aur slow ho jata hai kyunke data alag-alag shards par bikhra hua hota hai.
+
+---
