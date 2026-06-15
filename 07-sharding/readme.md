@@ -335,3 +335,207 @@ Lekin, **shard ko split karna ek bohot hi mehanga aur bhari operation (expensive
 **Sab se bada risk yeh hai:** Jo shard split hone ja raha hota hai, woh pehle hi had se zyada load (high load) ke andar hota hai. Ab us high load ke upar jab split karne ka apna bhari bojh bhi aa jata hai, toh system mazeed dab jata hai aur us node ke mukammal tor par crash ya overload hone ka khatra bohot barh jata hai.
 
 ---
+
+## Sharding by Hash of Key
+
+Key-range sharding (jo hum ne pehle parha) wahan bohot faida mand hoti hai jahan hum chahte hain ke aapas mein milti julti keys ek hi shard mein ikatthi store hon (jaise timestamps). Lekin agar aapko is baat se koi farq nahi parta ke keys ek doosre ke kareeb hain ya nahi (maslan, kisi multitenant application mein tenants ki IDs), toh sab se behtareen aur aam tareeqa yeh hota hai ke pehle partition key ko ek **Hash Function** mein dala jaye, aur phir us se milne wale number ke mutabaq shard decide kiya jaye.
+
+> **Asaan Alfaaz Mein (ELI5):** > Farz karein aapke paas alag-alag lambai aur tarteeb ke hazaron khilonay (keys) hain. Agar aap unhein seedha rkhne ki koshish karenge toh ho sakta hai ek dabba bhar jaye aur doosra khali rahe.
+> Hash function ek aisi **"Jadui Machine"** hai jo har khilonay ko pakar kar usay ek unique random-looking token (number) mein badal deti hai. Is se faida yeh hota hai ke bikhra hua aur tedha-medha data bhi bilkul barabar tarah se boxes (shards) mein takseem ho jata hai.
+
+Ek achha hash function gair-wazni aur skewed data ko pakar kar usay poore system mein **Uniformly Distribute** (barabar phelana) kar deta hai.
+
+* **Working Mechanism:** Farz karein hamare paas ek 32-bit hash function hai jo kisi bhi string text ko input leta hai. Jab bhi aap isay koi naya string denge, yeh 0 se le kar $2^{32} - 1$ ke darmiyan ek random sa दिखने wala number return karega.
+* **Determinism:** Agarchay yeh number random dikhta hai, lekin yeh deterministically kaam karta hai—yaani agar aap **exact same input** baar baar denge, toh output mein hamesha **exact same number** hi nikal kar aayega. Haaan, agar inputs aapas mein bohot milti julti bhi hon (jaise "abc" aur "abd"), toh unke hash values ek doosre se bilkul alag aur poori range mein door-door bikhre hue honge.
+
+#### Real-World Examples (Hash Tools):
+
+Sharding ke maqsad ke liye hash function ka cryptographically strong (secure) hona zaroori nahi hai (jaise baki security tools mein hota hai):
+
+* **MongoDB:** Sharding ke liye **MD5** hash function use karta hai.
+* **Cassandra aur ScyllaDB:** Is kaam ke liye **Murmur3** use karte hain.
+
+> **Zaroori Technical Warning:** > Boht si programming languages ke andar apna built-in hash function hota hai (jo unki internal hash tables ke liye hota hai), lekin **woh sharding ke liye bilkul bekaar aur unsuitable hote hain**.
+> Maslan, Java ka `Object.hashCode()` aur Ruby ka `Object#hash` aik hi key ka hash value alag-alag processes ya alag machines par alag nikal sakte hain. Agar hash badal gaya, toh data dhoondna na-mumkin ho jayega.
+
+---
+
+### Hash modulo number of nodes
+
+Jab aap key ka hash nikal lete hain, toh agla faisla yeh karna hota hai ke isay kis shard/node par rakhna hai. Sab se pehla khayal jo zehan mein aata hai, woh hai **Modulo Arithmetic** (yaani `%` operator) ka istemal karna.
+
+* **Formula:** $hash(key) \pmod N$ (Jahan $N$ system mein majood nodes ki tadad hai).
+* **Example:** Agar hamare paas 10 nodes hain (0 se 9 tak numbered), toh $hash(key) \pmod{10}$ hamesha 0 se 9 ke darmiyan ek number dega, jo seedha seedha us makhsoos node ka number hoga.
+
+Lekin is **Mod N** tareeqay mein ek bohot bada aur bura masla hai: **Agar system mein nodes ki tadad ($N$) badal jaye, toh taqreeban saara data apni jagah chor kar naye nodes par shift karna parta hai.**
+
+#### Figure 7-3: Modulo N Rebalancing ka Deep Breakdown
+
+Misaal ke tor par, is diagram ke dono hisson ko dhyan se dekhein:
+
+<div align="center">
+  <img src="./images/03.png" width="700"/>
+</div>
+
+* **Before Rebalancing (3 Nodes):**
+* Jab system mein sirf 3 nodes (`Node 0`, `Node 1`, `Node 2`) thay, toh formula tha: $hash(key) \pmod 3$.
+* **Node 0** ke paas woh keys ja rahi thin jinka modulo 0 tha: `0, 3, 6, 9, 12, 15, 18, 21`.
+* **Node 1** ke paas: `1, 4, 7, 10, 13, 16, 19, 22`.
+* **Node 2** ke paas: `2, 5, 8, 11, 14, 17, 20, 23`.
+
+
+* **After Rebalancing (4 Nodes - Ek naya Node 3 add kiya gaya):**
+* Ab nodes ki tadad 4 ho gayi, toh formula achanak badal kar ho gaya: $hash(key) \pmod 4$.
+* Is naye formule ki wajah se purana poora setup tabaah ho gaya:
+* Key `3` jo pehle `Node 0` par thi, ab $3 \pmod 4 = 3$ ki wajah se **Node 3** par chali gayi.
+* Key `6` jo pehle `Node 0` par thi, ab $6 \pmod 4 = 2$ ki wajah se **Node 2** par chali gayi.
+* Key `9` jo pehle `Node 0` par thi, ab $9 \pmod 4 = 1$ ki wajah se **Node 1** par chali gayi.
+
+
+**Trade-off Decision:** Mod N function compute karne mein toh bohot asaan aur tez hai, lekin rebalancing ke mamle mein yeh **bad-tareen aur gair-efficient** hai. Yeh bina kisi zaroorat ke records ko ek node se doosre node par phelata (unnecessary movement) hai, jis se network par bohot heavy bojh parta hai. Humein ek aisa tareeqa chahiye jo kam se kam data move kare.
+
+---
+
+### Fixed number of shards
+
+Mod N ke maslay ka ek bohot hi simple aur sab se zyada istemal hone wala hal yeh hai ke **shoroo se hi nodes ki tadad se kahin zyada shards bana diye jayein**, aur ek node ko multiple shards assign kar diye jayein.
+
+* **Example SETUP:** Farz karein 10 nodes ka ek cluster hai. Hum shoroo mein hi poore database ko **1,000 shards** mein divide kar dete hain. Iska matlab hai ke har ek node ke paas **100 shards** ka control hoga.
+* **Data Mapping:** Naya data aane par key ka shard is tarah nikalenge: $hash(key) \pmod{1000}$. Yeh shard number fix rahega. System alag se ek mapping table mein track rakhta hai ke kaun sa shard number is waqt kis physical node par betha hai.
+
+#### Figure 7-4: Adding a new node with multiple shards ka Deep Breakdown
+
+Is image mein dekhein ke kaise fixed shards bina keys ka formula badle naye node par shift hote hain:
+
+<div align="center">
+  <img src="./images/04.png" width="700"/>
+</div>
+
+* **Before Rebalancing (4 Nodes in Cluster):**
+* System mein 4 nodes hain (`Node 0` se `Node 3` tak) aur total 20 shards hain (`s0` se `s19` tak).
+* Har node ke paas 5 shards hain. Maslan, `Node 0` ke paas `s0, s4, s8, s12, s16` hain.
+
+
+* **After Rebalancing (5 Nodes in Cluster - `Node 4` Add Hua):**
+* Jab ek naya `Node 4` system mein aaya, toh system ne majooda nodes se **poore ke poore shards** utha kar naye node ko de diye taake sab par load barabar ho jaye.
+* Diagram mein **Solid Black Arrows (Shard migrates to another node)** ko dekhein:
+* `Node 0` se shard `s4` nikal kar `Node 4` par chala gaya.
+* `Node 1` se shard `s9` nikal kar `Node 4` par chala gaya.
+* `Node 2` se shard `s14` nikal kar `Node 4` par chala gaya.
+* `Node 3` se shard `s19` nikal kar `Node 4` par chala gaya.
+
+
+* **Dotted Lines (Shard remains on the same node):** Baqi jitne bhi shards thay (jaise s0, s8, s12 etc.), woh apni purani machines par hi kharray rahay, unhein ratti barabar bhi hilaya nahi gaya!
+
+#### Is Approach Ke Faide (Pros):
+
+1. **Minimum Data Movement:** Keys ka shard ke sath assignment kabhi nahi badalta. Sirf shard ka node ke sath taluq badalta hai, jis se faltu data migration se jaan chhut jati hai.
+2. **Network Tolerance:** Shards ka transfer فورا nahi hota, network par data transfer hone mein waqt lagta hai. Jab tak transfer chal raha hota hai, purani shard mapping hi reads aur writes ke liye use hoti rehti hai (No Downtime).
+3. **Hardware Flexibility:** Agar cluster mein kuch machines bohot powerful hain aur kuch kamzor, toh aap powerful machines ko zyada shards assign kar sakte hain taake woh zyada load utha sakein.
+4. **Real-World Tools:** Yeh behtareen approach **Citus** (PostgreSQL ka sharding layer), **Riak**, **Elasticsearch**, aur **Couchbase** mein use hoti hai.
+
+#### Is Model Ke Challenges aur Nuksaanat (Cons):
+
+* **Initial Guess Ki Limitation:** Yeh model tabhi tak achha hai jab tak aapko shoroo mein sahi andaza ho ke aapko maximum kitne shards chahiye honge. Aap cluster mein shards ki kul tadad se zyada nodes add nahi kar sakte (maslan agar 1000 shards hain toh max 1000 machines hi ho sakti hain).
+* **Resharding Ka Bhari Bojh:** Agar aapka andaza galat nikla aur aap shards ki tadad badhana chahte hain, toh yeh ek bohot hi **expensive resharding operation** hoga. Is mein har shard ko split kar ke nayi files mein dubara likhna parega, jo bohot disk space aur CPU lega. Kuch systems is dauran database par naya data likhne (concurrent writes) ki ijazat bhi nahi dete, jis se downtime aata hai.
+* **Size Management Ka Masla (The Goldilocks Problem):** Agar data ka size bohot upar niche hota hai toh masla hai. Chunke shards fixed hain, agar data bohot barh gaya toh har shard ka size bhi bohot bada ho jayega, jis se node failure ke waqt recovery aur rebalancing bohot slow ho jayegi. Agar shards bohot chote rakh diye, toh unka apna management bohot overhead (bojh) ban jayega. Shard ka size hamesha **"Just Right"** (na bohot bada, na bohot chota) hona chahiye, jo is fixed model mein mushkil hota hai.
+
+---
+
+### Sharding by hash range
+
+Agar aap future mein data ke size ka andaza pehle se nahi laga sakte, toh fixed shards ke bajaye ek aisa tareeqa behtar hai jahan shards ki tadad workload ke mutabaq khud ko dhal (adapt kar) sakay. Hum ne pehle parha ke key-range sharding mein yeh property hoti hai lekin wahan hot spots ka khatra hota hai.
+
+Iska hal yeh hai ke **Key-Range Sharding aur Hash Function ko aapas mein mila diya jaye (Combine kiya jaye)**. Is se har shard ke paas keys ki ranges ke bajaye **Hash Values ki contiguous ranges** hoti hain.
+
+#### Figure 7-5: Hash Ranges Ki Assignment Ka Deep Breakdown
+
+Is diagram ke flow ko step-by-step samajhte hain ke data kaise store ho raha hai:
+
+<div align="center">
+  <img src="./images/05.png" width="700"/>
+</div>
+
+* **Step 1 (Input Keys):** Hamare paas lagataar timestamps aa rahe hain (jaise `"2024-12-19 17:08:10"`, `"17:08:11"` etc.). Agar hum direct range sharding karte toh yeh sab ek hi hot shard par jate.
+* **Step 2 (The Hash Function):** In saari keys ko ek 16-bit hash machine se guzara gaya jo 0 se 65,535 ($2^{16} - 1$) tak values deti hai. Agarchay timestamps bilkul sath-sath wale hain, lekin unke hashes bilkul alag aur bikhre hue aaye (jaise pehle ka hash 7,372 aaya aur doosre ka 18,805).
+* **Step 3 (Hash Value Ranges per Shard):** Hum ne hash space ko barabar ranges mein shards ko de diya:
+* **Shard 0:** Hash range 0 se `16,383`. (Hamari pehli key ka hash 7,372 tha, toh arrow seedha Shard 0 mein gaya).
+* **Shard 1:** Hash range `16,384` se `32,767`. (Doosri key ka hash 18,805 aur aakhri key ka 24,510 tha, toh yeh dono Shard 1 mein gayen).
+* **Shard 2:** Hash range `32,768` se `49,151`. (Chauthi key ka hash 31,579 tha, lekin diagram ke mutabaq boundaries check karein, 31,579 actually Shard 1 ki range mein hi aayega, third key ka hash 50,537 tha toh woh Shard 3 mein gaya).
+* **Shard 3:** Hash range `49,152` se `65,535`.
+
+
+
+#### Faida aur Dynamic Splitting:
+
+Bilkul key-range sharding ki tarah, jab koi hash-range shard bohot bada ya heavy ho jata hai, toh system usay **dynamically split (do hisson mein takseem)** kar sakta hai. Yeh operation mehanga zaroori hai, lekin faida yeh hai ke shards ki tadad pehle se fixed nahi hoti, balkay data ke volume ke sath khud ba khud adapt hoti rehti hai.
+
+#### Sab Se Bada Nuksaan (The Downside):
+
+Iska sabsay bada nuksaan yeh hai ke **Partition Key ke upar Range Queries bohot hi gair-efficient aur slow ho jati hain**. Jo keys pehle tarteeb se ek jagah thin, ab woh pooray cluster ke tamam shards par bikhri hui hain. Agar aap range query chalayenge, toh database ko har ek shard par ja kar data dhoondna parega.
+
+* **The Composite Key Solution:** Agar aapki keys ek se zyada columns se mil kar bani hain (Composite Columns) aur partition key sirf pehla column hai, toh aap baqi ke columns par efficient range queries chala sakte hain. Jab tak partition key same rahegi, saara data ek hi shard mein milega!
+
+---
+
+### Partitioning and Range Queries in Data Warehouses
+
+Bade Data Warehouses (jaise **BigQuery**, **Snowflake**, aur **Delta Lake**) bhi bilkul isi tarah ka indexing aur partitioning approach use karte hain, halankay unki terminologies thodi mukhtalif hoti hain:
+
+* **Google BigQuery:** Is mein `Partition Key` yeh tai karti hai ke record kis partition mein jayega, jabke `Cluster Columns` yeh tay karte hain ke us partition ke andar data kis tarteeb (sort order) se save hoga.
+* **Snowflake:** Yeh records ko khud ba khud chote-chote blocks mein takseem karta hai jinhein **Micro-partitions** kehte hain, aur users ko table par `Cluster Keys` define karne ki ijazat deta hai.
+* **Delta Lake:** Yeh manual aur automatic, dono tarah se partition assignment ko support karta hai aur sath mein cluster keys ka feature bhi deta hai.
+
+> **Data Clustering Ka Faida:** Data ko is tarah cluster karne se na sirf range scan ki performance behtar hoti hai, balkay data ko compress (chota) karna aur gair-zaroori data ko filter out karna bohot fast ho jata hai.
+
+#### Real-World Tools:
+
+* **YugabyteDB** aur **AWS DynamoDB** mukammal tor par hash-range sharding use karte hain, aur **MongoDB** mein bhi yeh ek option ke tor par majood hai.
+* **Cassandra** aur **ScyllaDB** is hash-range sharding ka ek thoda badla hua advanced version use karte hain, jise neeche diagram mein samjhaya gaya hai.
+
+---
+
+#### Figure 7-6: Cassandra and ScyllaDB Random Range Boundaries ka Deep Breakdown
+
+Is diagram mein hashing range (0 se 1024) ko nodes ke darmiyan aik makhsoos tarah se takseem kiya gaya hai:
+
+<div align="center">
+  <img src="./images/06.png" width="700"/>
+</div>
+
+* **Structure & Multi-Ranges:** Cassandra aur ScyllaDB poori hash space ko nodes ki tadad ke mutabaq contiguous ranges mein torte hain, lekin unki boundaries **random** hoti hain. Har node ko ek range ke bajaye **multiple choti ranges** di jati hain (Diagram mein har node ke paas 3 alag ranges hain; real life mein Cassandra default tor par **16 ranges per node** aur ScyllaDB **256 ranges per node** deta hai jinhein *Vnodes* kehte hain). Is se ranges ka size barabar na bhi ho, toh multiple ranges hone ki wajah se overall load barabar (even out) ho jata hai.
+* **Node 3 Adding Workflow (The Rebalancing):**
+* Diagram ke bottom half mein jab ek naya **Node 3** add kiya gaya (jinki hash range boundaries 60, 276, aur 551 set ki gayin), toh poora data move nahi hua:
+
+
+1. `Node 1` ne apni (0-88) wali range ka ek hissa `0-60` utha kar **Node 3** ko de diya.
+2. `Node 2` ne apni (128-309) wali range ka ek hissa `128-276` utha kar **Node 3** ko de diya.
+3. `Node 1` ne apni (511-672) wali range ka ek hissa `511-551` utha kar **Node 3** ko de diya.
+
+
+* **Result:** Naye node ko bina kisi faltu network load ke apna barabar ka data mil gaya, aur baqi kisi node ka extra data disturb nahi hua.
+
+
+
+---
+
+### Consistent hashing
+
+**Consistent Hashing** aik aisa algorithm ya hash function ka tareeqa hai jo keys ko shards/nodes par is tarah map karta hai ke do makhsoos shraait (properties) poori hon:
+
+1. Har ek shard ya node ke hissay mein aane wali keys ki tadad taqreeban **barabar (roughly equal)** ho.
+2. Jab system mein shards ya nodes ki tadad badle (koi naya aaye ya purana jaye), toh **kam se kam (as few as possible) keys ko ek node se doosre node par move karna paray**.
+
+> **Aik Nihayat Zaroori Wazahat:** > Yahan jo lafaz **"Consistent"** use hua hai, iska Chapter 6 wali *Replica Consistency* (data ka har jagah aik jaisa hona) ya Chapter 8 wali *ACID Transactions* se **door door tak koi taluq nahi hai**. Here, consistent ka matlab sirf yeh hai ke system mein tabdeeli aane ke bawajood key ki apni purani jagah par tike rehne ki tendancy (tendency to stay in the same shard) bohot high hoti hai.
+
+* **Cassandra aur ScyllaDB** ka algorithm consistent hashing ki original definition se bohot milta julta hai.
+* Iske ilawa industry mein aur bhi bohot se consistent hashing algorithms propose kiye gaye hain, jaise:
+* **Highest Random Weight (Rendezvous Hashing)**
+* **Jump Consistent Hashing**
+
+
+
+**Technical Core Difference:** In advanced approaches mein, jab cluster mein koi naya node add kiya jata hai, toh majooda shards ko break ya split nahi kiya jata. Balkay, us naye node ko woh individual keys assign kar di jati hain jo pehle poore cluster ke tamam nodes par bikhri hui thin. Kaun sa tareeqa behtar hai? Yeh poori tarah is baat par depend karta hai ke aapki application kis tarah ka workload handle kar rahi hai.
+
+
+---
