@@ -198,3 +198,43 @@ Faidon ke sath sath, writer ne is approach ke teen bade **challenges (mushkilat)
 * **Cross-Tenant Features:** Agar aapko kabhi future mein koi aisa feature banana par jaye jo alag-alag tenants ke data ko aapas mein connect ya combine kare, toh unka data aapas mein **Join** karna bohot hi mushkil aur slow ho jata hai kyunke data alag-alag shards par bikhra hua hota hai.
 
 ---
+
+## Sharding of Key-Value Data
+
+Farz karein aapke paas bohot zyada data (huge amount of data) majood hai aur aap uske chote-chote tukde (sharding) karna chahte hain. Lekin sab se bada sawaal yeh khara hota hai ke aap yeh kaise faisla karenge ke kaun sa record kis machine (node) par bhejkar store karna hai?
+
+Sharding ka asli aur sab se bada maqsad yeh hota hai ke **data aur queries ka bojh (load) tamam nodes par bilkul barabar (evenly) phelaya jaye**.
+
+> **Asaan Alfaaz Mein (ELI5):** > Farz karne ke aapke paas 100 kilo aam (mangoes) hain aur unhein uthane ke liye 10 mazdoor (nodes) hain. Insaaf ka taqaza toh yeh hai ke har mazdoor ke hissay mein 10, 10 kilo aam aaein taake koi ek banda thak kar gir na jaye.
+> In theory, agar har node apna barabar ka bojh uthaye, toh **10 nodes mil kar 10 guna (10x) zyada data** aur 10 guna zyada parhne/likhne ki raftaar (read and write throughput) ko handle kar sakte hain ek akeli machine ke muqable mein (agar hum replication ko abhi side par rakh dein).
+
+### Rebalancing Ka Concept
+
+Jab aap database system mein koi naya node add karte hain (kyunke data barh gaya hai) ya koi purana node remove karte hain (kyunke woh kharab ho gaya hai), toh aapke system mein yeh salahiyat honi chahiye ke woh data ke load ko dobara se **rebalance** kar sakay. Rebalance ka matlab hai data ko is tarah naye siray se banta jaye ke woh naye number of nodes par bhi barabar divide ho jaye.
+
+---
+
+### Skewed Distribution aur Hot Spots Kya Hain?
+
+Agar data ka batwara na-insaafi par mabni ho—yaani kuch shards ke paas had se zyada data ya queries chali jayen aur baqi shards khali baithe hon—toh is bad-intezami ko technical zuban mein **Skewed** (tedha ya gair-wazni) kaha jata hai.
+
+**Skew** ki majoodgi sharding ke poore faide ko tabaah aur nakam kar deti hai. Ek extreme case (akhri had) mein aisa bhi ho sakta hai ke poore system ka saara load galti se sirf **ek hi shard** par aa jaye! Iska nateeja yeh niklega ke 10 mein se 9 nodes bilkul vailay (idle) baithe honge aur aapka poora system us ek busy node ki wajah se slow (bottleneck) ho jayega.
+
+* **Hot Shard / Hot Spot:** Ek aisa shard jis par baki shards ke muqable mein had se zyada aur gair-munasib bojh (disproportionately high load) aa jaye, usay **Hot Shard** ya **Hot Spot** kehte hain.
+* **Hot Key:** Kabhi kabhi poore shard ka masla nahi hota balkay kisi ek makhsoos single key ka masla hota hai. Agar kisi ek key par bohot zyada load aa jaye, toh usay **Hot Key** kehte hain.
+* *Real-World Example:* Social networks (jaise Twitter/X ya Instagram) par jab koi **Celebrity** (mashhoor shakhsiyat) koi post karti hai, toh us ek celebrity ki account ID (jo ke ek key hai) par aik hi second mein lakhon log reacts aur comments karte hain. Woh single key achanak se "Hot Key" ban jati hai.
+
+
+
+---
+
+### Sharding Algorithm Aur Partition Key
+
+Dataset ko kamyabi se shards mein torne ke liye humein ek makhsoos **Algorithm** (formula) ki zaroorat hoti hai. Is algorithm ka kaam yeh hota hai ke yeh kisi bhi record ki **Partition Key** ko input ke tor par leta hai aur calculation kar ke batata hai ke yeh record kis shard ke andar store hona chahiye.
+
+* **Key-Value Store Mein:** Partition key aam tor par poori ki poori `Key` hoti hai ya us key ka sab se pehla hissa (first part) hoti hai.
+* **Relational Model (SQL Databases) Mein:** Partition key table ka koi bhi ek makhsoos column ho sakta hai (aur yeh zaroori nahi hai ke woh column table ki primary key hi ho).
+
+Database designer ke liye sab se bada challenge yeh hota hai ke is sharding algorithm ko is tarah design kiya jaye ke yeh **Rebalancing** ko asani se support kar sakay, taake jab bhi system mein koi Hot Spot ya Hot Shard banay, toh data ko dobara shift kar ke load ko halka kiya ja sakay.
+
+---
