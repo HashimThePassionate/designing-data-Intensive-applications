@@ -539,3 +539,85 @@ Is diagram mein hashing range (0 se 1024) ko nodes ke darmiyan aik makhsoos tara
 
 
 ---
+
+## Skewed Workloads and Relieving Hot Spots
+
+Hum ne pehle parha ke **Consistent Hashing** is baat ko yakeeni banati hai ke keys ko tamam nodes (machines) par barabar (uniformly) phelaya jaye. Lekin yahan ek bohot bada twist hai: **Keys ka barabar batwara hone ka yeh matlab hargiz nahi hai ke un par aane wala asli load (throughput) bhi barabar takseem hoga.**
+
+Agar aapka workload bohot zyada **Skewed** (aik taraf jhuka hua ya na-insafi par mabni) ho, toh masla khara ho jata hai. Skewed workload ka matlab yeh hai ke:
+
+1. Kuch partition keys ke neeche baqi keys ke muqable mein had se zyada data majood ho.
+2. Ya phir kuch makhsoos keys par aane wali requests (reads/writes) ki raftaar baqi keys se hazaron guna zyada ho.
+
+Aise cases mein consistent hashing ke bawajood kuch servers pooray overloaded ho kar phatne wale ho jate hain, jabke baqi servers bilkul farigh (idle) baithe hote hain.
+
+> **Asaan Alfaaz Mein (ELI5):** > Farz karein aapke paas 10 khali dabbe (nodes) hain aur aapke paas 10 parchiyan (keys) hain. Aap ne har dabbe mein ek ek parchi daal di (Barabar distribution).
+> Lekin ek parchi par likha hai **"Salman Khan"** aur baqi 9 parchiyon par aam logon ke naam hain. Ab jab log dabba kholenge, toh 99% log sirf "Salman Khan" wala dabba kholne ke liye toot parenge. Woh ek dabba bojh se toot jayega, jabke baqi 9 dabbon ko koi poochay ga bhi nahi.
+
+### Real-World Example: The Celebrity Storm
+
+Writer ne yahan ek social media site (jaise Twitter/X ya Instagram) ki misaal di hai. Jab koi **Celebrity User** (jis ke millions of followers hon) koi post share karta hai, toh achanak se activity ka ek bohot bada toofan (**storm of activity**) aa jata hai.
+
+Is ek akele event ki wajah se bilkul **aik hi single key** par lakhon reads aur writes ka pressure aa jata hai. Yahan partition key ya toh us celebrity ki `User ID` hoti hai, ya phir us makhsoos post/action ki `ID` jis par log comments aur likes kar rahe hote hain.
+
+---
+
+### Hal Level 1: Database Ke Level Par Flexible Policy
+
+Is tarah ki situation se nipatne ke liye humein ek zyada lachakdar (**flexible sharding policy**) ki zaroorat hoti hai.
+
+Jo systems data ko ranges ke mutabaq divide karte hain (chahe woh key-range sharding ho ya hash-range sharding), un mein yeh capability hoti hai ke woh us **aik akele hot key ko pakar kar uske liye ek alag, dedicated shard bana dein**. Hatta ke us shard ko chalane ke liye ek poori dedicated aur powerful machine assign kar di jaye taake baqi system disturb na ho.
+
+---
+
+### Hal Level 2: Application Ke Level Par Key Ko Salt Karna
+
+Agar database khud yeh manage na kar sakay, toh hum application code ke level par bhi is skewness ko control kar sakte hain. Iski ek bohot hi mashhoor aur simple technique hai: **Hot Key ke shuru ya aakhir mein ek random number add kar dena (jisay Salting kehte hain).**
+
+* **Yeh Kaise Kaam Karta Hai?** Farz karein hamari hot key hai `celebrity_post_99`. Agar hum application code mein yeh rule bana dein ke is key ke aakhir mein **2 random digits (00 se 99 tak)** laga diye jayein, toh yeh single key ab **100 alag-alag keys** mein takseem ho jayegi:
+* `celebrity_post_99_00`
+* `celebrity_post_99_01`
+* `celebrity_post_99_02`
+* ...
+* `celebrity_post_99_99`
+
+
+
+Chunke ab keys alag ho chuki hain, toh database ka sharding algorithm inhein alag-alag hashes dekar **100 alag shards (machines)** par pheladega. Is tarah writes ka bojh aik machine par aane ke bajaye 100 machines par barabar bat jayega.
+
+---
+
+### Salting Technique Ke Bades Trade-offs Aur Complexities (Nuksaanat)
+
+Agarchay salting se writes ka bojh halka ho jata hai, lekin yeh apne sath do bohot bade maslay aur architectural complexities lekar aata hai:
+
+#### 1. Parhne Ka Faltu Bojh (The Read Overhead / Scatter-Gather)
+
+Writes ko toh hum ne 100 keys par pheladia, lekin ab jab kisi ne woh data **Read (parhna)** hoga, toh application ko bohot zyada extra kaam karna parega.
+
+* **Scatter-Gather Read:** Ab reader ko data dhoondne ke liye un tamam **100 ki 100 keys par ja kar data read karna parega** aur phir un saare data to tukdon ko aapas mein combine (merge) kar ke user ko dikhana hoga.
+* Is se har shard par aane wala reads ka volume kam nahi hota; sirf writes ka load split hota hai.
+
+#### 2. Hisaab-Kitaab Aur Tracking Ka Bojh (Bookkeeping Overhead)
+
+Aap har aam key ke sath yeh random number lagane ki galti nahi kar sakte. Agar aap cluster ki saari makhlooq (low write throughput wali normal keys) ke sath bhi random numbers lagana shuru kar dein, toh system par bina wajah ka bohot heavy management overhead aa jayega.
+
+* Is liye application ko alag se ek **hisaab-kitaab (bookkeeping)** rakhna parta hai ke is waqt pure system mein kaun kaun si keys "Hot" hain.
+* Sirf unhi makhsoos hot keys ke sath random numbers attach kiye jate hain. Aapko ek makhsoos process chahiye jo ek regular key ko auto-detect kar ke specially managed hot key mein convert kar sakay.
+
+---
+
+### Waqt Ke Sath Badalta Load (Time-Varying Load Challenge)
+
+Yeh masla is liye mazeed pechida (compound) ho jata hai kyunke load hamesha aik jaisa nahi rehta:
+
+* **Viral Dynamic:** Social media par agar koi post **viral** hoti hai, toh us par had se zyada load sirf ek ya do din ke liye hota hai. Uske baad mamla thanda ho jata hai aur woh key dobara normal ho jati hai.
+* **Read-Hot vs Write-Hot:** Kuch keys aisi hoti hain jin par sirf likhne ka load zyada hota hai (Write-Hot), jabke kuch par sirf dekhne/parhne ka load zyada hota hai (Read-Hot). Dono tarah ke hot spots se nipatne ke liye alag strategies lagani parti hain.
+
+### Automated Cloud Solutions
+
+Kuch modern database systems (khass tor par baray scale ki cloud services) is hot shard ke maslay se nipatne ke liye bilkul automated tareeqay use karti hain.
+
+* **Amazon** ke systems (jaise DynamoDB) is pure management ko **Heat Management** ya **Adaptive Capacity** kehte hain. Yeh systems khud ba khud detect karte hain ke kis shard par garmi (load) barh rahi hai aur dynamic tor par uski capacity ko dhal (adapt kar) dete hain, taake developers ko khud se application level par salting na karni paray.
+
+---
