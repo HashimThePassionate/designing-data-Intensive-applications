@@ -694,3 +694,139 @@ Hath se rebalancing karne ka ek aur bada faida yeh hota hai ke aap kisi aane wal
 Aise known events se pehle, ek administrator khud sukoon se cluster mein naye nodes add karta hai aur data ko pehle se hi pheladeta hai, taake jab traffic aaye toh system bilkul cool aur stable rahay, na ke achanak auto-pilot par ja kar crash ho jaye.
 
 ---
+
+## Request Routing
+
+Hum ne yeh toh achhi tarah samajh liya ke data ko alag-alag nodes (machines) par split (shard) kaise kiya jata hai, aur machines ke aane ya jaane par un shards ko dobara se rebalance kaise karte hain. Lekin ab ek bohot hi important aur practical sawaal samnay aata hai: **Agar aapko database mein koi makhsoos key parhni (read) ya likhni (write) ho, toh aapko kaise pata chalega ke is waqt kis physical machine (IP address aur port number) ke sath connect karna hai?**
+
+Is bade maslay ko distributed systems mein **Request Routing** kaha jata hai. Yeh masla bilkul **Service Discovery** jaisa hi hai (jo application servers mein use hota hai). Lekin application servers aur sharded databases mein ek bohot bada architectural farq hai:
+
+* **Application Code (Stateless):** Application chalane wale servers aam tor par stateless hote hain. Agar aapke paas 5 instances chal rahe hain, toh load balancer aankhein band kar ke request kisi bhi instance par bhej sakta hai, kyunke har instance ke paas request handle karne ki barabar salahiyat hoti hai.
+* **Sharded Database (Stateful):** Databases mein aisa nahi chal sakta! Kisi makhsoos key ki read ya write request sirf aur sirf **vahi node handle kar sakta hai jis ke paas us key ka shard (ya uski replica) majood ho**. Agar request galat machine par chali gayi, toh us machine ke paas woh data hoga hi nahi.
+
+Is liye, Request Routing system ko hamesha is baat ka mukammal ilm (awareness) hona chahiye ke:
+
+1. Kaun si `Key` kis `Shard` ke andar aati hai?
+2. Aur woh `Shard` is waqt kis physical `Node` (machine) par betha hai?
+
+---
+
+### Figure 7-7: Three ways of routing a request to the right node ka Deep Breakdown
+
+Writer ne is diagram mein request routing ke teen sab se bade aur makhsoos architectures (tarteebon) ko samjhaya hai.
+
+<div align="center">
+  <img src="./images/07.png" width="700"/>
+</div>
+
+> **Diagram ka Special Symbol:** Notice karein ke diagram mein jahan bhi **Zebra Lines / Stripes (`\\\\\\\\`)** bani hui hain, uska matlab hai **"The knowledge of which shard is assigned to which node"** (yaani routing ki authoritative maloomat ya dimaag kis ke paas hai).
+
+Chalein in teenon tareeqon ko step-by-step aur bohot hi asaan tarah se decode karte hain:
+
+#### Tareeqa 1: Contact Any Node (Internal Forwarding)
+
+* **Architecture:** Is model mein client ko routing ka koi andaza nahi hota. Woh cluster ke kisi bhi node par request bhej deta hai (maslan ek simple Round-Robin Load Balancer ke zariye).
+* **Workflow Example (Diagram 1):** * Client ne key `"foo"` parhne ke liye request bheji aur randomly **Node 0** ko chun liya.
+* Lekin **Node 0** ke paas data nahi hai, kyunke `"foo"` actually **Node 2** ke database (disk) par betha hai.
+* Ab chunke Zebra lines Node 0, Node 1 aur Node 2 ke upar bani hain, iska matlab hai ke har node ke paas poori routing ka dimaag majood hai.
+* Node 0 khud b khud is request ko pakray ga aur usay internally **Node 2** ki taraf forward (bhej) dega. Node 2 se jawab receive kar ke, Node 0 usay wapas client tak pohncha dega.
+
+
+
+#### Tareeqa 2: Using a Dedicated Routing Tier
+
+* **Architecture:** Is model mein client database nodes ko direct touch nahi karta. Beech mein ek alag se layer bitha di jati hai jise **Routing Tier** kehte hain.
+* **Workflow Example (Diagram 2):**
+* Client kehta hai ke mujhe `"foo"` laa kar do, aur woh request seedha **Routing Tier** ke paas jati hai.
+* Zebra lines sirf Routing Tier ke upar bani hui hain, yaani database nodes bilkul bhole-bhaale (dumb) hain aur saara dimaag is routing layer ke paas hai.
+* Routing Tier ek shard-aware load balancer ke tor par kaam karti hai. Yeh furan dekhti hai ke `"foo"` toh **Node 2** par rehta hai, toh yeh request ko seedha Node 2 par bhej deti hai. Yeh layer khud koi data store nahi karti, sirf rasta dikhati hai.
+
+
+
+#### Tareeqa 3: Shard-Aware Client (Direct Connection)
+
+* **Architecture:** Is tareeqay mein na toh beech mein koi routing layer hoti hai aur na hi nodes ko aapas mein baat karni parti hai. Saara dimaag seedha **Client Application** ke andar daal diya jata hai.
+* **Workflow Example (Diagram 3):**
+* Zebra lines seedha **Client** ke upar bani hui hain. Iska matlab hai ke client ki library ko pehle se pata hai ke kaun sa shard kis machine par hai.
+* Jab client ko `"foo"` chahiye hota hai, toh woh bina kisi se pooche ya time zaye kiye, **seedha direct Node 2 ke sath connect karta hai** aur apna data nikal leta hai.
+
+
+
+---
+
+### Architectural Challenges (Request Routing Ki Teen Badi Mushkilat)
+
+Agarchay yeh teeno tareeqay sunne mein asaan lagte hain, lekin distributed database design karte waqt designer ko teen bohot bade sawalon aur trade-offs ka samna karna parta hai:
+
+1. **Sardar Kaun Banega? (The Coordinator Problem):** Yeh faisla kaun karega ke kaun sa shard kis node par rahega? Sab se asaan hal yeh hai ke ek single machine ko coordinator (sardar) bana diya jaye. Lekin agar woh machine mar gayi (crash ho gayi), toh poora system baith jayega (Single Point of Failure). Agar hum uski jagah backup coordinator layen, toh masla yeh aata hai ke kahin **Split-Brain** na ho jaye (yaani do alag machines khud ko sardar samajh bathein aur aapas mein contradicting/gair-muntabiq faislay kar dein).
+2. **Tabdeeli Ka Pata Kaise Chalega? (The Notification Problem):** Jab rebalancing hoti hai aur shards ek node se doosre node par chale jate hain, toh routing karne wale component (chahe woh client ho, routing tier ho ya koi node) ko is tabdeeli ka pata furan kaise chalega?
+3. **Beech Wali Halat Ka Masla (In-flight Requests during Cutover):** Jab ek shard `Node A` se nikal kar `Node B` par ja raha hota hai, toh ek makhsoos transition period (cutover time) aata hai. Us dauran jo requests purane node ki taraf raste mein thin (in-flight thin), unhein kaise handle kiya jaye taake data crash na ho?
+
+---
+
+### Figure 7-8: Using ZooKeeper to keep track of the assignment of shards to nodes ka Deep Breakdown
+
+Inhi mushkilat se nipatne ke liye, zyadatar modern distributed databases ek alag se **External Coordination Service** ka istemal karte hain, jaise **Apache ZooKeeper** ya **etcd**.
+
+Chalein Figure 7-8 ke pure structure aur table data ko deeply decode karte hain:
+
+<div align="center">
+  <img src="./images/08.png" width="700"/>
+</div>
+
+* **ZooKeeper Ka Role (Authoritative Source of Truth):** Diagram mein **ZooKeeper** ke upar poori Zebra lines (`\\\\\\\\`) bani hui hain. Iska matlab hai ke cluster ka asli dimaag aur data ka authoritative map ZooKeeper ke andar mahfooz hai. Yeh aik bohot hi pakkay **Consensus Algorithm** (jo hum Chapter 10 mein parhenge) par chalta hai jo split-brain aur data gum hone se complete hifazat deta hai.
+* **Nodes Ki Registration:** Cluster ke tamam database nodes (`Node 0`, `Node 1`, `Node 2`) khud ko ZooKeeper ke paas register karwate hain. ZooKeeper un par lagataar nazar rakhta hai (heartbeats ke zariye) ke kaun zinda hai aur kaun mar gaya.
+
+#### ZooKeeper Ka Internal Metadata Table (As-It-Is from Image):
+
+ZooKeeper apne andar ek complete routing directory maintain karta hai. Agar hum diagram mein di gayi directory ko table format mein dekhein, toh woh bilkul aisi dikhti hai:
+
+| Key Range | Shard Number | Assigned Node | Node IP Address |
+| --- | --- | --- | --- |
+| `A-ak — Bayes` | shard 0 | node 0 | 10.20.30.100 |
+| `Bayeu — Ceanothus` | shard 1 | node 1 | 10.20.30.101 |
+| `Ceara — Deluc` | shard 2 | node 2 | 10.20.30.102 |
+| `Delusion — Frenssen` | shard 3 | node 0 | 10.20.30.100 |
+| `Freon — Holderlin` | shard 4 | node 1 | 10.20.30.101 |
+| `Holderness — Krasnoje` | shard 5 | node 2 | 10.20.30.102 |
+| `Krasnokamsk — Menadra` | shard 6 | node 0 | 10.20.30.100 |
+| `Menage — Ottawa` | shard 7 | node 1 | 10.20.30.101 |
+| `Otter — Rethimnon` | shard 8 | node 2 | 10.20.30.102 |
+| `Reti — Solovets` | shard 9 | node 0 | 10.20.30.100 |
+| `Solovyov — Truck` | shard 10 | node 1 | 10.20.30.101 |
+| `Trudeau — Zywiec` | shard 11 | node 2 | 10.20.30.102 |
+
+#### Diagram Ka Real-World Live Workflow:
+
+1. **Step 1 (The Subscription):** Jo hamari **Routing Tier** hai, usne ZooKeeper ke is table ko subscribe (watch) kiya hota hai. Jab bhi table mein koi change aata hai, ZooKeeper furan Routing Tier ko signal bhej kar uski cache update karwa deta hai.
+2. **Step 2 (The Request):** Client ne request bheji: **Get "Danube"**.
+3. **Step 3 (The Lookup):** Request Routing Tier ke paas pohnchi. Usne furan ZooKeeper se mile hue directory table mein check kiya. Alphabetically `"Danube"`, `Ceara — Deluc` ki range mein aata hai, jo ke **shard 2** hai aur shard 2 kis machine par betha hai? **Node 2** par (IP: `10.20.30.102`).
+4. **Step 4 (The Execution):** Routing Tier ne request ko seedha direct line ke zariye **Node 2** par bhej diya, aur client ko uska data bina kisi galti ke mil gaya.
+
+---
+
+### Industry Tools Ka Comparison Matrix
+
+Alag-alag distributed systems request routing aur coordination ko handle karne ke liye mukhtalif mechanisms use karte hain. Unka mukammal breakdown is table mein dekhein:
+
+| Coordination Mechanism | System / Tool Name | Working Methodology & Properties |
+| --- | --- | --- |
+| **ZooKeeper Dependent** | **Apache HBase**, **SolrCloud** | Yeh systems shard mapping aur cluster coordination ke liye poori tarah ZooKeeper ke authoritative consensus par rely karte hain. |
+| **etcd Dependent** | **Kubernetes (K8s)** | Kubernetes apna poora state aur yeh track rakhne ke liye ke kaun sa service instance kis node par chal raha hai, **etcd** (jo consensus par chalta hai) use karta hai. |
+| **Custom Config Architecture** | **MongoDB** | MongoDB kisi teesre tool par depend nahi karta. Iska apna ek **Config Server** distributed setup hota hai, aur **`mongos` daemons** is mein Routing Tier ka kaam karte hain. |
+| **Built-in Raft Protocol** | **Apache Kafka**, **YugabyteDB**, **TiDB**, **ScyllaDB** | In systems ke andar **Raft Consensus Protocol** built-in (pehle se andar) hota hai. Yeh bahar se koi ZooKeeper lagaye bina khud hi aapas mein voting kar ke authoritative mapping sambhal lete hain. |
+| **Gossip Protocol (Leaderless)** | **Riak** | Riak alag rasta chunta hai. Yeh nodes ke darmiyan **Gossip Protocol** (aik doosre ke kaan mein baat pohnchana) use karta hai. Is mein consistency kamzor (**weak consistency**) hoti hai aur split-brain ka khatra hota hai, lekin leaderless databases ke liye yeh acceptable hota hai. |
+
+---
+
+### Ek Zaroori Infrastructure Lowdown (DNS Ka Istemal)
+
+Jab aap Routing Tier use kar rahe hon ya requests ko random nodes par bhej rahe hon, toh clients ko shoroo mein un routing machines ka IP address dhoondne ke liye ab bhi **DNS (Domain Name System)** ka sahara lena hota hai. Chunke routing tier ya load balancers ke physical IPs itni jaldi badalney wale nahi hote (jitni jaldi database ke internal shards badalte hain), is liye DNS is kaam ke liye bilkul perfect aur kafi hota hai.
+
+### OLTP Versus OLAP Request Routing (The Core Difference)
+
+Yeh poori request routing ki discussion jo hum ne abhi ki, iska poora focus ek single key dhoondne par tha. Yeh approach **OLTP (Online Transaction Processing)** databases ke liye sab se critical hoti hai jahan humein bohot tez raftaar mein choti choti entries parhi ya likhni hoti hain.
+
+Iske bar-aks, jo bade **Analytical Databases (OLAP - Data Warehouses)** hote hain, unka query execution bilkul alag hota hai. Wahan query kisi ek shard se poori nahi hoti. Ek single analytical query ko aik sath **parallel mein saare shards par chalna hota hai**, taake woh pooray cluster se data ko ikattha (aggregate) aur aikasth **Join** kar sakay. In parallel execution techniques ko detail mein Chapter 11 mein cover kiya jayega.
+
+---
