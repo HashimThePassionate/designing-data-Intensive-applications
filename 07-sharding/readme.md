@@ -238,3 +238,100 @@ Dataset ko kamyabi se shards mein torne ke liye humein ek makhsoos **Algorithm**
 Database designer ke liye sab se bada challenge yeh hota hai ke is sharding algorithm ko is tarah design kiya jaye ke yeh **Rebalancing** ko asani se support kar sakay, taake jab bhi system mein koi Hot Spot ya Hot Shard banay, toh data ko dobara shift kar ke load ko halka kiya ja sakay.
 
 ---
+
+## Sharding by Key Range
+
+Sharding karne ka ek bohot hi seedha aur asaan tareeqa yeh hai ke aap partition keys ki ek mukammal aur lagataar range (yaani ek minimum value se le kar ek maximum value tak) har ek shard ko assign kar dein. Iski misaal bilkul paper par print hui **Encyclopedia (lugaat ya maloomati kitabon ke set)** jaisi hai.
+
+---
+
+### Figure 7-2: A print encyclopedia is sharded by key range ka Deep Breakdown
+
+Chalein is diagram ke zariye key-range sharding ke pooray concept ko bareeki se samajhte hain:
+
+<div align="center">
+  <img src="./images/02.png" width="700"/>
+</div>
+
+* **Diagram ka Structure:** Is image mein ek shelf par **12 Kitabein (Volumes)** rakhi hui hain, jo ke asal mein **12 Shards** ko darsha rahi hain. Har ek kitaab ke upar uski range likhi hui hai ke us mein kis lafaz se le kar kis lafaz ke records majood hain:
+* **Volume 1:** `A-ak — Bayes` (Is mein A se shuru hone wale aur Bayes tak ke words hain).
+* **Volume 2:** `Bayeu — Ceanothus`
+* **Volume 3:** `Ceara — Deluc`
+* **Volume 4:** `Delusion — Frenssen`
+* **Volume 5:** `Freon — Holderlin`
+* **Volume 6:** `Holderness — Krasnoje`
+* **Volume 7:** `Krasnokamsk — Menadra`
+* **Volume 8:** `Menage — Ottawa`
+* **Volume 9:** `Otter — Rethimnon`
+* **Volume 10:** `Reti — Solovets`
+* **Volume 11:** `Solovyov — Truck`
+* **Volume 12:** `Trudeau — Zywiec` (Is mein T se le kar Z tak ke saare words hain).
+
+
+* **Gair-Barabar Ranges (Uneven Spacing):** Agar aap ghaur karein toh Volume 1 mein sirf A aur B ke kuch words hain, jabke Volume 12 mein T, U, V, W, X, Y, aur Z ke saare words thos diye gaye hain. Aisa kyun hai? Kyunke hamara data har alphabet ke liye barabar nahi hota. Agar hum har do alphabets ke liye ek kitaab (shard) fix kar dete, toh kuch kitabein bohot moti ho jatin aur kuch bilkul patli. Data ko barabar bantanay ke liye shard ki boundaries ko data ke mutabaq **adapt (tabdeel)** hona parta hai.
+* **Lookup Kaise Hota Hai?** Agar aapko kisi makhsoos title (jaise 'Delusion') ka record dhoondna hai, toh aapko saari kitabein kholne ki zaroorat nahi. Aap shelf par dekhoge ke 'Delusion' kis kitaab ki range mein aata hai (jo ke Volume 4 hai), aur aap seedha wahi kitaab utha loge. Database bhi bilkul isi tarah asani se sahi shard tak pohnch jata hai.
+
+---
+
+### Manual aur Automatic Key-Range Sharding (Real-World Tools)
+
+Shard ki boundaries kaun tay karta hai? Yeh do tareeqon se ho sakta hai:
+
+* **Manual Sharding:** Is mein system administrator khud hath se boundaries set karta hai. Iski misaal **Vitess** hai (jo MySQL ke upar ek sharding layer ke tor par kaam karta hai).
+* **Automatic Sharding:** Is mein database khud ba khud data dekh kar boundaries decide karta hai. Yeh tareeqa **Bigtable**, **HBase** (Bigtable ka open-source version), **MongoDB** (ka range-based sharding option), **CockroachDB**, **RethinkDB**, aur **FoundationDB** use karte hain.
+* **YugabyteDB** aik aisa system hai jo manual aur automatic dono tarah se tablets (shards) ko split karne ki sahulat deta hai.
+
+### Sorted Storage Aur Range Scans Ka Faida
+
+Har shard ke andar jo keys store hoti hain, unhein **Sorted Order** (yaani ek tarteeb) mein rakha jata hai (jaise **B-tree** ya **SSTables** ke zariye, jo hum ne Chapter 4 mein parha tha).
+
+Is sorted arrangement ka sab se bada faida yeh hota hai ke **Range Scans** bohot asaan ho jate hain. Aap key ko ek mila hua index (concatenated index) samajh kar ek hi query mein bohot saare aapas mein jure hue records nikal sakte hain.
+
+> **Real-World Example:** Farz karein aapki application sensors ke ek network se data store karti hai, jahan record ki `Key` us measurement ka **Timestamp** (waqt) hai. Is case mein range scan bohot useful hain, kyunke agar aapko kisi ek makhsoos mahine (month) ki saari readings chahiye, toh aap ek hi query se us poore mahine ka data asani se nikal sakte hain.
+
+### Key-Range Sharding Ka Bada Nuksaan (The Hot Shard Problem)
+
+Iska sab se bada downside yeh hai ke agar aapas mein juri hui keys par bohot zyada writes aane lagein, toh bohot jaldi ek **Hot Shard** ban jata hai.
+
+Sensors wali misaal ko dobara dekhein: Agar key sirf ek timestamp hai, toh shards waqt ke mutabaq bane honge (maslan ek shard har mahine ke liye). Jab sensors bilkul real-time mein data database mein likh rahe honge, toh **saare ke saare writes bilkul ek hi shard par jayenge (jo ke is mojooda mahine ka shard hai)**. Nateeja yeh niklega ke is mahine wala shard writes ke bojh se dab jayega (overloaded ho jayega) aur baqi purane mahino ke shards bilkul farigh (idle) baithe honge.
+
+#### Is Maslay Ka Hal (The Fix) aur Trade-off:
+
+Is sensor database ke maslay se bachne ke liye aapko timestamp ko key ka pehla hissa nahi banana chahiye. Aapko timestamp se pehle **Sensor ID** ka prefix (shuruaati hissa) lagana chahiye.
+
+* Ab aapki key is tarah dikhegi: `SensorID_Timestamp`.
+* Is se faida yeh hoga ke chunke bohot saare sensors aik sath active hain, toh data alag-alag shards par barabar phel (distribute) jayega.
+* **Lekin iska Trade-off (Nuksaan) kya hai?** Agar ab aapko ek makhsoos time range ke andar saare sensors ka data nikalna ho, toh aap ek single range query nahi chala sakte. Ab aapko **har ek sensor ke liye alag se range query** chalani paregi.
+
+---
+
+## Rebalancing key-range sharded data
+
+### Pehla Setup Aur Pre-Splitting
+
+Shoroo mein jab aap database bilkul naya set up karte hain, toh data na hone ki wajah se koi key ranges ya shards pehle se majood nahi hote. Kuch databases jaise **HBase** aur **MongoDB** aapko khali database par hi shoroo mein shards ka ek initial set configure karne ki ijazat dete hain, jisay **Pre-splitting** kaha jata hai. Iske liye aapko pehle se thoda andaza hona chahiye ke aapka data (keys distribution) kis tarah ka dikhega taake aap sahi boundaries chun sakein.
+
+### Shard Splitting Aur Merging (System Ka Barhna)
+
+Jaise jaise waqt ke sath data ka size aur writes ka load barhta hai, key-range sharding wala system khud ko barhane (grow karne) ke liye ek majooda shard ko **do ya us se zyada chote shards mein tod (split kar) deta hai**.
+
+* **Splitting:** Todne ke baad jo naye chote shards bante hain, unke paas original range ka hi ek lagataar hissa (contiguous subrange) hota hai. Phir in naye shards ko alag-alag nodes (machines) par banta ja sakta hai taake load kam ho sake.
+* **Merging:** Agar aap database se bohot bada data delete kar dete hain, toh aapko iska ulta karna parta hai. Jo adjacent (saath saath wale) shards bohot chote ho chuke hain, unhein mila kar ek bada shard bana diya jata hai (**Merge** kiya jata hai).
+* Yeh poora process bilkul waisa hi hai jaisa **B-Tree** ke top level par nodes ke split aur merge hone ke waqt hota hai.
+
+### Splitting Ke Triggers Kya Hain?
+
+Jo databases shard boundaries ko automatically manage karte hain, un mein split ka amal tab trigger hota hai jab:
+
+1. Shard ek makhsoos size tak pohnch jaye (Maslan, **HBase** mein default size **10 GB** hai).
+2. Ya kuch systems mein jab writes ki raftaar (write throughput) ek tay shuda had se lagataar upar raye. Iska matlab hai ke agar koi shard size mein chota bhi ho lekin us par writes ka load had se zyada ho (Hot Shard), toh system usay phir bhi split kar dega taake write load uniform ho sakay.
+
+### Splitting Ka Trade-off Aur Risk
+
+Automatic adaptation ka faida yeh hai ke agar data kam hai toh shards kam honge aur faltu bojh (overhead) nahi hoga. Agar data bohot zyada hai toh har ek shard ka size ek maximum had tak mahdood rahega.
+
+Lekin, **shard ko split karna ek bohot hi mehanga aur bhari operation (expensive operation) hai**. Is mein shard ka saara data naye siray se nayi files mein likhna parta hai (bilkul waise hi jaise log-structured storage engines mein **Compaction** ka process hota hai).
+
+**Sab se bada risk yeh hai:** Jo shard split hone ja raha hota hai, woh pehle hi had se zyada load (high load) ke andar hota hai. Ab us high load ke upar jab split karne ka apna bhari bojh bhi aa jata hai, toh system mazeed dab jata hai aur us node ke mukammal tor par crash ya overload hone ka khatra bohot barh jata hai.
+
+---
