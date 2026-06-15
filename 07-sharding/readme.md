@@ -147,7 +147,9 @@ Yeh tamam databases ek single machine ke andar **har CPU core par ek process** c
 
 ## Sharding for Multitenancy
 
-Software as a Service (SaaS) products aur cloud services aksar **multitenant** hoti hain. Multitenant ka aasan matlab yeh hai ke **ek hi software/application ko bohot saare alag-alag customers (tenants) istemal kar rahe ہوتے hain**. Ek single tenant ke andar multiple users login kar sakte hain (jaise ek company ke bohot se employees), lekin har tenant ka apna data bilkul self-contained (apne andar mukammal) hota hai aur doosre tenants se bilkul alag aur alahda rakha jata hai.
+Software as a Service (SaaS) products aur cloud services aksar **multitenant** hoti hain. Multitenant ka aasan matlab yeh hai ke **ek hi software/application ko bohot saare alag-alag customers  (tenants) istemal kar rahe hotay hain**. Ek single tenant ke andar multiple users login kar sakte hain (jaise ek company ke bohot se employees), lekin har tenant ka apna data bilkul self-contained (apne andar mukammal) hota hai aur doosre tenants se bilkul alag aur alahda rakha jata hai.
+
+tenant means whole organization 
 
 > **Real-World Example:** Writer ne yahan ek email marketing service ki misaal di hai. Jab bhi koi business is service par apna account banata hai (sign up karta hai), toh woh ek alag tenant ban jata hai. Us business ke subscribers ki list, newsletters aur delivery data ka doosre businesses ke data se koi taluq nahi hota—dono bilkul alag rehte hain.
 
