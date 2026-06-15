@@ -987,3 +987,132 @@ Itni complexities ke bawajood, writes ke asaan aur tez hone ki wajah se industry
 
 
 ---
+
+## Global Secondary Indexes
+
+Local secondary index ke bilkul ulat (opposite), hamare paas doosra tareeqa **Global Secondary Index** ka hota hai. Is approach mein hum har shard ke liye alag-alag chota index banane ke bajaye, ek aisa **bada central index (global index)** banate hain jo pure cluster ke tamam shards ke data ko ek sath cover karta hai.
+
+Lekin yahan ek bohot bada architectural sawaal khara hota hai: Hum is pooray bade global index ko kisi ek akeli machine (node) par store nahi kar sakte. Agar hum aisa karenge, toh woh akeli machine writes aur queries ke bojh se phat jayegi aur poore distributed system ka sab se bada rukawat (**bottleneck**) ban jayegi, jisse sharding karne ka asli maqsad hi khatam ho jayega.
+
+Is liye, **global index ko bhi partition/shard karna lazmi hota hai**. Aur sabsay mazedaar baat yeh hai ke global index ko shard karne ka tareeqa hamare asli data (primary key index) ke sharding scheme se bilkul alag aur azad ho sakta hai.
+
+> **Asaan Alfaaz Mein (ELI5):** > Pehle (Local Index mein) har almari ke darwaze par sirf usi almari ke khilonon ki list chipki hui thi.
+> Ab (Global Index mein) hum ne ghar mein ek **"Master Registry Cupboard"** bana di hai. Poori dunya ke khilonon ka data is ek registry mein hoga. Lekin chunke yeh registry bohot bari hai, toh hum ne is master cupboard ke bhi do hissay kar diye hain: Ek dabba mein sirf un khilonon ka index hoga jinka naam **A se R** se shuru hota hai, aur doosre dabba mein **S se Z** walo ka index hoga—is baat se bilkul be-khabar ke asli khilona kis physical kamre ya almari mein betha hai!
+
+### Term-Partitioned Index Kya Hai?
+
+Is tarah ke index ko industry mein **Term-Partitioned Index** bhi kaha jata hai. Full-text search engines ki dunya mein `Term` ka matlab hota hai woh makhsoos "keyword" jise aap pooray text mein dhoond rahe hote hain. Secondary index ke context mein hum is lafaz ko generalize kar dete hain, yaani **koi bhi makhsoos value (jaise "red", "silver", "Honda") jise user filter ya search karne ke liye istemal kare, usay "Term" kaha jata hai.**
+
+Global index isi *Term* ko apni **Partition Key** ke tor par use karta hai. Iska faida yeh hota hai ke jab client kisi makhsoos value ya term ko dhoondta hai, toh system furan calculations se andaza laga leta hai ke is term ka data kis index shard par milega. Yeh batwara ya toh contiguous ranges ke mutabaq ho sakta hai (jaise alphabetical ranges) ya phir term ka hash nikal kar **Hash-Range Sharding** ke zariye bhi kiya ja sakta hai.
+
+---
+
+### Figure 7-10: A global secondary index reflects data from all shards and is itself sharded by the indexed value ka Deep Breakdown
+
+Chalein is diagram ke internal structures, mapping arrows, aur data tables ko bohot hi bareeki se step-by-step samajhte hain:
+
+<div align="center">
+  <img src="./images/10.png" width="700"/>
+</div>
+
+#### 1. Primary Key Index (Asli Data Kaise Sharded Hai):
+
+Asli data gariyon ke ID (Primary Key) par sharded hai. Shard 0 ke paas choti IDs hain aur Shard 1 ke paas badi IDs hain:
+
+* **Shard 0 (Primary Data):**
+* `191` $\rightarrow$ `{color: "red", make: "Honda", location: "Palo Alto"}`
+* `214` $\rightarrow$ `{color: "black", make: "Dodge", location: "San Jose"}`
+* `306` $\rightarrow$ `{color: "red", make: "Ford", location: "Sunnyvale"}`
+
+
+* **Shard 1 (Primary Data):**
+* `515` $\rightarrow$ `{color: "silver", make: "Ford", location: "Milpitas"}`
+* `768` $\rightarrow$ `{color: "red", make: "Volvo", location: "Cupertino"}`
+* `893` $\rightarrow$ `{color: "silver", make: "Audi", location: "Santa Clara"}`
+
+
+
+#### 2. Secondary Indexes (Global Across All Shards - Yeh Kaise Sharded Hain?):
+
+Ab dhyan se dekhein ke central index ko unke terms ke alphabetically partition kar ke kaise inhi do shards ke andar banta gaya hai:
+
+* **Index Shard 0 (Handles Colors A-R aur Makes A-G):**
+* `color:black` $\rightarrow$ `[214]`
+* `color:red` $\rightarrow$ `[191, 306, 768]` *(Notice karein! ID 768 physical tor par Shard 1 mein bethi hai, lekin uska index global hone ki wajah se Shard 0 mein betha hai kyunke 'red' ka 'r' A-R ki range mein aata hai).*
+* `make:Audi` $\rightarrow$ `[893]` *(Audi Shard 1 mein hai, par index yahan Shard 0 mein hai).*
+* `make:Dodge` $\rightarrow$ `[214]`
+* `make:Ford` $\rightarrow$ `[306, 515]` *(Both Shard 0 aur Shard 1 ke IDs ek sath majood hain).*
+
+
+* **Index Shard 1 (Handles Colors S-Z aur Makes H-Z):**
+* `color:silver` $\rightarrow$ `[515, 893]` *(Silver ka 's' S-Z ki range mein betha hai).*
+* `color:yellow` $\rightarrow$ `[]`
+* `make:Honda` $\rightarrow$ `[191]` *(Honda asli data mein Shard 0 par hai, lekin index mein Shard 1 par betha hai kyunke 'H' ki range yahan aati hai).*
+* `make:Volvo` $\rightarrow$ `[768]`
+
+
+
+#### 3. Live Query Execution Workflow (Dotted vs Solid Arrows):
+
+* Diagram ke bottom mein ek user khada hai jo kehta hai: **"I am looking for a red car"**.
+* **Solid Black Arrow:** Chunke user ko "red" color chahiye aur system ko pata hai ke 'red' ka index sirf **Shard 0** par milega, is liye query direct aur sirf Shard 0 ke secondary index par lagti hai.
+* System Shard 0 ke index se ek hi jhatkay mein poori postings list `[191, 306, 768]` nikal leta hai. **Yahan koi index-level scatter-gather nahi hota!**
+* **Dotted Arrows (The Background Jump):** Lekin baat yahan khatam nahi hoti. Index ne sirf IDs di hain. Agar user ko gariyon ki poori details (location, make etc.) chahiye, toh system ko in dotted lines ke mutabaq jump marna parega: IDs `191` aur `306` ka data nikalne ke liye Shard 0 se rabta karna hoga, aur ID `768` ka asli data nikalne ke liye **Shard 1 par jump marna parega**.
+
+---
+
+### Global Secondary Indexes Ke Faide (Pros)
+
+* **Tez Raftaar Single-Condition Reads:** Iska sab se bada faida yeh hai ke agar aapki query mein sirf ek condition hai (jaise `color = red`), toh database ko cluster ke saare shards par bhatakna nahi parta. Woh seedha us ek single shard par jata hai jahan us term ka index betha hai aur furan postings list laa kar de deta hai. Reads bohot efficient ho jate hain.
+
+---
+
+### Architectural Challenges aur Trade-offs (Cons)
+
+Agarchay reads is mein bohot behtareen hain, lekin distributed system ke design mein free lunch nahi milta. Global index apne sath bohot bade challenges lekar aata hai:
+
+#### 1. Data Fetch Karne Ka Extra Jhatka (The Fetch Overhead)
+
+Index se aapko furan IDs ki list toh mil jayegi, lekin agar aapko sirf IDs nahi balkay un records ke baqi columns ka asli data bhi chahiye, toh system ko un tamam primary shards par alag se queries chalani parenge jahan woh IDs physical tor par save hain.
+
+#### 2. Multi-Condition Queries Ka Masla (The Network Intersection Problem)
+
+Farz karein user search karta hai: **"Mujhe laal rang ki Ford gari chahiye"** (`color = red AND make = Ford`).
+
+* `color:red` ka index ho sakta hai Shard 0 par betha ho.
+* `make:Ford` ka index ho sakta hai kisi doosre shard par betha ho.
+* System ko in dono alag-alag shards se lambi lambi postings lists network par mangwani parenge aur unka aapas mein **Intersection (logical AND)** nikalna parega. Agar lists mein lakhon IDs hain, toh network par itna data bhejkar intersect karna system ko bohot slow kar deta hai.
+
+#### 3. Writes Ka Intehai Pechida Hona (The Heavy Write Problem)
+
+Global index ka sab se bada nuqsaan yeh hai ke **is mein data likhna (writes) bohot mehanga aur mushkil hota hai**.
+
+* Jab aap ek single record database mein insert ya update karte hain, toh us ek record ke andar majood alag-alag fields (terms) pure cluster ke alag-alag index shards par bikhri hui ho sakti hain.
+* Iska matlab hai ke ek single write request ki wajah se database ko background mein kayi alag-alag shards par ja kar indexes update karne parenge.
+
+#### 4. Consistency Ka Sakt Faisla (Sync vs Async)
+
+Indexes ko asli data ke sath bilkul barabar (in-sync) rakhne ke liye do hi raste hain:
+
+* **Distributed Transaction:** Asli record aur uske saare global indexes ko aik sath ek hi transaction mein atomic tor par update kiya jaye (jaisa hum Chapter 8 mein parhenge). Yeh tareeqa index ko bilkul accurate rakhta hai par **writes ko had se zyada slow** kar deta hai.
+* **Asynchronous Updates:** Asli data furan write ho jaye aur indexes background mein ahista ahista (asynchronously) update hote rahein. Is mein writes toh tez ho jate hain lekin replication lag ki wajah se **Stale Reads** ka khatra barh jata hai (yaani ho sakta hai gari database mein add ho chuki ho par naye index mein abhi tak show na ho rahi ho).
+
+---
+
+### Industry Tools Aur Unka In-Practice Mechanism
+
+Different real-world distributed databases global secondary indexes ko handle karne ke liye mukhtalif strategies use karte hain:
+
+| Database Tool | Global Index Implementation Type | Consistency Behavior & Characteristics |
+| --- | --- | --- |
+| **CockroachDB** | Synchronous Global Index | Yeh har cost par strong consistency ko prefer karte hain, taake index hamesha data ke sath perfectly synced rahay. |
+| **TiDB** | Synchronous Global Index | Distributed transactions ka use kar ke primary record aur secondary index ko aik sath update karte hain. |
+| **YugabyteDB** | Synchronous Global Index | Raft consensus aur distributed transactions ke combination se global indexes manage karte hain. |
+| **Amazon DynamoDB** | Local + Global Index Support (Hybrid) | DynamoDB dono tarah ke indexes support karta hai. Lekin DynamoDB ke **Global Secondary Indexes (GSIs)** mein writes hamesha **Asynchronously** update hoti hain. Iska matlab hai ke DynamoDB mein global index se read kiya gaya data temporary tor par purana (stale) ho sakta hai. |
+
+### Final Architectural Summary
+
+Writer is topic ko is deep decision par end karta hai ke **Global Secondary Indexes tabhi sab se zyada useful aur beneficial hote hain jab aapke system par parhne ka load (read throughput) likhne ke load (write throughput) se bohot zyada ho**, aur jab aapke indexes ki postings lists itni lambi na hon ke network par bojh ban sakein.
+
+
+---
