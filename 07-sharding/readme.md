@@ -1116,3 +1116,74 @@ Writer is topic ko is deep decision par end karta hai ke **Global Secondary Inde
 
 
 ---
+
+## Summary
+
+Is pooray chapter mein hum ne bade datasets ko chote-chote hisson (subsets) mein takseem karne ke mukhtalif tareeqon ko gehrai se explore kiya hai, jise distributed databases ki dunya mein **Sharding ya Partitioning** kaha jata hai. Sharding tab aik majboori ban jati hai jab aapke paas data ka volume ya writes ka load itna zyada ho jaye ke usay ek akeli physical machine par store aur process karna feasibility (mumkin) ki had se bahar nikal jaye.
+
+Sharding ka asli aur bunyadi maqsad data aur queries ke bojh (load) ko cluster ke tamam machines par **bilkul barabar (evenly) phelana** hai, taake system mein koi bhi **Hot Spot** (aik aisa node jis par baqi nodes ke muqable mein had se zyada aur gair-munasib load aa jaye) na ban sakay. Is maqsad ko poora karne ke liye do cheezein sab se critical hain:
+
+1. Aapke data ke pattern ke mutabaq sahi **Sharding Scheme** ka intikhab (choice).
+2. Jab cluster mein naye nodes add hon ya purane remove hon, toh shards ko sahi tarah se **Rebalance** karna.
+
+---
+
+### Key Range Sharding Versus Hash Sharding (The Core Strategies)
+
+Writer ne is chapter ke do sab se bade approaches ko ek concise table ke zariye dubara recap kiya hai. Chalein unhein aapas ke trade-offs aur rebalancing mechanisms ke sath dubara crystal clear tarah se samajhte hain:
+
+| Architectural Metric | Key Range Sharding | Hash Sharding |
+| --- | --- | --- |
+| **Data Arrangement** | Data keys hamesha ek makhsoos sorted order (tarteeb) mein store hoti hain. | Key ka hash nikalne ki wajah se data ka asli sorted order mukammal tor par **tabaah (destroy)** ho jata hai. |
+| **Shard Ownership** | Har shard ke paas keys ki ek contiguous range (minimum value se le kar maximum value tak) hoti hai. | Har shard ke paas hash values ki ek range hoti hai (ya Consistent Hashing ke tehat tokens hote hain). |
+| **Range Queries ($>$ , $<$ , BETWEEN)** | **Intehai tez aur efficient!** Chunke sath-sath wali keys ek hi shard mein hoti hain, ek hi jhatkay mein range scan ho jata hai. | **Intehai gair-efficient aur slow!** Aapas mein juri hui keys pooray cluster ke alag-alag shards par bikhri hoti hain. |
+| **Hot Spot Risk** | **Bohat high risk!** Agar application lagataar milti julti keys par data likhe (jaise auto-incrementing IDs ya timestamps), toh saara load ek hi shard par aa jata hai. | **Bohat low risk!** Hash function milti julti keys ko bhi poori hash space mein uniformly distribute kar ke load evenly pheladeta hai. |
+| **Rebalancing Mechanism** | Jab koi shard had se zyada bada ho jata hai, toh uski range ko **do subranges mein tod (split kar) diya jata hai**. | Shoroo mein hi **Fixed number of shards** bana diye jate hain, aur naye node ke aane par poore ke poore shards move kiye jate hain (Agarchay split karna is mein bhi mumkin hai). |
+
+#### The Composite Key Trick (Dono Approaches Ka Milap)
+
+Writer ne ek bohot hi behtareen darmiyana rasta (hybrid approach) bataya hai jo real life mein bohot use hota hai: **Key ka pehla hissa Partition Key (Hash) ke tor par use karna aur baqi hissay ko shard ke andar sorting ke liye rakhna.**
+
+* *Faida:* Is se data alag-alag shards par barabar phel bhi jata hai (No Hot Spots), aur aik hi partition key ke andar majood records par aap ab bhi efficient range queries chala sakte hain.
+
+---
+
+### Request Routing Aur Cluster Coordination
+
+Jab data shards mein takseem ho jata hai, toh agla challenge yeh hota hai ke client ki query ko sahi shard tak kaise pohnchaya jaye. Hum ne parha ke is request routing ko manage karne ke liye teen main designs hote hain (Contact any node, Dedicated routing tier, ya Shard-aware client).
+
+In sab approaches mein routing information (ke kaun sa shard kis machine par betha hai) ko hamesha up-to-date aur authoritative rakhne ke liye ek **External Coordination Service** ka sahara liya jata hai, jaise **Apache ZooKeeper ya etcd**.
+
+* Tamam nodes is coordination service ke paas register hote hain.
+* Yeh service consensus protocols ka use karti hai taake system split-brain jaisay sakt operational maslon se mahfooz rahay.
+* Jab bhi cluster ka state badalta hai, yeh furan routing tier ko notify kar ke rasta update karwa deti hai.
+
+---
+
+### Local Indexes Versus Global Indexes (Secondary Indexing Summary)
+
+Distributed databases mein secondary indexes ko shard karna sabsay pechida kaam hai. Iske do tareeqay hum ne deeply study kiye hain:
+
+#### Local Secondary Indexes (Document-Partitioned)
+
+* **Storage Rule:** Secondary index bilkul usi shard ke andar local ho kar rehta hai jahan uski asli primary key aur value bethi hoti hai.
+* **Write Performance:** **Super fast!** Jab aap naya record likhte hain, toh database ko cluster ke baqi shards se koi rabta nahi karna पड़ता. Sirf usi ek single shard ka local index update hota hai.
+* **Read Performance:** **Expensive (Mehanga)!** Agar aapko secondary index par data dhoondna ho (jaise saari red cars), toh system ko pehle se nahi pata ke data kahan hai. Usay majbooran cluster ke **tamam shards par query bhej kar data ikattha karna parta hai (Scatter-Gather Mechanism)**.
+
+#### Global Secondary Indexes (Term-Partitioned)
+
+* **Storage Rule:** Secondary index ko asli data ke sharding pattern se hat kar, **indexed values (terms) ke mutabaq alag se shard kiya jata hai**. Ek single global index entry ke andar pooray cluster ke alag-alag shards se aane wale records ke IDs (postings list) majood ho sakte hain.
+* **Write Performance:** **Complex aur slow!** Jab ek naya record database mein aata hai, toh uske alag-alag attributes ki wajah se background mein cluster ke kayi alag-alag index shards ko update karna par sakta hai.
+* **Read Performance:** **Intehai tez!** Agar aap kisi ek single condition (term) par search kar rahe hain, toh query seedha us ek makhsoos index shard par lagti hai aur furan postings list mil jati hai (Agarchay baad mein un IDs ka asli data nikalne ke liye primary shards par jump marna parta hai).
+
+---
+
+### Agli Pechidegi (The Architectural Cliffhanger)
+
+Sharding ka by-design sab se bada faida yeh hai ke **har ek shard bilkul azaadana aur independently operate karta hai**—aur yahi woh azaadi hai jo ek sharded database ko hazaron machines tak scale out karne ki takat deti hai.
+
+Lekin, is independent nature ki wajah se ek bohot bada architectural masla janam leta hai: **Aise operations jinki wajah se aik sath multiple shards par data write karna par jaye, woh intehai problematic ban jati hain.** > **Asaan Alfaaz Mein (ELI5):** > Farz karne ke aap ne ek bank account se paise nikal kar doosre account mein bheje. Dono accounts alag-alag machines (shards) par hain. Kya hoga agar Pehle Shard par paise katne ka write kamyab (succeed) ho jaye, lekin doosre shard par paise credit hone ka write kisi network fault ki wajah se fail ho jaye? Paise hawa mein gum ho jayenge!
+
+Ek shard par kaam ho jana aur doosre par fail ho jana, distributed systems mein **Consistency aur Atomicity** ko tabaah kar deta hai. Is gair-yakeeni aur mushkil situation se kaise nipta jata hai, aur multiple shards ke darmiyan coordination kaise bnaee jati hai? Is bohot bade sawal aur iske halon ko hum agle aane wale chapters (Transactions aur Consensus) mein poori detail ke sath decode karenge.
+
+---
