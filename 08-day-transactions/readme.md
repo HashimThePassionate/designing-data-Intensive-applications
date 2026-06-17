@@ -978,3 +978,154 @@ Bhale hi yeh tarika kaam karta hai, lekin asli software architecture mein isay a
 **Final Conclusion:** Is gande tarike se bachne ka sab se behtareen aur asaan tarika yeh hai ke aap hamesha **Serializable Isolation Level** ka istemal karein, jis ko hum aglay section mein poori detail aur asaan alfaz ke sath parhenge!
 
 ---
+
+
+## Serializability
+
+Hum ne ab tak is chapter mein aisi bohot saari transactions dekhin jin mein alag alag kism ke race conditions (concurrency bugs) aa jate hain. Kuch bugs ko Read Committed aur Snapshot Isolation rok lete hain, lekin **Write Skew** aur **Phantoms** jaise khufia maslon ke samnay yeh isolation levels bilkul har maan lete hain. Yeh aik intehai pareshan-kun haalat hai:
+
+* **Naamon Ka Khel:** Isolation levels ko samajhna bohot mushkil hai, aur har database company inhein alag tarah implement karti hai (jaise hum ne dekha ke mukhtalif databases mein "Repeatable Read" ka matlab bilkul alag nikalta hai).
+* **Code Par Nazar Rakhna Mushkil:** Sirf application ka code dekh kar yeh andaza lagana taqreeban na-mumkin hai ke kya isay kisi khas isolation level par chalana safe hoga ya nahi. Aik bade software mein jahan hazaron kaam aik sath ho rahe hon, wahan yeh complexity mazeed barh jati hai.
+* **Testing Ki Nakaami:** Hamare paas aise koi behtareen tools nahi hain jo in race conditions ko pehle se pakad sakein. Testing is liye nakaam ho jati hai kyunke yeh bugs timing par depend karte hain. Jab aap ki kismat kharab ho aur micro-seconds ka jhatka lage, tabhi yeh samnay aate hain.
+
+Yeh koi naya masla nahi hai, balke 1970s se jab se weak isolation levels ijaad hue hain, tab se chala aa raha hai. Lekin is poore daur mein computer science ke researchers ka hamesha se aik hi saaf jawab raha hai: **Serializable Isolation use karo!**
+
+* **Sab Se Taqatwar Hathiyar:** Serializable isolation duniya ka sab se strong isolation level hai. Yeh database ki taraf se aik pakki guarantee hoti hai ke bhale hi hazaron transactions background mein aik sath (parallel) chal rahi hon, un ka final result bilkul aisa hi aayega jaise wo aik ke baad aik line mein (**serially**) chali thin.
+* **Bugs Ka Mukammal Khatma:** Agar koi transaction akele chalte waqt sahi kaam karti hai, to serializable level par wo aik sath chalte waqt bhi bilkul perfect behave karegi. Yaani yeh level har kism ke race condition ko jad se khatam kar deta hai.
+
+> **Bacchon ki Tarah Asaan Samjhein:** Socho aik jadoo ka classroom hai jahan 10 bache aik sath blackboard par likhna chahte hain. Agar sab aik sath bhaagenge, to aik doosre ke upar chalk chal jayegi aur likha hua kharab ho jayega (Weak Isolation). Lekin agar class ka monitor (Serializable Isolation) jadoo ki stick ghumaye aur sab bache parallel bhaagne ke bawajood blackboard par aise likhein jaise har bacha akela hi likh raha tha, to sab ka kam saaf suthra ho jayega!
+
+Agar yeh itna hi behtareen hai, to har koi isay use kyun nahi karta? Is ka jawab janne ke liye humein is ko chalaane ke teen bade tareeqon aur un ke trade-offs (performance ke nuksanat) ko samajhna hoga:
+
+1. **Actual Serial Execution:** Transactions ko asliyat mein aik hi thread par line mein chalana.
+2. **Two-Phase Locking (2PL):** Pichle kahay saalon se use hone wala purana tarika (locks ke zariye).
+3. **Serializable Snapshot Isolation (SSI):** Ek modern aur advanced taknik jo optimistic tareeqay se kaam karti hai.
+
+---
+
+## Actual Serial Execution
+
+Concurrency ke saare maslon ko hal karne ka sab se asaan aur seedha tarika yeh hai ke **concurrency ko hi dunya se khatam kar diya jaye!** Yaani database ke andar aik waqt mein sirf aik hi transaction chalegi, aik akele thread par, bilkul line mein. Jab doosra kaam shuru hi tab hoga jab pehla khatam ho chuka ho, to aapas mein takraane (conflict) ka sawal hi peda nahi hota. Natija? System automatic tor par serializable ban jata hai.
+
+Bhale hi yeh idea bohot simple lagta hai, lekin 2000s ke daur tak database designers ka khayal tha ke agar hum single-thread use karenge to system bohot slow ho jayega. Pichle 30 saalon se multi-threaded concurrency ko performance ke liye zaroori samjha jata hai. Lekin achanak 2000s mein do baray badlao (developments) aaye jinhon ne is single-threaded execution ko mumkin bana diya:
+
+* **Sasti RAM (In-Memory Databases):** Computer ki RAM itni sasti ho gayi ke ab bohot bade scale ka data bhi disk (hard drive) ke bajaye poora ka poora RAM ke andar hi rakhna feasible ho gaya. Jab database ko kisi data ke liye slow disk ka intezar nahi karna parta, to RAM mein transaction micro-seconds mein bohot tez chal kar farigh ho jati hai.
+* **OLTP vs Analytics Ka Farq:** Designers ko andaza hua ke aam rozmarra ke kaam (**OLTP Transactions**) bohot chote hote hain aur un mein sirf thoda sa data parhna ya likhna hota hai. Jo lambi queries hoti hain (Analytics/Reports), wo sirf data parhti hain (read-only), is liye unhein **Snapshot Isolation** ke zariye is main single-thread loop se baahir sukoon se chalaya ja sakta hai.
+
+Yeh tarika **VoltDB/H-Store, Redis, aur Datomic** jaise modern databases mein use hota hai. Is ka faida yeh hai ke locking ka saara bojh (overhead) khatam ho jata hai aur system bohot tez chalta hai. Lekin is ki aik boundary (limit) hai: is ki maximum speed sirf **aik CPU core** jitni hi ho sakti hai. Is akele core ka poora faida uthane ke liye humein transactions ke dhang ko badalna parta hai.
+
+---
+
+## Encapsulating transactions in stored procedures
+
+Database ke shuruati daur mein designers sochte thay ke user ka poora lamba kaam (flow) aik hi transaction ke andar hona chahiye.
+
+* **Insaani Slow-motion:** Farz karein aap jahaz (airline) ki ticket book kar rahe hain. Pehle aap route dhoondte hain, phir seats dekhte hain, phir pasand karte hain, passenger ka naam likhte hain, aur aakhir mein payment karte hain. Is poore process mein insaan bohot slow hota hai aur sochne mein waqt leta hai.
+* **System Jam:** Agar database transaction khol kar insaan ke aglay button dabane ka intezar karne lagay, to database mein hazaron aisi transactions phans kar baith jayengi jo bilkul idle (kuch na karti hui) hongi. Koi bhi database is bojh ko handle nahi kar sakta.
+
+Is liye aaj kal web applications mein transactions ko intehai chota rakha jata hai. HTTP request ke aane par transaction shuru hoti hai aur request khatam hone se pehle hi commit ho jati hai. Aik transaction kabhi bhi do HTTP requests ke darmiyan zinda nahi rehti.
+
+Lekin insaan ko raste se hatane ke baad bhi aik masla baki raha: **Interactive Style (Client/Server baatein)**. Application database se aik sawal poochti hai, jawab aata hai, phir us jawab ko dekh kar doosra sawal poochti hai. Is aage-peeche travel karne mein **Network Hop** (internet/network ka rasta) ka bohot waqt zaya hota hai. Agar database single-threaded ho aur har query ke baad network ka intezar karne lagay, to throughput bilkul tabah ho jayegi.
+
+Is liye single-threaded databases interactive transactions allow nahi kartay. Un ka asool yeh hota hai ke aap apna poora ka poora transaction ka code (logic) pehle se hi database ke andar daal kar save kar dein, jisay **Stored Procedure** kehte hain.
+
+---
+
+### Figure 8-9. The difference between an interactive transaction and a stored procedure
+
+Chalein ab aap ki bheji gayi image (Figure 8-9) ke dono patterns ko step-by-step timeline ke mutabaq break down karte hain ke stored procedure network ka waqt kaise bachata hai:
+
+<div align="center">
+  <img src="./images/09.png" width="700"/>
+</div>
+
+* **Interactive Transaction Flow:**
+1. **Step 1:** Application machine se request nikalti hai: `select count(*) from doctors where on_call = true and shift_id = 1234`. Yeh network par travel kar ke database ke Query Processor tak pahunchegi.
+2. **Step 2:** Query processor storage se data nikalega aur wapas network ke zariye count **2** application ko bhejega. (Yahan 2 network hops lag gaye).
+3. **Step 3:** Ab application ka code apne computer par dimag chalayega: `if (currently_on_call >= 2)`. Is dauran database bilkul khali baitha network ka intezar kar raha hota hai.
+4. **Step 4:** Code faisla karta hai aur naya write bhejta hai: `update doctors set on_call = false where name = 'Bryce'`. Yeh teesra network hop hai.
+5. **Step 5:** Database update kar ke wapas **OK** ka signal bhejta hai (Chautha network hop).
+
+
+* **Natija:** 4 alag network round-trips huin aur database beech mein idle raha. Agar single-thread ho to system block ho jayega.
+
+
+
+```
+Stored Procedure:
+=================
+Application                Query Processor            Storage
+    |                             |                      |
+    |--- (EXECUTE PROCEDURE) ---->|                      |  [Single Network Hop 🏃‍♂️]
+    |                             |--- (Select Count) -->|
+    |                             |<-- (Returns 2) ------|  (Inside DB Memory - Super Fast! ⚡)
+    |                             |                      |
+    |                             | [Local IF Check]     |  (Inside DB Memory - Super Fast! ⚡)
+    |                             |                      |
+    |                             |--- (Update Write) -->|  (Inside DB Memory - Super Fast! ⚡)
+    |                             |<-- (OK) -------------|
+    |<-- (Returns Final OK) ------|                      |  [Final Network Hop 🏃‍♂️]
+
+```
+
+* **Stored Procedure Flow:**
+1. **Step 1:** Application sirf aik hi baar net par aik single command bhejt hai: `execute stored procedure take_doctor_off_call_if_safe with name='Bryce', shift_id=1234`.
+2. **Step 2 (Database Ke Andar):** Chunke procedure ka poora code pehle se hi database ke query processor ke paas para tha, wo bina kisi network delay ke foran storage se select chalata hai (count milta hai 2), database ke memory ke andar hi instant `if` check condition chalti hai, aur foran update query chala kar kaam khatam kar deta hai.
+3. **Step 3:** Poore process ka aakhri final result (**OK**) aik hi jhatke mein network par wapas application ko bhej diya jata hai.
+
+
+* **Natija:** Koi fuzool network delay nahi hua. Data RAM mein hone ki wajah se stored procedure kuch hi micro-seconds mein execute ho kar thread ko agli transaction ke liye khali kar deta hai.
+
+
+
+---
+
+## Pros and cons of stored procedures
+
+Stored procedures relational databases mein kafi purane waqt se hain (1999 ke SQL standard ka hissa hain). Lekin developers ki duniya mein in ki **reputation thodi kharab** rahi hai. Is ki 4 bari wajah (Cons) hain:
+
+* **Archaic Languages (Purani Zubanein):** Har database vendor ki apni ajeeb kism ki mushkil zubaan hoti thi (Oracle ki PL/SQL, SQL Server ki T-SQL, Postgres ki PL/pgSQL). Yeh zubanein modern programming languages ki tarah behtareen nahi thin aur na hi un ke paas naye libraries ka koi ecosystem tha.
+* **Management Aur Testing Mushkil:** Database ke andar chalne wale code ko debug karna bohot azab hota hai. Isay Git (Version Control) mein rakhna, test karna, deploy karna, aur monitoring systems (metrics) ke sath connect karna bohot mushkil mana jata hai.
+* **Performance Sensitivity (Khatra):** Database server poori application ka dil hota hai, jise bohot saari application servers share kar rahi hoti hain. Agar kisi developer ne stored procedure ka code ghalat likh diya (jo zyada CPU ya RAM khane lage), to poora database crash ho jayega, jis se saari app servers aik sath baith jayengi.
+* **Security Risk:** Agar aik hi database par mukhtalif tenants (customers) apna apna code chala rahe hon (Multitenant system), to un ka un-trusted code database ke kernel ke sath chalana aik bohot bara security risk hota hai.
+
+#### Modern Badlao (Pros):
+
+Lekin naye systems ne in saare maslon ko hal kar diya hai. Aaj kal ke modern databases purani PL/SQL ke bajaye **General-Purpose Programming Languages** use karte hain:
+
+* **VoltDB:** Java ya Groovy use karta hai.
+* **Datomic:** Java ya Clojure use karta hai.
+* **Redis:** Lua language use karta hai.
+* **MongoDB:** JavaScript use karta hai.
+
+Stored procedures wahan bhi bohot kaam aate hain jahan complex validation logic ko seedha database mein hi embed karna ho (jaise GraphQL proxies ke peeche). Jab data memory (RAM) mein ho aur use I/O ka intezar na karna paray, to stored procedures single thread par bohot hi outstanding throughput achieve kar lete hain.
+
+> **VoltDB and State Machine Replication:** VoltDB stored procedures ko replication ke liye bhi use karta hai. Wo data ke writes ko doosri machine par bhejne ke bajaye, wahi stored procedure doosri machine par bhi dobara chalata hai. Is ke liye zaroori hai ke procedure **Deterministic** ho (yaani har machine par chalne par bilkul same result de). Agar current time use karna ho, to un ke paas special deterministic APIs hote hain. Isay State Machine Replication kehte hain.
+
+---
+
+## Sharding
+
+Single-thread par saari transactions line mein chalane se concurrency control to bohot simple ho jata hai, lekin is ki aik hadd hai: yeh aap ko sirf **aik machine ke aik CPU core** ki speed tak mehdood kar deta hai. Agar aap ke software par writes ka bohot zyada load (high throughput) aa jaye, to yeh akela thread aik bohot bara **Bottleneck (rukaavat)** ban jata hai.
+
+Is scaling ke maslay ko hal karne ke liye hum **Sharding** (data ko mukhtalif hisson mein baantna) use karte hain (VoltDB isay support karta hai):
+
+* **Single-Shard Transactions (Linear Scale):** Agar aap apne data ko is tarah partitions (shards) mein baantein ke har transaction ko apna kaam karne ke liye sirf aik hi shard ka data parhna ya likhna paray, to har shard ka apna aik **independent transaction thread** chal sakta hai. Aap har CPU core ko us ka apna shard de sakte hain. Is haalat mein aap ki performance CPU cores ke barhne ke sath-sath **Linearly Scale** (seedhi lout mein barhti) chali jayegi.
+* **Cross-Shard Transactions (The Bottleneck):** Lekin agar koi aisi transaction aa jaye jise aik se zyada shards ka data chahiye, to database ko un saare shards ke darmiyan coordination karni parti hai. Serializable rakhne ke liye us stored procedure ko un saare shards ke upar **Lockstep (aik sath kadam mila kar)** chalana parta hai.
+
+Chunke cross-shard transactions mein aapsi coordination ka bohot bojh hota hai, is liye yeh single-shard ke muqable mein **intehai slow** hoti hain. VoltDB ki report ke mutabaq, un ke system mein single-shard par lakhon writes ho sakte hain, lekin cross-shard writes ki limit sirf **1,000 writes per second** tak gir jati hai, aur aap mazeed nayi machines laga kar bhi is speed ko barha nahi sakte.
+
+> **Stucture ka Khel:** Kya aap ki transactions single-shard ho sakti hain ya nahi? Yeh poora ka poora aap ke data structure par depend karta hai. Simple key-value data to aaram se shard ho jata hai, lekin agar aap ke table mein **Secondary Indexes** majood hain, to aap ko har naye write par bohot saari shards ke sath cross-shard coordination karni paregi jo system ko slow kar degi.
+
+---
+
+## Summary of serial execution
+
+Transactions ko serially (line mein) chalana aaj ke daur mein Serializable Isolation achieve karne ka aik behtareen aur kamyab tarika ban chuka hai, lekin yeh sirf tabhi chal sakta hai agar aap is ki **4 sakht sharait (constraints)** par poore utrein:
+
+1. **Short and Fast:** Har transaction ko intehai chota aur tez hona chahiye. Agar aik bhi transaction slow ho gayi ya phans gayi, to wo poore database ki line ko jam kar ke rakh degi (stall kar degi).
+2. **In-Memory Fit:** Aap ka active data har haalat mein **RAM (Memory)** ke andar fit hona chahiye. Agar system ko transaction ke darmiyan disk se data uthane ke liye wait karna para, to poora single-threaded system rukh jayega.
+3. **Low Write Throughput / Good Sharding:** Writes ka load itna hi hona chahiye jo aik CPU core sambhal sake, warna aap ka data aise shards mein banta hua ho jahan shards ko aalmi tor par aapsi baatein (cross-shard coordination) na karni parein.
+4. **Cross-shard Limitations:** Cross-shard transactions ho sakti hain, lekin un ke scale ki aik sakht hadd hoti hai jise barhana mushkil hai.
+
+---
