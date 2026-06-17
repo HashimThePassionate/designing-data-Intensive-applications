@@ -1129,3 +1129,124 @@ Transactions ko serially (line mein) chalana aaj ke daur mein Serializable Isola
 4. **Cross-shard Limitations:** Cross-shard transactions ho sakti hain, lekin un ke scale ki aik sakht hadd hoti hai jise barhana mushkil hai.
 
 ---
+
+## Two-Phase Locking
+
+Taqreeban 30 saalon tak dunya ke baray databases mein **Serializability** (sab se top-level isolation) achieve karne ke liye sirf aik hi algorithm sab se zyada mashhoor aur aam tha: **Two-Phase Locking (2PL)**. Baaz dafa isay baqi variants se alag dikhane ke liye **Strong Strict Two-Phase Locking (SS2PL)** bhi kaha jata hai.
+
+### 2PL is not 2PC
+
+> **Aik Bohot Barri Ghalat-Fehmi (Important Box Note):** > **2PL** aur **2PC** bilkul do alag alag cheezein hain aur in ka aapas mein koi taluq nahi hai. In ke naamon ki milti-julti shakal ki wajah se confuse mat hoiye ga:
+> * **2PL (Two-Phase Locking):** Yeh database ko **Serializable Isolation** (concurrency se bachane) ke liye use hota hai.
+> * **2PC (Two-Phase Commit):** Yeh aik **Distributed Database** mein saari machines par aik sath data pakka save (**Atomic Commit**) karne ke liye use hota hai.
+> 
+> 
+> Is liye in dono ko dimaag mein bilkul alag alag dabbay mein rakhein.
+
+Hum ne pehle parha tha ke locks (taalay) aam tor par **Dirty Writes** ko rokne ke liye use hote hain (Read Committed level par). Agar do transactions aik hi row ko update karna chahein, to lock lagne ki wajah se doosra user pehle wale ke commit ya abort hone tak intezar karta hai.
+
+**2PL** bhi kuch aisa hi karta hai, lekin is ke rules aur taalay lagane ki sharait bohot zyada sakht (**much stronger**) hoti hain. Is ka asool yeh hai ke jab tak dunya mein koi user data badal (write) nahi raha, tab tak bohot saari transactions aik sath data ko parh (**read**) sakti hain. Lekin jaise ہی koi user data ko badalna (modify ya delete) chahega, usay poore ghar par akela kabza (**Exclusive Access**) chahiye hoga:
+
+* **Rule 1 (Read vs Write):** Agar Transaction A ne kisi record ko sirf parha (read) hai, aur Transaction B wahan kuch likhna (write) chahti hai, to B ko tab tak rukna parega jab tak A apna kaam khatam kar ke commit ya abort na ho jaye. Is se yeh faida hota hai ke B chupke se A ke peeche data badal nahi sakta.
+* **Rule 2 (Write vs Read):** Agar Transaction A ne kisi record par kuch likha (write) hai, aur Transaction B usay parhna (read) chahti hai, to B ko har haalat mein A ke commit ya abort hone ka intezar karna parega. (Purani haalat ka data dikhana, jaisa hum ne MVCC/Snapshot Isolation mein dekha tha, 2PL ke asoolon mein bilkul manzoor nahi hai).
+
+**Mantra Ka Farq (The Key Difference):** Snapshot Isolation ka naara tha ke *"Readers kabhi Writers ko nahi roktay, aur Writers kabhi Readers ko nahi roktay"*. Lekin 2PL mein **Writers na sirf doosre writers ko roktay hain, balke wo readers ko bhi block kar dete hain, aur readers bhi writers ko block karte hain.** Chunke yeh har rasta block kar deta hai, is liye yeh pehle parhay gaye tamaam ghalat concurrency maslon (Lost Updates, Write Skew, Phantoms) ko poori tarah mita deta hai aur pakki serializability deta hai.
+
+---
+
+### Implementation of 2PL
+
+Aaj ke daur mein **MySQL/InnoDB** aur **SQL Server** ke andar jo "Serializable" isolation level hota hai, aur **IBM Db2** ka jo "Repeatable-Read" level hai, wo background mein isi 2PL taknik ko use karte hain.
+
+Databases is blocking ko chalaane ke liye har row/object par aik lock lagate hain. Yeh tala do modes mein chal sakta hai:
+
+1. **Shared Mode (Read Lock):** Jab kisi transaction ko sirf data parhna ho.
+2. **Exclusive Mode (Write Lock):** Jab kisi transaction ko data likhna ya badalna ho.
+
+Isay computer ki zubaan mein **Multi-Reader Single-Writer Lock** bhi kehte hain. Is ka step-by-step working flow yeh hai:
+
+* **Step 1 (Reading):** Agar transaction data parhna chahti hai, to wo database se us row par **Shared Lock** mangti hai. Ek hi row par aik sath hazaron log shared lock laga kar parh sakte hain. Lekin agar pehle se kisi ne wahan *Exclusive Lock* lagaya hua hai, to parhne walon ko line mein khara hona parega.
+* **Step 2 (Writing):** Agar transaction data likhna chahti hai, to wo **Exclusive Lock** mangti hai. Is talay ka asool hai ke jab yeh lagega to wahan koi doosra tala (chahe shared ho ya exclusive) majood nahi hona chahiye. Agar koi purana lock para hai, to transaction ruk jayegi.
+* **Step 3 (Lock Upgrading):** Agar aik transaction ne pehle data parha (shared lock liya) aur phir usay laga ke mujhe isay badalna bhi hai, to wo apne shared lock ko **Upgrade** kar ke exclusive lock bana sakti hai. Is ka process bhi direct exclusive lock lene jaisa hi hota hai.
+* **Step 4 (The Two Phases):** Lock milne ke baad, transaction usay beech mein chor nahi sakti. Usay poore kaam ke aakhir tak (commit ya abort hone tak) saare taalay pakad kar rakhne parte hain. Isi wajah se is ka naam **Two-Phase** (Do-Daur) rakha gaya hai:
+* **Phase 1: Growing Phase (Barhne ka daur):** Jab transaction chal rahi hoti hai aur naye naye taalay akatha (acquire) karti chali jati hai.
+* **Phase 2: Shrinking Phase (Ghatne ka daur):** Transaction ke bilkul aakhir mein jab saare taalay aik sath khol (release) diye jate hain.
+
+
+Yeh dono phases aapas mein mix nahi ho sakte. Aik baar agar aik bhi tala khul gaya, to transaction poori dunya mein koi naya tala nahi le sakti.
+
+#### Deadlocks Ka Khatra
+
+Chunke system mein har jagah taalay hi taalay chal rahe hote hain, is liye yeh masla bohot aam ho jata hai ke Transaction A ruk jati hai Transaction B ka tala kholne ke liye, aur Transaction B ruki hoti hai Transaction A ka tala kholne ke liye. Is phansaav ko **Deadlock** kehte hain. Database automatic tor par graph check kar ke deadlocks pakad leta hai aur kisi aik be-kasoor transaction ko **Abort (kill)** kar deta hai taake baqi system aage barh sake, aur application us killed transaction ko dobara retry karti hai.
+
+> **Bacchon ki Tarah Asaan Samjhein:** Socho do bache hain, Pappu aur Babloo. Pappu ke paas rang-bharne wali pencil hai lekin drawing book nahi hai. Babloo ke paas drawing book hai lekin pencil nahi hai. Pappu kehta hai: "Jab tak tum mujhe book nahi doge, mein pencil nahi doonga." Babloo kehta hai: "Jab tak tum pencil nahi doge, mein book nahi doonga." Dono zidd par kharay hain aur kaam ruka hua hai (Deadlock). Phir ammi (Database Engine) aati hain, Babloo ko thappad maarti hain (Abort) aur us se book le kar Pappu ko de deti hain taake kaam aage barhay!
+
+---
+
+### Performance of 2PL
+
+Two-Phase Locking ka sab se bara nuksan (downside)—aur yahi wajah hai ke 1970s ke baad se yeh databases ka default level nahi raha—wo hai is ki **Thak-haar performance**. 2PL lagane se database ki speed (throughput) aur queries ka response time weak isolation levels ke muqable mein **intehai bura (significantly worse)** ho jata hai. Is ki do bari wajah hain:
+
+1. **Locks Ka Bojh (Overhead):** Har choti query par tala lagana, check karna, aur phir aakhir mein mitaana computer ki memory aur CPU ka kafi waqt khata hai.
+2. **Concurrency Ka Khatma (Reduced Concurrency):** Is se bhi bari wajah yeh hai ke system mein parallel kaam hona band ho jate hain. Agar do transactions aisi hain jo aapas mein thoda sa bhi takra sakti hain, to design ke mutabaq aik ko poori tarah rukna parega jab tak doosri farigh nahi ho jati.
+
+#### Real-World Disaster Scenario (The Big Read Table):
+
+Farz karein aap ke paas aik bohot bara table hai aur aap dopahar ke waqt us ka **Backup** lena chahte hain ya koi lambi analytical report chala rahe hain (jaisa hum ne Snapshot Isolation mein parha tha).
+
+* Is lambi query ko chalane ke liye 2PL kya karega? Wo poore ke poore table par aik **Shared Lock** le kar baith jayega.
+* Pehle to is backup query ko tab tak rukna parega jab tak pehle se chalne wale saare naye writes khatam na ho jayein.
+* Aur aik baar jab is ne poore table par shared lock laga diya, to jab tak wo ghanto lamba backup khatam nahi hota, **dunya ka koi bhi user us table mein naya data write (insert/update) nahi kar sakega!** Sab block ho kar line mein kharay ho jayenge. Asal mein aap ka database dunya ke liye aik qism ka band (unavailable) ho jayega.
+
+Is wajah se 2PL par chalne wale databases ki speed bohot unstable hoti hai. Agar workload mein thoda sa bhi load barhay, to un ka latency graph achanak aasmaan ko chhune lagta hai (**high percentiles/tail latency spikes**). Sirf aik slow query ya aik bara data scan poore system ke pahiye ko jam kar ke rakh deta hai.
+
+Chunke deadlocks is level par bohot zaroori aur baar baar aane wale hote hain, is liye application ko baar baar zero se kaam shuru (**retry**) karna parta hai, jis se computer ki bohot saari mehnat aur resources kachray mein zaya (**wasted effort**) ho jate hain.
+
+---
+
+### Predicate locks
+
+Upar jo hum ne locks par baat ki, us mein aik choti si bareeki thi jise hum ne thoda asaan kiya tha. Pichle sabaq mein hum ne parha tha ke **Phantom Bug** kya hota hai—yaani jab aik transaction ka kiya hua write kisi doosri transaction ki search query (SELECT) ka result hi badal de (jaise meeting room booking mein double-booking ho jana). Ek serializable database ko har haalat mein phantoms ko rokna parega.
+
+Meeting room booking ki misal mein agar aik user ne check kiya ke `Room 123` dopahar 12 se 1 baje tak khali hai, to doosra user theek usi waqt us room aur us time slot ke liye naya record `INSERT` na kar sakay.
+
+Isay hum kaise rokenge? Is ka hal hai **Predicate Lock** (Shart wala taala). Yeh tala kisi aik row ya object par nahi lagta, balke **un tamaam objects par lag jata hai jo kisi search condition (where clause) par poore utreind**, jaise yeh query:
+
+```sql
+SELECT * FROM bookings
+ WHERE room_id = 123 
+   AND end_time > '2026-01-01 12:00' 
+   AND start_time < '2026-01-01 13:00';
+
+```
+
+Predicate lock ke teen sakht asool hote hain:
+
+* **Rule 1 (Reading with Shart):** Jab Transaction A upar wali query chala kar data parhegi, to database is poori shart (condition) par aik **Shared-mode Predicate Lock** laga dega. Agar koi doosri Transaction B us waqt un sharaait par poore utrne wale kisi bhi record par exclusive lock le kar baithi hai, to A ko rukna parega.
+* **Rule 2 (Writing with Shart):** Jab Transaction A koi bhi naya record `INSERT`, `UPDATE`, ya `DELETE` karne lagegi, to database pehle check karega ke kya is naye data ki purani ya nayi value dunya mein chalne wale kisi bhi *Predicate Lock* ki shart se match to nahi karti? Agar matching lock Transaction B ke paas hai, to A ko tab tak rok diya jayega jab tak B farigh nahi ho jati.
+* **The Magic Point:** Is ka sab se bada jadoo yeh hai ke yeh tala database mein **un records par bhi lag jata hai jo abhi tak dunya mein ijaad hi nahi hue (objects that do not yet exist)!** Yaani aane wale naye phantoms par bhi pehle se taala lag jata hai. Agar 2PL ke sath predicate locks mila diye jayein, to dunya ki har kism ki write skew aur phantom ghaltiyan khatam ho jati hain aur system 100% serializable ban jata hai.
+
+---
+
+### Index-range locks
+
+Bhale hi Predicate Locks theoretical tor par bilkul perfect hain, lekin asli zindagi ke computer systems mein in ki **performance bohot gandi** hoti hai. Agar database mein hazaron transactions chal rahi hon, to har naye insert par un hazaron sharaait (where clauses) ko aapas mein match kar ke check karne mein computer ka dimaag phat jata hai aur bohot waqt zaya hota hai.
+
+Is liye, taqreeban tamaam 2PL databases asli predicate locking use nahi karte, balke is ka aik asaan aur chota bhai use karte hain jisay **Index-range locking** (ya **Next-key locking**) kehte hain.
+
+* **Asoon-e-Simplification:** Is ka asool yeh hai ke shart ko thoda bada (approximate) kar do taake check karna asaan ho jaye. Misal ke tor par, agar aap ka taala sirf *"Room 123 dopahar 12 se 1 baje"* par tha, to aap is ko thoda khula kar ke poore *"Room 123 ke har waqt"* par tala laga do, ya phir *"Dopahar 12 se 1 baje ke saare rooms"* par tala laga do. Yeh bilkul safe hai kyunke jo chor asli choti shart ko torey ga, wo is barri shart mein lazmi pakda jayega.
+
+Farz karein hamare database mein `room_id` ke column par aik **Index** (search guide) bana hua hai:
+
+* **Implementation Method A:** Jab aap `Room 123` ki booking dhoondte hain, to database us index ke andar majood `room_id = 123` ki entry par aik **Shared Lock** chipka deta hai. Yeh is baat ka nishan hota hai ke koi user Room 123 ke saare data par nazar rakh raha hai.
+* **Implementation Method B:** Agar database time ke index par chal raha hai, to wo index ke aik khaas hissay (range) par shared lock laga dega, jaise *"Specifed date ko 12 se 1 baje ka poora block"*.
+
+Dono shaklon mein, shart ka aik bada andaza (approximation) index ke kisi naye hissay par tala ban kar baith jata hai. Ab jab bhi koi doosra user parallel mein us room ya us time slot ke liye naya data `INSERT` ya `DELETE` karne aayega, to usay index ke isi hissay ko update karna parega. Jaise hi wo index ko touch karega, usay samnay pehle se laga **Shared Lock** nazar aa jayega, aur database usay foran line mein khara kar dega.
+
+> **Natija (The Compromise):** Index-range locks asli predicate locks jitne barabar (precise) nahi hote—yeh zaroorat se thoda zyada data lock kar dete hain—lekin chunke in ko chalane ka kharcha (overhead) bohot kam hota hai, is liye yeh software architecture mein aik behtareen samjhota (**good compromise**) maane jaate hain.
+
+#### Fallback (Aakhri Mahfooz Rasta)
+
+Agar aap ke table mein koi aisa index majood hi nahi hai jahan range lock chipkaya ja sake, to database ke paas aakhri rasta yeh bachta hai ke wo **poore ke poore table par shared lock** laga de. Yeh performance ke liye to bohot bura hoga kyunke saare writers line mein phans jayenge, lekin data ki serializability ko bachane ke liye yeh aik bilkul safe aur pakka rasta hai.
+
+---
