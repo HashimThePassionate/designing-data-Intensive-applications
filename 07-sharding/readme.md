@@ -347,7 +347,7 @@ Key-range sharding (jo hum ne pehle parha) wahan bohot faida mand hoti hai jahan
 
 Ek achha hash function gair-wazni aur skewed data ko pakar kar usay poore system mein **Uniformly Distribute** (barabar phelana) kar deta hai.
 
-* **Working Mechanism:** Farz karein hamare paas ek 32-bit hash function hai jo kisi bhi string text ko input leta hai. Jab bhi aap isay koi naya string denge, yeh 0 se le kar $2^{32} - 1$ ke darmiyan ek random sa दिखने wala number return karega.
+* **Working Mechanism:** Farz karein hamare paas ek 32-bit hash function hai jo kisi bhi string text ko input leta hai. Jab bhi aap isay koi naya string denge, yeh 0 se le kar $2^{32} - 1$ ke darmiyan ek random sa wala number return karega.
 * **Determinism:** Agarchay yeh number random dikhta hai, lekin yeh deterministically kaam karta hai—yaani agar aap **exact same input** baar baar denge, toh output mein hamesha **exact same number** hi nikal kar aayega. Haaan, agar inputs aapas mein bohot milti julti bhi hon (jaise "abc" aur "abd"), toh unke hash values ek doosre se bilkul alag aur poori range mein door-door bikhre hue honge.
 
 #### Real-World Examples (Hash Tools):
@@ -432,7 +432,7 @@ Is image mein dekhein ke kaise fixed shards bina keys ka formula badle naye node
 #### Is Approach Ke Faide (Pros):
 
 1. **Minimum Data Movement:** Keys ka shard ke sath assignment kabhi nahi badalta. Sirf shard ka node ke sath taluq badalta hai, jis se faltu data migration se jaan chhut jati hai.
-2. **Network Tolerance:** Shards ka transfer فورا nahi hota, network par data transfer hone mein waqt lagta hai. Jab tak transfer chal raha hota hai, purani shard mapping hi reads aur writes ke liye use hoti rehti hai (No Downtime).
+2. **Network Tolerance:** Shards ka transfer foran nahi hota, network par data transfer hone mein waqt lagta hai. Jab tak transfer chal raha hota hai, purani shard mapping hi reads aur writes ke liye use hoti rehti hai (No Downtime).
 3. **Hardware Flexibility:** Agar cluster mein kuch machines bohot powerful hain aur kuch kamzor, toh aap powerful machines ko zyada shards assign kar sakte hain taake woh zyada load utha sakein.
 4. **Real-World Tools:** Yeh behtareen approach **Citus** (PostgreSQL ka sharding layer), **Riak**, **Elasticsearch**, aur **Couchbase** mein use hoti hai.
 
@@ -615,6 +615,41 @@ Yeh masla is liye mazeed pechida (compound) ho jata hai kyunke load hamesha aik 
 
 * **Viral Dynamic:** Social media par agar koi post **viral** hoti hai, toh us par had se zyada load sirf ek ya do din ke liye hota hai. Uske baad mamla thanda ho jata hai aur woh key dobara normal ho jati hai.
 * **Read-Hot vs Write-Hot:** Kuch keys aisi hoti hain jin par sirf likhne ka load zyada hota hai (Write-Hot), jabke kuch par sirf dekhne/parhne ka load zyada hota hai (Read-Hot). Dono tarah ke hot spots se nipatne ke liye alag strategies lagani parti hain.
+
+## Strageties between write hot keys vs read hot keys 
+
+### Write Hot Keys (Kaise Nipatna Hai?)
+
+Write hot key tab banti hai jab bohot saari requests ek hi waqt mein ek hi record ko modify (update) kar rahi hon. Iska maqsad **Load ko Distribute** karna hai.
+
+* **Salting (Jo humne pehle parha):**
+    * Yeh sab se pehla aur best tool hai. Jab key ko random salt (suffix) milta hai, toh woh multiple shards par fail (spread) jati hai.
+    * *Pro Tip:* Sirf tab use karein jab write volume itni zyada ho ke ek machine handle na kar sake.
+* **Write Batching / Buffering:**
+    * Instead of sending 1,000 separate "UPDATE" queries to the DB, application layer par inein collect karein aur 1 second baad ek single "Batch Update" bhejein.
+    * *Faida:* Database par IOPS (Input/Output Operations) ka bojh kam ho jata hai.
+* **Message Queues (Kafka/RabbitMQ):**
+    * Write request ko direct DB par bhejne ke bajaye, ek Queue mein daal dein. Queue se worker process uthayega aur sukoon se DB mein likhega.
+    * *Faida:* "Write Contention" khatam ho jati hai kyunke database ko apne pace par kaam karne ka moka milta hai.
+
+### Read Hot Keys (Kaise Nipatna Hai?)
+
+Read hot key tab banti hai jab hazaron log ek hi record ko bar-bar fetch kar rahe hon (e.g., "Latest News", "System Config"). Iska maqsad **DB ko bypass** karna hai.
+
+* **Multi-Level Caching (The Golden Rule):**
+    * **In-Memory Cache (App level):** Sab se tez. Request DB ya Redis tak jane se pehle application ki RAM mein check hoti hai.
+* **Distributed Cache (Redis/Memcached):** 
+    * Agar App-level cache mein nahi mila, toh Redis check karein.
+* **Database:** 
+    * Sirf tab query karein jab cache "Miss" ho.
+* **Read Replicas:**
+    * Database ka Master (Write-only) aur Slaves (Read-only) bana dein. Read hot keys ka load slaves mein distribute kar dein.
+* **Negative Caching:**
+    * Agar koi aisi key search kar raha hai jo exist hi nahi karti, toh usay bhi cache kar lein taake bar-bar DB par "Empty Result" ke liye load na pare.
+* **Cache Stampede (Thundering Herd) Protection:**
+    * Jab cache expire hota hai, toh saari traffic ek sath DB par jati hai. Isay rokne ke liye "Locking" ya "Probabilistic Early Recomputation" use karte hain.
+
+
 
 ### Automated Cloud Solutions
 
