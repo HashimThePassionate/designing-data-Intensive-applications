@@ -183,3 +183,113 @@ Writer yahan aik bohot gahra design trade-off samjhate hain ke asli duniya mein 
 ---
 
 
+## Single-Object and Multi-Object Operations
+
+Hum ne abhi tak dekha ke ACID mein **Atomicity** aur **Isolation** ka asal maqsad yeh hota hai ke agar aik user (client) aik hi transaction ke andar bohot saare writes (data save) kar raha hai, to database ko us haalat mein kaise behave karna chahiye:
+
+* **Atomicity:** Agar bohot saare kaamon ki sequence ke beech mein koi error aa jaye, to transaction ko **Abort (cancel)** ho jana chahiye, aur ab tak jitna bhi kaam hua tha usay kachray mein phenk (discard) diya jana chahiye. Database aap ko "All-or-Nothing" (ya to poora ya kuch bhi nahi) ka wada de kar adhoori nakami (**partial failure**) ki fikar se bacha leta hai.
+* **Isolation:** Aik sath chalne wali transactions aik doosre ke kaamon mein dakhal-andazi (interfere) nahi kar saktin. Agar aik transaction bohot saare writes kar rahi hai, to doosri transaction ko ya to wo saare writes aik sath mukammal dikhne chahiye, ya un mein se kuch bhi nahi dikhna chahiye. Aisa kabhi nahi hona chahiye ke usay sirf aadha-adhura badla hua data dikhe.
+
+Yeh definitions yeh tasawwur karti hain ke aap aik sath bohot saare **objects (rows, records, ya documents)** ko badalna chahte hain. Isay **Multi-object transactions** kehte hain aur in ki zaroorat tab parti hai jab data ke mukhtalif hisson ko hamesha aik sath jura (in sync) rakhna ho.
+
+---
+
+#### Figure 8-2. Violating isolation: one transaction reads another transaction’s uncommitted writes (a “dirty read”)
+
+Chalein is image (Figure 8-2) ke poore flow ko step-by-step bohot detail mein samajhte hain ke jab database Isolation ke rule ko torta hai, to kya ajeeb masla peda hota hai:
+
+<div align="center">
+  <img src="./images/02.png" width="700"/>
+</div>
+
+* **The Scenario:** Writer ne email application ki misal di hai. Agar humein kisi user ke unread emails count karne hon, to aam query yeh hoti hai: `SELECT COUNT(*) FROM emails WHERE recipient_id = 2 AND unread_flag = true`. Lekin agar emails hazaron mein hon, to yeh count lagana slow ho sakta hai. Is se bachne ke liye developers **Denormalization** karte hain—yaani aik alag table/field mein unread emails ka counter save kar dete hain (jaise `mailboxes` table mein `unread` ka column).
+* **Step 1 (User 1 Inserts Email):** User 1 aik naya email insert karta hai: `insert into emails (recipient_id, body, unread_flag) values (2, 'Hello', true)`. Database isay save karta hai aur kehta hai **"OK"**. Lekin yaad rahe, abhi transaction commit (final save) nahi hui!
+* **Step 2 (User 2 Reads the Email):** Isi dauran User 2 apni screen refresh karta hai aur database se query karta hai: `select body, unread_flag from emails where recipient_id = 2 limit 50`. Database User 2 ko wo email dikha deta hai: `('Hello', true)`. User 2 ko screen par naya email nazar aa jata hai.
+* **Step 3 (User 2 Reads the Counter):** Ab User 2 ka software counter display karne ke liye doosri query chalata hai: `select unread from mailboxes where recipient_id = 2`. Database jawab deta hai: **0**.
+* **Step 4 (User 1 Updates Counter):** User 2 ke parhne ke *baad*, User 1 ka software counter barhane ki query chalata hai: `update mailboxes set unread = unread + 1 where recipient_id = 2`. Database kehta hai **"OK"**.
+* **The Anomaly (Ghalti):** User 2 ko apni screen par aik naya unread email dikh raha hai, lekin upar counter **0** dikha raha hai! Yeh aik adhoori aur galat state hai. Isay **Dirty Read** kehte hain (yaani kisi doosre ka uncommitted data parh lena). Agar yahan database **Isolation** lagata, to User 2 ko ya to email aur counter dono updated dikhte, ya dono purane dikhte, beech ki yeh ajeeb haalat kabhi nazar na aati.
+
+> **Bacchon ki Tarah Asaan Samjhein:** Socho aap ke papa ne aap ke khilone wale dabbe mein aik nayi car daal di (Insert Email). Lekin abhi unhon ne bahar lage paper par car ki ginti (Counter) ko 0 se 1 nahi kiya tha. Aap ne dabba khola, aap ko andar car dikh gayi, lekin jab aap ne bahar paper par ginti parhi to wahan 0 likha tha. Aap confuse ho gaye ke yeh kya jadoo hai! Isolation ka matlab hai ke jab tak papa ginti bhi theek na kar lein, tab tak aap ko dabba kholne ki ijaazat hi na ho.
+
+---
+
+#### Figure 8-3. Atomicity ensures that if an error occurs, any prior writes from that transaction are undone, to avoid an inconsistent state.
+
+Chalein ab is doosri image (Figure 8-3) ke step-by-step flow ko samajhte hain jo Atomicity ki zaroorat ko dikhati hai:
+
+<div align="center">
+  <img src="./images/03.png" width="700"/>
+</div>
+
+* **Step 1:** User 1 ne successfully email insert kar diya: `insert into emails...`. Database ne kaha **"OK"**.
+* **Step 2:** User 1 ab counter barhane laga tha: `update mailboxes set unread = unread + 1...`. Lekin isi lamhe system mein **Error ya Timeout** aa gaya (jaise database ki jor se hard disk full ho gayi, ya network tar toot gaya).
+* **The Danger (Bina Atomicity Ke):** Agar system mein atomicity na ho, to email to andar save reh jayega lekin counter hamesha ke liye purana (0) hi reh jayega. Data aapas mein out-of-sync ho jayega.
+* **The Solution (Atomicity Ke Sath):** Atomicity database ko majboor karti hai ke chunke doosra kaam (counter update) fail ho gaya hai, is liye pehla kaam (email insert) bhi **Undo (Rollback)** kar diya jaye. Database us email ko mita dega taake system bilkul pehle jaisa saaf ho jaye, aur application bina kisi dar ke dobara poora kaam shuru (**retry**) kar sake.
+
+---
+
+#### Multi-Object Transactions Ki Pehchan
+
+Multi-object transactions mein database ko kaise pata chalta hai ke kaun kaun si queries aik hi dabbe (transaction) ka hissa hain?
+
+* **Relational Databases Mein:** Yeh kaam client ke **TCP Connection** ke zariye hota hai. Aik connection par jab client `BEGIN TRANSACTION` bhejta hai, us ke baad se lekar `COMMIT` bheyjne tak jitni bhi queries aati hain, database un sab ko aik hi transaction maanta hai. Agar beech mein TCP connection toot jaye, to database samajh jata hai ke kuch garbar hai aur wo sab abort kar deta hai.
+* **Non-Relational (NoSQL) Databases Mein:** In mein aam tor par kaamon ko aik sath jurnay (group karne) ka aisa koi tarika nahi hota. Agar un ke paas koi `multi-put` API ho bhi (jis se aik sath bohot saari keys update hoti hain), to us ka yeh matlab nahi hota ke wo transaction hai. Ho sakta hai 5 keys update ho jayein aur baqi 5 fail ho jayein, jis se database adhoori haalat mein phans jata hai.
+
+---
+
+### Single-object writes
+
+Atomicity aur Isolation sirf bohot saare records par hi nahi, balke **aik akele record/object** ko badalte waqt bhi utni ہی zaroori hain. Farz karein aap database mein aik bada **20 kB ka JSON document** save kar rahe hain:
+
+1. Agar 10 kB data transfer hone ke baad internet connection kat jaye, to kya database us aadhe-adhure kharab JSON ko save kar ke baith jayega?
+2. Agar database disk par purane data ke upar naya data likh raha ho aur achanak light chali jaye, to kya purana aur naya data aapas mein khichdi (spliced/corrupt) ban jayega?
+3. Agar aik user us document ko abhi write (save) kar raha ho aur theek usi mili-second mein doosra user usay read kare, to kya usay adha naya aur adha purana data dikhega?
+
+In intehai confuse karne wale maslon se bachne ke liye, taqreeban tamaam storage engines aik akele object (key-value pair ya single row) ke level par Atomicity aur Isolation lazmi dete hain.
+
+* **Implementation Kaise Hoti Hai?** Single-object par Atomicity banane ke liye database recovery log (Crash recovery log) use karta hai, aur Isolation ke liye har object par aik **Lock** laga deta hai (yaani jab tak aik thread kaam kar rahi hai, doosri thread us object ko hath nahi laga sakti).
+* **Complex Atomic Operations:** Kuch databases mazeed behtareen features dete hain jaise ke **Atomic Increment** (jo seedha database mein hi counter barha deta hai, jaise Redis mein hota hai, jis se Figure 8-1 wala read-modify-write ka lambay process se jaan choot jati hai). Isi tarah **Conditional Write** (yaani Compare-and-Set / CAS) hota hai, jo kehta hai ke data sirf tabhi save karo agar pichli baar se lekar ab tak kisi aur ne usay badla na ho.
+
+> **Theoretical Nuance:** Writer batate hain ke lafz "Atomic Increment" mein jo "Atomic" hai, wo asal mein multithreaded programming wala hai (yaani concurrency se bachane wala). ACID ke mutabaq isay **Isolated ya Serializable Increment** kehna chahiye, lekin aam zubaan mein log isay atomic increment hi kehte hain.
+
+* **NoSQL Limit:** databases jaise **Aerospike** aur **Cassandra/ScyllaDB** (lightweight transactions ke zariye) single-object level par bohot strong guarantees (linearizable reads aur conditional writes) dete hain, lekin un mein ek se zyada objects (multi-object) par koi guarantee nahi hoti.
+
+---
+
+### The need for multi-object transactions
+
+Kya humein waqai multi-object transactions ki zaroorat hai? Kya hum sirf single-object operations use kar ke poori application nahi bana sakte?
+
+Kuch simple kaamon mein single-object se guzara ho jata hai, lekin bohot saare real-world use cases mein humein multi-object transactions ki sakht zaroorat hoti hai:
+
+1. **Foreign-Key / Graph References:** Relational databases mein aik table ki row doosre table ki row se linked hoti hai (Foreign Key). Graph databases mein aik point (vertex) doosre points se edges ke zariye jura hota hai. Agar aap do records insert kar rahe hain jo aalmi tor par aapas mein linked hain, to dono ka aik sath sahi save hona zaroori hai, warna reference toot jayega aur data ka koi matlab nahi rahega.
+2. **Denormalization in Documents:** Document databases (jaise MongoDB) mein data aksar aik hi bade document ke andar hota hai, is liye single-document update se kaam chal jata hai. Lekin chunke un mein `JOIN` karne ki taqat nahi hoti, is liye developers ko data ki copies alag alag documents mein rakhni parti hain (**Denormalization**). Ab jab bhi wo data badlega, aap ko aik sath bohot saare documents ko update karna parega (jaise Figure 8-2 mein email aur counter alag alag documents thay). Agar transactions nahi hongi, to yeh data aapas mein out-of-sync ho jayega.
+3. **Secondary Indexes:** Taqreeban har database mein secondary indexes hote hain (taake search tez ho sake). Jab bhi aap kisi record ko badalte hain, database ko background mein us ke saare indexes ko bhi update karna parta hai. Agar yahan transaction isolation na ho, to ho sakta hai aik record aik index mein to dikhe lekin doosre index mein gayab ho, kyunke doosra index abhi update hi nahi hua tha!
+
+---
+
+### Handling errors and aborts
+
+Transactions ki sab se badi taqat hi yeh hai ke agar koi error aaye, to usay **Abort (cancel)** kar ke safely dobara chalaya (**retry**) ja sakta hai. ACID databases ka poora falsafa isi par khara hai: **"Database guarantees torney se behtar samajhta hai ke poore kaam ko hi cancel kar de, bajaye is ke ke aadha kaam chor de."**
+
+Lekin har system is falsafay par nahi chalta:
+
+* **Leaderless Replication Stores (e.g., Cassandra):** Yeh databases "Best Effort" par chalte hain. Un ka asool hota hai ke "Humein jitna ho saka hum ne kiya, agar beech mein error aa gaya to hum pehle se kiya hua kaam wapas undo nahi karenge". Is haalat mein error se nipatnay (recover karne) ki poori zimmedari application programmer par aa jati hai.
+
+#### The Reality of Application Software & ORMs
+
+Afsos ki baat yeh hai ke bohot saare developers sirf "Happy Path" (jab sab theek chal raha ho) ke baare mein sochte hain aur error handling ko ignore kar dete hain.
+
+* **ORMs Ki Ghalti:** Mashhoor frameworks jaise **Rails ActiveRecord** aur **Django** ke ORMs aborted transactions ko khud-b-khud retry **nahi** karte. Jab database error bhejta hai, to yeh frameworks seedha exception (error) throw kar dete hain, jis se user ka enter kiya hua data zaya ho jata hai aur screen par error message aa jata hai. Yeh bohot buri baat hai kyunke rollback ka asal maqsad hi yeh tha ke software chupke se usay dobara chalaye (safe retry kare) aur user ko pata bhi na chale.
+
+#### Retry Karne Ke Masle aur Limitations
+
+Bhale hi retry karna aik behtareen tarika hai, lekin yeh bilkul perfect nahi hai. Is ke 5 bade masle hain:
+
+1. **The Network Timeout Dilemma:** Farz karein database ne transaction ko successfully commit (save) kar diya, lekin confirmation ka signal client ko bhejte waqt network kat gaya. Client ko laga ke kaam fail ho gaya (Timeout). Agar client ab dobara retry karega, to wo kaam **do baar (duplicate)** ho jayega, jab tak ke aap ne application level par deduplication mechanism (jaise unique request IDs) na lagaya ho.
+2. **System Overload / Feedback Cycles:** Agar database par pehle hi bohot zyada bojh (high contention/overload) hai aur transactions fail ho rahi hain, to har transaction ka baar baar retry karna bojh ko kam nahi karega, balke system ko mazeed jam kar dega. Is se bachne ke liye **Exponential Backoff** (yaani har fail ke baad rukne ka waqt barhana) aur retry ki aik limit lagana zaroori hai.
+3. **Transient vs Permanent Errors:** Retry sirf temporary errors (jaise Deadlock, network ka lamhati jhatka, ya node failover) par hi faida mand hota hai. Agar error pakka (Permanent) hai—jaise koi rule toot raha ho (uniqueness constraint violation)—to 100 baar bhi retry karne se koi faida nahi hoga.
+4. **Outside Side Effects:** Agar aap ki transaction ke andar database se baahir ke kaam bhi ho rahe hain—jaise user ko email bhejna—to har retry par user ko aik naya email chala jayega! Agar aap chahte hain ke database aur baahir ke baki systems (jaise email service) aik sath ya to commit hon ya abort hon, to aap ko **Two-Phase Commit (2PC)** use karna parega.
+5. **Client Process Crash:** Agar retry karne ke dauran client ka apna computer (application server) hi crash ho jaye, to jo data wo save karne ki koshish kar raha tha, wo hamesha ke liye hawa mein gayab ho jata hai.
+
+---
