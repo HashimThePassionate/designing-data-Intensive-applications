@@ -1049,7 +1049,7 @@ Global index isi *Term* ko apni **Partition Key** ke tor par use karta hai. Iska
 Chalein is diagram ke internal structures, mapping arrows, aur data tables ko bohot hi bareeki se step-by-step samajhte hain:
 
 <div align="center">
-  <img src="./images/10.png" width="700"/>
+  <img src="./images/10.png" width="800"/>
 </div>
 
 #### 1. Primary Key Index (Asli Data Kaise Sharded Hai):
