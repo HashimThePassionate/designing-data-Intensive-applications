@@ -1409,3 +1409,159 @@ Weak snapshot isolation ke muqable mein, SSI ko har transaction ki reads aur wri
 System mein **Abort Rate** (transactions ke fail hone ki ginti) performance par bohot asar dalti hai. Agar aik transaction bohot lambay waqt tak chalti rahegi aur data badalti rahegi, to pakka raste mein koi na koi us se takraayega aur wo abort ho jayegi. Is liye SSI ki sab se bari limit yeh hai ke aap ki **Read/Write transactions ko kafi chota (short and fast) hona chahiye**. (Lambi read-only transactions par koi pabandi nahi hai, wo sukoon se chal sakti hain). Phir bhi, yeh slow transactions ke samnay 2PL ya Serial Execution jitna kamzoor nahi parta.
 
 ---
+
+## Distributed Transactions
+
+Aik single-node transaction mein sirf **aik hi machine (computer)** poori transaction ka logic aur concurrency control (jaise locks aur isolation levels) sambhalti hai. Agar aap ka database single-leader replication use kar raha hai, to saari transactions sirf main leader node par chalti hain, aur baqi followers machine sirf us ke write-ahead log (WAL) ko dekh kar apne paas data copy kar leti hain.
+
+Lekin kya hoga agar aik transaction ke andar **aik se zyada nodes (multiple machines)** shamil hon? Misal ke tor par:
+
+* Aap ka database sharded hai aur aap ki transaction ko alag alag shards (machines) ka data badalna hai.
+* Aap aik global secondary index use kar rahe hain, jahan index ka record kisi aur node par para hai aur asli primary data kisi doosri node par para hai.
+
+Is scenario ko hum **Distributed Transaction** kehte hain.
+
+Distributed transactions mein concurrency control (locks wagera) ke asool to single-node jaise hi hote hain, lekin **Atomicity (All-or-Nothing)** achieve karna yahan aik bohot bara aur naya challenge ban jata hai.
+
+#### Single-Node Par Atomicity Kaise Hoti Thi?
+
+Single-node par atomicity poori tarah disk par data likhne ke **Order (tartib)** par depend karti hai. Pehle disk par asli data likha jata hai, aur aakhir mein aik **Commit Record** append kiya jata hai. Agar commit record disk par likha gaya, to transaction committed hai, warna rollback ho jati hai. Yaani aik akela hardware device (single disk controller) faisla karta hai.
+
+#### Distributed System Mein Yeh Asaan Kyun Nahi Hai?
+
+Distributed transaction mein aap sirf saari nodes ko aik sath commit ki request bhej kar azaad nahi chor sakte. Ho sakta hai ke commit kuch nodes par kamyab ho jaye aur kuch par fail ho jaye, jaisa ke **Figure 8-12** mein dikhaya gaya hai. Is ki 3 bari wajoohat hain:
+
+1. Kuch nodes par koi rule toot raha ho (constraint violation) ya takraav ho, jis ki wajah se unhein **Abort** karna pare, jabke baqi nodes commit karne ke liye bilkul tayyar hon.
+2. Network ke kharab hone ki wajah se kuch commit requests raste mein hi gayab ho jayein aur timeout ki wajah se abort ho jayein, jabke kuch requests sahi salamat pahunch jayein.
+3. Kuch nodes commit record likhne se pehle hi achanak crash ho jayein aur recovery par rollback ho jayein, jabke baqi successfully commit kar chuki hon.
+
+---
+
+#### Figure 8-12. When a transaction involves multiple database nodes, it may commit on some and fail on others.
+
+Chalein aap ki bheji gayi pehli image (Figure 8-12) ke step-by-step flow ko samajhte hain ke jab distributed system mein atomicity toot'ti hai, to kya tabahi hoti hai:
+
+<div align="center">
+  <img src="./images/12.png" width="700"/>
+</div>
+
+* **Step 1 (User 1 Writes to Both Nodes):** User 1 aik distributed transaction shuru karta hai jo do alag databases (Database 1 aur Database 2) par data write karti hai. Dono databases shuruati kaam par **"OK"** keh dete hain.
+* **Step 2 (The Commit Command):** User 1 ab transaction khatam kar ke **Commit** ka button dabata hai.
+* **Step 3 (The Split Outcome):** * Database 1 par koi achanak error ya hardware failure aata hai aur wo transaction ko **Abort** kar ke apna data saaf (erase) kar deta hai.
+* Doosri taraf, Database 2 par sab theek chalta hai aur wo data ko pakka save yani **Commit OK** kar deta hai.
+
+
+* **The Disaster (Inconsistency):** Ab system aapas mein out-of-sync ho chuka hai (Inconsistent state). Sab se buri baat yeh hai ke jab tak User 1 ko pata chalta ke mera commit Database 1 par fail ho gaya hai, isi dauran **User 2** ne aakar Database 2 se wo committed naya data parh bhi liya!
+* **No Way Back:** Ab hum Database 2 wale data ko wapas rollback nahi kar sakte, kyunke agar hum ne use retroactively mitaaya, to User 2 ka faisla aur transaction bhi ghalat ho jayegi. Is ajeeb musibat se bachne ke liye humein aik aisa tareeqay chahiye jahan saari nodes ya to aik sath commit hon ya aik sath abort hon. Isay **Atomic Commitment Problem** kehte hain.
+
+> **Bacchon ki Tarah Asaan Samjhein:** Socho do dost, Ali aur Bilal, mil kar aik project bana rahe hain aur dono ke paas aadha aadha project hai. Agar Ali apna hissa teacher ko submit kar de (Commit) aur Bilal apna hissa ghar bhool aaye aur fail ho jaye (Abort), to aadha project submit hone ka koi faida nahi hoga, poori team fail ho jayegi. Hum nahi chahte ke aadha kaam submit ho. Ya to dono submit karein, ya dono ka zero lage!
+
+---
+
+### Two-Phase Commit
+
+**Two-Phase Commit (2PC)** aik aisa algorithm hai jo distributed databases mein is atomic commitment problem ko hal karta hai. Yeh bohot hi purana aur classic algorithm hai. Databases isay internally bhi use karte hain aur applications ke liye yeh **XA Transactions** (jaise Java Transaction API - JTA) ke roop mein bhi majood hota hai.
+
+#### Naya Component: The Coordinator
+
+2PC mein aik naya component shamil hota hai jo single-node transaction mein nahi hota: **Coordinator** (yaani Transaction Manager). Yeh aksar application ke code ke andar hi aik library hoti hai (jaise Java EE container mein embedded) ya aik alag alag chalne wali service hoti hai (jaise Narayana, BTM, ya MSDTC).
+
+#### Is Ka Buniyadi Flow (The Two Phases):
+
+Jaise is ka naam hai, is pure process ko **Do Phases** (Two Phases) mein baanta gaya hai. Jin database nodes par data para hota hai, unhein hum **Participants** kehte hain:
+
+* **Phase 1 (Prepare Phase):** Jab application saara kaam kar ke commit karne lagti hai, to coordinator sab se pehle saare participants (nodes) ko aik **Prepare Request** bhejta hai aur un se poochta hai ke *"Kya tum commit karne ke liye bilkul tayyar ho?"*
+* **Phase 2 (Commit/Abort Phase):** Coordinator saare participants ke votes (jawab) check karta hai:
+* **Agar SAb ne YES kaha:** to coordinator Phase 2 mein sab ko **Commit Request** bhejta hai aur asli commit tab hota hai.
+* **Agar KISI EK ne bhi NO kaha (ya timeout hua):** to coordinator Phase 2 mein sab ko **Abort Request** bhejta hai aur sab ka data rollback ho jata hai.
+
+
+
+> **Real-World Analogy (Western Marriage):** Writer ne is ki aik haseen misal di hai ke yeh bilkul aik shadi ki rasam ki tarah hai. Officiant (Coordinator) dulha aur dulhan (Participants) se alag alag poochta hai ke *"Kya tumhein yeh shadi manzoor hai?"* (Phase 1 - Prepare). Jab dono kehte hain "I do" (Yes Vote), tabhi officiant unhein miyan-biwi pronounce karta hai (Phase 2 - Commit). Agar aik bhi mana kar de, to shadi waheen cancel (Abort) ho jati hai!
+
+---
+
+#### Figure 8-13. A successful execution of 2PC
+
+Chalein ab aap ki bheji gayi doosri image (Figure 8-13) ke step-by-step successful flow ko timeline ke mutabaq bohot gehrai se samajhte hain:
+
+<div align="center">
+  <img src="./images/13.png" width="700"/>
+</div>
+
+* **The Setup Phase:** Application shuru mein normal tarike se data read aur write karti hai. Coordinator Database 1 aur Database 2 dono par writes bhejta hai aur dono se **"OK"** le leta hai.
+* **Phase 1 (Prepare):** Coordinator dono nodes ko `Prepare` request bhejta hai. Dono databases background mein checks karti hain, data ko disk par likhti hain aur locks pakad kar baith jati hain. Phir dono coordinator ko **"YES"** ka vote bhej deti hain.
+* **The Commit Point:** Jab coordinator ke paas dono ke YES votes aa jate hain, to wo apna pakka faisla (Commit Decision) **apne computer ki disk par transaction log mein save karta hai**. Is lamhe ko **Commit Point** kehte hain. Is ke baad faisla badla nahi ja sakta.
+* **Phase 2 (Commit):** Coordinator ab dono ko `Commit` bhejta hai. Databases data final save karti hain, locks kholti (free karti) hain aur coordinator ko **OK** bhej deti hain. Transaction successfully complete ho gayi!
+
+---
+
+### A system of promises
+
+Ab sawal yeh peda hota hai ke distributed nodes par simple single commit bhej bhej kar jo masla hal nahi ho raha tha, wo 2PC mein kaise hal ho gaya? Prepare aur commit requests to yahan bhi network par ghum ho sakti hain!
+
+2PC ke kamyab hone ka raaz yeh hai ke yeh **Wadon ke Aik System (System of Promises)** par chalta hai. Chalein is poore process ke 6 steps ko break down kar ke samajhte hain:
+
+1. **Global Transaction ID:** Jab application distributed transaction shuru karna chahti hai, to wo coordinator se aik globally unique transaction ID (txid) mangti hai.
+2. **Attaching the ID:** Application har participant (node) par jab single transaction chalati hai, to us ke sath yeh global `txid` attach kar deti hai. Saare reads aur writes isi `txid` ke andar hote hain. Agar is stage par koi node crash ho ya timeout ho, to koi bhi azaadana tor par abort kar sakta hai.
+3. **The Prepare Order:** Jab application ready hoti hai, to coordinator sab ko global `txid` ke sath tagged `prepare` request bhejta hai. Agar aik bhi request fail ho ya timeout ho, to coordinator sab ko bina soche `abort` ka order bhej deta hai.
+4. **The Participant's Promise:** Jab kisi participant node ko `prepare` request milti hai, to wo yeh confirm karti hai ke kya mein har haalat mein isay commit kar sakti hoon? Wo transaction ka saara data apni disk par write karti hai (taake baad mein space full hone ya power outage ka bahana na banana pare) aur constraints check karti hai. **Jab node coordinator ko "YES" ka jawab bhejti hai, to wo aik pakka wada (promise) karti hai ke ab agar mujhe commit ka order mila, to mein bina kisi error ke commit karungi.** Is step par participant apna abort karne ka haq (right to abort) hamesha ke liye coordinator ko surrender (saunp) kar deta hai.
+5. **The Coordinator's Decision (Commit Point):** Jab coordinator ke paas saare votes aa jate hain, to wo aakhri definitive faisla karta hai. Agar sab ne yes kaha to commit, agar aik ne bhi no kaha to abort. **Coordinator apne is faisle ko disk par apne transaction log mein pakka write karta hai.** Agar ab coordinator crash bhi ho jaye, to uthne par usay disk se pata chal jayega ke faisla kya hua tha. Isay point of no return kehte hain.
+6. **Enforcing the Decision:** Ek baar jab coordinator ka decision disk par likha gaya, to commit ya abort ka order participants ko bhej diya jata hai. Agar network ki wajah se yeh order fail ho ya timeout ho, to **coordinator tab tak baar baar retry karta rahega (retry forever) jab tak wo kamyab nahi ho jata.** Ab peechay hatne ka koi rasta nahi hai. Agar koi participant node is dauran crash bhi ho gayi thi, to dobara zinda hone par wo isay har haalat mein commit karegi, kyunke us ne pehle step mein "YES" keh kar wada kiya tha.
+
+> **Point of No Return ka Farq:** Single-node transaction mein data disk par likhna aur commit record likhna aik hi jhatke mein hota tha. 2PC distributed system mein is ko do hisson mein tod deta hai: pehle participant ka wada (YES vote) aur phir coordinator ka final faisla (Commit Log write).
+
+---
+
+### Coordinator failure
+
+Hum ne dekh liya ke agar network kharab ho ya koi participant node fail ho jaye, to 2PC usay handle kar leta hai (retry kar ke ya abort kar ke). Lekin sab se bada aur khatarnak sawal yeh hai ke **agar coordinator khud crash ho jaye to kya hoga?**
+
+* **Phase 1 Se Pehle Crash:** Agar coordinator prepare request bhejne se pehle hi mar jaye, to saari participant nodes sukoon se azaadana tor par transaction ko abort kar sakti hain.
+* **The "In-Doubt" / Uncertain State:** Masla tab aata hai jab participant node `prepare` ka jawab **"YES"** bhej chuki ho aur ab wo Phase 2 ke order ka intezar kar rahi ho. Ab wo khud se na to abort kar sakti hai aur na commit, kyunke us ne apna haq coordinator ko de diya tha. Agar is lamhe coordinator crash ho jaye ya network bilkul kat jaye, to participant node hawa mein phans jati hai. Is khofnak haalat ko computer science mein **In-Doubt** ya **Uncertain State** kehte hain.
+
+---
+
+#### Figure 8-14. The coordinator crashes after participants vote yes. Database 1 does not know whether to commit or abort.
+
+Chalein ab aap ki teesri image (Figure 8-14) ko dekhte hain jahan system coordinator ke marne ki wajah se block ho jata hai:
+
+<div align="center">
+  <img src="./images/14.png" width="700"/>
+</div>
+
+* **Step 1:** Coordinator ne dono databases se prepare ka YES vote le liya aur apne log mein Commit save kar diya.
+* **Step 2:** Coordinator ne Database 2 ko `Commit` bhej diya. Database 2 ne data save kiya aur apne locks khol diye.
+* **Step 3 (The Crash):** Database 1 ko commit bhejne se theek pehle **Coordinator crash ho gaya**.
+* **The Dilemma:** Database 1 ab prepared state mein phans chuka hai. Wo sochta hai ke *"Mein kya karoon?"* * Agar wo timeout ki wajah se khud se **Abort** kar de, to data Database 2 se alay ho jayega (Inconsistency).
+* Agar wo khud se **Commit** kar de, to ho sakta hai kisi teesri node ne NO vote diya ho aur system abort ho raha ho, tab bhi data kharab ho jayega.
+
+
+* **The Consequence:** Database 1 ke paas intezar ke siwa koi rasta nahi hai. Wo un rows par **Locks pakad kar baith jata hai**. Jab tak locks lage rahenge, dunya ka koi doosra user un rows ko touch bhi nahi kar sakega. Poora system jam (block) ho jayega.
+
+2PC is state se sirf tabhi nikal sakta hai jab **coordinator dobara zinda (recover) ho**. Jab coordinator recover hota hai, to wo disk par majood apne transaction log ko parhta hai. Jis txid ke aage "Commit" likha hota hai, un saari in-doubt nodes ko dobara commit ka order bhejta hai, aur jin ka record nahi hota unhein abort karta hai.
+
+> **The Single Point of Failure:** Agar coordinator ka computer aisi aag mein jale ke us ki hard disk (transaction log) hi hamesha ke liye tabah ho jaye, to system automatic recovery nahi kar sakta. Phir aik **System Administrator** (insan) ko aakar manually database ke andar ja kar un in-doubt transactions ko zabardasti commit ya abort karna parta hai.
+
+---
+
+### Three-phase commit
+
+Chunke 2PC coordinator ke marne par poore system ko block kar deta hai, is liye isay **Blocking Atomic Commit Protocol** kehte hain.
+
+Is blocking ke maslay se jaan churane ke liye researchers ne aik naya algorithm ijaad kiya tha jisay **Three-Phase Commit (3PC)** kehte hain. Un ka daawa tha ke yeh aik **Non-blocking protocol** hai, yaani agar coordinator mar bhi jaye, to nodes aapas mein baatein kar ke faisla kar sakti hain aur system block nahi hoga.
+
+#### 3PC Asli Duniya Mein Kyun Fail Ho Jata Hai? (The Trade-off)
+
+Theoretical tor par 3PC behtareen lagta hai, lekin asli zindagi ke software architecture mein yeh **nakaam** ho jata hai kyunke yeh do bohot hi ajeeb sharaait par chalta hai:
+
+1. Yeh maanta hai ke network mein kabhi bhi zaroorat se zyada delay nahi aayega (**Bounded Network Delay**).
+2. Yeh maanta hai ke har machine hamesha aik tay shuda waqt ke andar jawab degi (**Bounded Response Time**).
+
+Lekin jaisa ke hum aglay chapter (Chapter 9) mein parhenge, asli dunya ke networks mein requests ghanto delay ho sakti hain aur processes achanak pause (garbage collection pauses) ho jate hain. Is unbounded delay ki wajah se **3PC asli zindagi mein atomicity ki guarantee nahi de pata** aur data kharab kar deta hai.
+
+#### Asli Zindagi Ka Behtareen Solution:
+
+Practical networks mein is blocking se bachne ka sab se modern aur kamal ka tarika yeh hai ke hum aik single-node coordinator par bharosa hi na karein! Balke hum coordinator ki jagah aik **Fault-Tolerant Consensus Protocol** (jaise Paxos ya Raft) use karein, jo aik machine ke marne par doosri machine ko automatic coordinator bana deta hai aur system kabhi block nahi hota. Is advanced topic ko hum **Chapter 10** mein bacchon ki tarah asaan kar ke parhenge!
+
+---
