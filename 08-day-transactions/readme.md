@@ -470,3 +470,142 @@ Kuch databases is se bhi aik darja neechay ka level support karte hain jisay **R
 * Is ka faida sirf yeh hota hai ke database ko aik row ke do versions yaad nahi rakhne parte, jis se thodi performance tez ho jati hai, lekin yeh data mein bohot saari ghaltiyan la sakta hai.
 
 ---
+
+## Snapshot Isolation and Repeatable Read
+
+Agar aap upar upar se **Read Committed** isolation level ko dekhein, to aap ko lagega ke yeh aik transaction ke saare zaroori kaam poore kar deta hai: yeh aborts allow karta hai (Atomicity ke liye), adhoore data ko parhne se rokta hai, aur do user ke writes ko aapas mein mix hone se bachata hai. Yeh bilkul sahi hai, aur yeh guarantees un systems se kahin zyada behtareen hain jo transactions ko support hi nahi karte.
+
+Lekin, Read-Committed isolation use karte hue bhi **Concurrency Bugs** (aik sath kaam hone wale maslay) aane ke bohot se tareeqay hain. Is ki aik bohot bari misal humein **Figure 8-6** mein dikhayi gayi hai, jisay samajhna bohot zaroori hai.
+
+---
+
+#### Figure 8-6. Read skew: Aaliyah observes the database in an inconsistent state
+
+Chalein is image (Figure 8-6) ki timeline ko step-by-step bohot gehri detail mein break down karte hain ke kaise paise hawa mein gayab hote hue dikhte hain:
+
+<div align="center">
+  <img src="./images/06.png" width="700"/>
+</div>
+
+* **The Setup:** Aaliyah ke bank mein total **$1,000** save hain, jo do alag alag accounts (Account 1 aur Account 2) mein **$500** aur **$500** kar ke rakhe hue hain. Background mein aik doosri transaction chal rahi hai (Transfer Transaction) jo Account 2 se $100 nikaal kar Account 1 mein transfer kar rahi hai.
+* **Step 1 (Aaliyah Reads Account 1):** Aaliyah apna bank account check karti hai. Us ki pehli query `select balance from accounts where id = 1` chalti hai. Database kehta hai ke Account 1 mein **$500** hain.
+* **Step 2 (Transfer Tx Updates Account 1):** Theek isi lamhe transfer karne wali transaction pehla write karti hai: `set balance = balance + 100 where id = 1`. Account 1 ka balance ab **$600** ho jata hai.
+* **Step 3 (Transfer Tx Updates Account 2 & Commits):** Transfer transaction apna doosra kaam karti hai: `set balance = balance - 100 where id = 2`. Account 2 ka balance ab **$400** ho jata hai. Is ke baad yeh transaction **Commit** (final save) ho jati hai.
+* **Step 4 (Aaliyah Reads Account 2):** Ab thodi der baad Aaliyah ki transaction apni doosri query chalati hai: `select balance from accounts where id = 2`. Chunke transfer transaction ab commit ho chuki hai, is liye database Aaliyah ko naya committed balance dikhata hai yaani **$400**.
+* **The Anomaly (Read Skew / Nonrepeatable Read):** Aaliyah jab apni screen par total dekhti hai, to usay Account 1 mein $500 aur Account 2 mein $400 nazar aate hain. Total banta hai **$900**! Aaliyah pareshan ho jati hai ke mere **$100 hawa mein gayab ho gaye!**
+
+Is maslay ko computer ki zubaan mein **Read Skew** ya **Nonrepeatable Read** kehte hain. Is ka matlab hai ke agar Aaliyah Account 1 ko dubara parhay gi, to usay pehli query se alag value ($600) nazar aayegi.
+
+> **Aooloen ke Mutabaq Yeh Sahi Hai?** Read-Committed isolation ke mutabaq yeh ghalti bilkul acceptable (jaiz) hai! Kyunke Aaliyah ne jo bhi balances dekhe ($500 aur $400), wo us lamhe database mein poori tarah committed thay. Database ne koi adhoora data usay nahi dikhaya.
+
+---
+
+#### Temporary Inconsistency Kahan Kahan Tabahi Machati Hai?
+
+Aaliyah ke case mein yeh koi permanent masla nahi hai, kyunke agar wo do second baad apni bank app ko refresh karegi, to usay dono accounts updated dikhenge ($600 aur $400 = $1,000). Lekin kuch aise scenarios hain jahan yeh lamhati ghalti bhi bilkul bardasht nahi ki ja sakti:
+
+1. **Backups (Database Ka Backup Lena):** Agar aap ka database bohot bada hai, to backup lene mein ghanto lag sakte hain. Is dauran database mein naye writes chalte rahenge. Agar backup lete waqt Read Skew aa gaya, to backup ke aik hissay mein purana data hoga aur doosre hissay mein naya. Agar kabhi aap ko is backup se database restore karna para, to wo gayab hone wale paise hamesha ke liye permanent gayab ho jayenge!
+2. **Analytical Queries and Integrity Checks:** Baray businesses aksar aisi lambi queries chalate hain jo poore database ko scan kar ke report banati hain (Analytics) ya data corruption check karti hain. Agar data check karte waqt hi background mein badal raha ho, to report ka result bilkul be-maani (nonsensical) niklega.
+
+#### Hal: Snapshot Isolation
+
+Is maslay ka sab se behtareen hal **Snapshot Isolation** hai. Idea yeh hai ke har transaction database ke aik **Consistent Snapshot (aik frozen photo)** se data parhti hai. Transaction jab shuru hoti hai, us lamhe tak ka jitna committed data hota hai, wo freeze ho jata hai. Us ke baad bhale hi background mein doosri transactions lakhon tabdeelian kar lein, is chalne wali transaction ko hamesha wahi purana frozen data hi dikhega.
+
+Snapshot isolation bohot mashhoor feature hai aur isay **PostgreSQL, MySQL (InnoDB engine ke sath), Oracle, aur SQL Server** support karte hain. Google BigQuery jaise cloud data warehouses bhi isay analytics ke liye use karte hain.
+
+---
+
+### Multiversion concurrency control
+
+Snapshot isolation ko implement karne ke liye databases aik kamal ki taknik use karte hain jisay **Multiversion Concurrency Control (MVCC)** kehte hain.
+
+* **The Core Principle:** Performance ke lihaz se is ka sab se bada asool yeh hai ke **Readers kabhi Writers ko nahi roktay, aur Writers kabhi Readers ko nahi roktay (Readers never block writers, and writers never block readers).** Is wajah se lambi analytical queries sukoon se apna kaam karti rehti hain aur data save karne wale users ko line mein khara nahi hona parta.
+* **Multi-Version Keeping:** Read Committed mein database row ke sirf do versions rakhta tha (purana aur naya). Lekin MVCC mein database ko aik row ke **bohot saari committed versions** yaad rakhni parti hain, kyunke background mein chalne wali mukhtalif transactions ko alag alag waqt ka snapshot chahiye hota hai.
+
+---
+
+#### Figure 8-7. Implementing snapshot isolation using multiversion concurrency control
+
+Chalein ab **Figure 8-7** ko poori bareeki se dekhte hain ke PostgreSQL is MVCC ko background mein kaise chalata hai. Har row ke sath do khufia fields hoti hain:
+
+1. `inserted_by`: Kis transaction ne is row ko banaya.
+2. `deleted_by`: Kis transaction ne is row ko delete karne ki request ki (shuru mein yeh empty hoti hai).
+
+<div align="center">
+  <img src="./images/07.png" width="700"/>
+</div>
+
+* **Step 1 (Transaction IDs):** Jab bhi koi transaction shuru hoti hai, usay aik unique aur hamesha barhne wala number milta hai jisay **Transaction ID (txid)** kehte hain. Yahan Aaliyah ki transaction ka `txid = 12` hai aur Transfer transaction ka `txid = 13` hai.
+* **Step 2 (Aaliyah Reads Account 1):** Tx 12 (Aaliyah) pehli query chalaati hai. Wo Account 1 par parhi row ko dekhti hai jis par likha hai `inserted_by = 3` (jo purani committed transaction thi) aur `deleted_by = null`. Tx 12 ko balance **$500** mil jata hai.
+* **Step 3 (Transfer Tx Updates Data):** Tx 13 (Transfer) ab Account 1 aur Account 2 ko update karti hai. MVCC mein update ka matlab hota hai **aik Delete aur aik Insert**.
+* **Account 1 par:** Purani row ($500 wali) ko database se delete nahi kiya jata, balke us ke `deleted_by` column mein **13** likh diya jata hai. Aur theek us ke neeche aik nayi row insert ki jati hai jis par `inserted_by = 13` aur balance **$600** likha hota hai.
+* **Account 2 par:** Purani row ($500 wali) ke `deleted_by` mein **13** likha jata hai aur aik nayi row insert hoti hai jis par `inserted_by = 13` aur balance **$400** likha hota hai. Phir Tx 13 commit ho jati hai.
+
+
+* **Step 4 (Aaliyah Reads Account 2):** Ab Tx 12 (Aaliyah) Account 2 ko parhne aati hai. Us ke samnay do rows hain ($500 wali aur $400 wali).
+* Wo $400 wali row ko dekhti hai, us par likha hai `inserted_by = 13`. Chunke **13** number Tx 12 ke apne number se bara hai (yaani yeh transaction mere baad shuru hui thi), is liye Aaliyah is row ko **ignore (invisible)** kar deti hai.
+* Wo $500 wali row ko dekhti hai, us par likha hai `deleted_by = 13`. Chunke delete karne wale ka number bhi 13 hai (jo ke baad ka hai), is liye Aaliyah is deletion ko bhi ignore karti hai aur usay lagta hai ke yeh row abhi zinda hai. Natija? Aaliyah ko yahan bhi balance **$500** hi dikhta hai!
+
+
+* **Result:** Aaliyah ko dono accounts mein $500 aur $500 dikha. Total **$1,000** bilkul accurate aur consistent raha!
+
+> **Garbage Collection (GC) / Vacuum:** Aap soch rahe honge ke is tarah to database rows se bhar jayega. Bilkul! Is liye background mein aik **Garbage Collector (PostgreSQL mein isay Vacuum kehte hain)** chalta reha hai. Jab use pakka pata chal jata hai ke ab duniya mein koi bhi aisi transaction zinda nahi hai jisay purani rows dekhni hon, to wo un marked-for-deletion rows ko saaf kar ke jagah khali kar deta hai.
+
+---
+
+### Visibility rules for observing a consistent snapshot
+
+Database kaise faisla karta hai ke kaunsi row kis transaction ko dikhani hai aur kaunsi chupani hai? Is ke liye **Visibility Rules** (dekhne ke asool) banaye gaye hain:
+
+Jab koi transaction shuru hoti hai, to database us lamhe zinda chalne wali (in-progress/uncommitted) saari transactions ki aik list bana leta hai. Database in 4 rules par chalta hai:
+
+1. **Ignore In-Progress Writes:** Agar koi transaction chal rahi thi aur us ne abhi tak commit nahi kiya tha jab hamari transaction shuru hui, to us ke kiye gaye saare writes ko **ignore** kar diya jayega (chahe wo baad mein commit hi kyun na ho jaye).
+2. **Ignore Future Transactions:** Har woh write jis ka `txid` hamari transaction ke `txid` se bara hai (yaani jo hamare baad shuru hui), usay mukammal tor par **ignore** kar diya jayega, chahe wo commit ho chuki ho ya nahi.
+3. **Ignore Aborted Transactions:** Agar koi transaction fail (abort) ho gayi, to us ke likhe huay saare data ko **ignore** kiya jayega. Is ka faida yeh hai ke abort hone par database ko foran data mitaane ki mehnat nahi karni parti, rules khud hi usay filter kar dete hain.
+4. **Visible Data:** Baqi bacha hua saara data application ko nazar aayega.
+
+Aasan alfaaz mein, aik row sirf tabhi **Visible** hoti hai jab:
+
+* Row ko insert karne wali transaction hamari transaction ke shuru hone se **pehle commit** ho chuki ho.
+* Row par delete ka nishan na ho, ya agar ho, to delete karne wali transaction hamari transaction ke shuru hone tak **commit na hui** ho.
+
+---
+
+### Indexes and snapshot isolation
+
+Multiversion (MVCC) database mein **Indexes** kaise kaam karte hain?
+
+* **Linked List Approach:** Sab se aam tarika yeh hai ke index ka har entry row ke kisi aik version (ya to sab se purane ya sab se naye) ki taraf ishara (point) karta hai. Row ke saare versions aapas mein aik **Linked List** ke zariye jure hote hain. Jab koi query index ke zariye data dhoondti hai, to wo is list ke upar iterate karti hai aur visibility rules ke mutabaq sahi row utha leti hai.
+* **PostgreSQL Optimization:** Postgres mein aik optimization hoti hai ke agar aik row ke naye versions aik hi page (disk block) ke andar fit aa jayein, to index ko bar bar update nahi karna parta. Baqi kuch databases poori row ki copy save karne ke bajaye sirf versions ka farq (**differences**) save karte hain taake space bache.
+
+#### Append-only / Immutable B-Trees (CouchDB, Datomic, LMDB)
+
+Kuch databases (jaise CouchDB wagera) MVCC chalane ke liye bilkul alag rasta ikhtiyar karte hain. Wo **Immutable B-trees (Copy-on-write)** use karte hain.
+
+* **No Overwriting:** Jab data badalta hai, to yeh tree ke purane pahnay (pages) ke upar overwrite nahi karte, balke badle hue page ki aik **nayi copy** bana dete hain.
+* **Root Update:** Us page ke upar jitne bhi parent pages hote hain, un ki bhi nayi copies banti jati hain jab tak hum tree ki jadd (**Root**) tak na pahunch jayein. Jo pages update se mutasir nahi hote, unhein naye tree ke sath share kar liya jata hai.
+* **Instant Snapshot:** Is tarah har naya write transaction tree ka aik naya Root bana deta hai. Wo root khud hi apnay aap mein aik mukammal consistent snapshot hota hai. Yahan `txid` ke rules laga kar rows filter karne ki zaroorat hi nahi parti, kyunke naya write purane tree ko chhu hi nahi sakta!
+
+---
+
+### Snapshot isolation, repeatable read, and naming confusion
+
+MVCC aur Snapshot Isolation databases mein bohot zyada use hote hain, lekin in ke **Naamon Ka Aik Bohot Bara Confusion** hai jis se har developer ka pala parta hai:
+
+| Database | Snapshot Isolation Ka Un Ka Naam | Actual Meaning In Database |
+| --- | --- | --- |
+| **PostgreSQL** | Repeatable Read | True Snapshot Isolation |
+| **Oracle** | Serializable | True Snapshot Isolation (Weaker than actual Serializability!) |
+| **MySQL (InnoDB)** | Repeatable Read | MVCC variant (Weaker than true Snapshot Isolation) |
+| **IBM Db2** | Repeatable Read | Strict Serializability (Top Level Locking) |
+
+#### Yeh Confusion Kyun Hai? (The SQL Standard Flaw)
+
+Is confusion ki wajah **SQL Standard (1992)** hai. Jab SQL standard ne isolation levels ko define kiya tha, us waqt tak **Snapshot Isolation ijaad hi nahi hui thi!** Standard ne 1975 ke IBM System R ke asoolon par "Repeatable Read" ko define kiya tha jo is se thoda alag tha.
+
+Jab baad mein snapshot isolation aayi, to **PostgreSQL** ne dekha ke hamari snapshot isolation standard ke "Repeatable Read" ki saari sharait poori karti hai, to unhon ne standard ka rules follow karne ke liye is ka naam "Repeatable Read" rakh diya.
+
+Asal baat yeh hai ke **SQL standard ki definition kharab, adhuri aur ambiguous hai**. Har database company standard ka naam use karti hai lekin peeche apni marzi ki engineering chalaati hai. Is liye asli zindagi mein kisi ko sahi se nahi pata ke "Repeatable Read" ka asli matlab kya hai jab tak aap us khas database ki gehrai ko na parhein.
+
+---
+
