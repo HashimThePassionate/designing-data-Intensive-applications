@@ -778,3 +778,203 @@ Lekin agar aap ka replicated database default tor par **Last Write Wins (LWW)** 
 **Aakhri Sabaq:** Asli zindagi mein koi bhi aik tarkeeb absolute guarantee nahi deti. Behtareen engineering yeh hai ke aap in saare risk-reduction tareeqon ko samajh kar apne system ke mutabaq sahi design decision lein!
 
 ---
+
+## Write Skew and Phantoms
+
+Jab do alag alag transactions parallel chalti hain, to parallel writes ke darmiyan takraav (conflict) ke masle sirf lost update tak hi mehdood nahi hote. Is section mein hum kuch aise subtle (bareek) software bugs ko dekhenge jo data ko kharab kar dete hain, bhale hi database mein basic safety lagayi gayi ho.
+
+Writer isay samjhane ke liye aik hospital ki real-world misal dete hain:
+
+* Farz karein aik hospital mein doctors ki **on-call duty (shift)** ko manage karne ke liye aik application chal rahi hai.
+* Hospital ka asool (requirement) yeh hai ke aik waqt mein aik shift mein bohot saari doctors on-call ho sakti hain, lekin **kam az kam aik (1) doctor ka on-call rehna lazmi hai**. Koi bhi doctor apni duty chor sakti hai (jaise agar wo bimar ho), lekin sirf tab jab koi doosra colleague wahan duty par majood ho.
+
+Ab farz karein ke **Aaliyah** aur **Bryce** do doctors hain jo aik hi shift (id = 1234) par on-call hain. Donon ki tabiyat achanak kharab ho jati hai aur dono aik hi waqt mein duty chorne (off-call jaane) ke liye software par button daba dete hain. Ab dekhte hain ke background mein kya tabahi hoti hai.
+
+---
+
+## Figure 8-8. A write skew causing an application bug
+
+Chalein aap ki bheji gayi image (Figure 8-8) ke poore flow aur code ko step-by-step timeline ke mutabaq bohot gehri detail mein break down karte hain:
+
+### Initial Database State:
+
+Database mein `doctors` ka table hai jo shuru mein aisa dikhta hai:
+
+* `Aaliyah` -> `on_call = True`
+* `Bryce`  -> `on_call = True`
+* `Caleb`  -> `on_call = False`
+
+Yahan shift ID 1234 mein total **2** doctors on-call hain (Aaliyah aur Bryce). Rule ke mutabaq 2 >= 1 hai, is liye abhi tak system bilkul sahi haalat mein hai.
+
+### The Concurrent Timeline Flow:
+
+<div align="center">
+  <img src="./images/08.png" width="700"/>
+</div>
+
+* **Step 1 (Dono Ka Count Query Chalana):** Aaliyah aur Bryce dono parallel mein apni apni transactions shuru karte hain.
+* Aaliyah ka software query chalata hai ke abhi is shift par kitne doctors on-call hain? Database count nikal kar bhejta hai: **2**.
+* Theek usi mili-second mein Bryce ka software bhi wahi query chalata hai. Chunke database **Snapshot Isolation** use kar raha hai, is liye Bryce ko bhi purana snapshot dikhta hai jahan abhi tak koi tabdeeli nahi hui thi. Database Bryce ko bhi count bhejta hai: **2**.
+
+
+* **Step 2 (Application Decision - If Condition):**
+* Aaliyah ka software check karta hai: `if (currently_on_call >= 2)`. Chunke count 2 hai, to condition true ho jati hai. Software samajhta hai ke "Aaliyah agar chali bhi jaye, to aik doctor pehle se majood hai, is liye leave allow hai."
+* Bryce ka software bhi apne computer par wahi check lagata hai: `if (currently_on_call >= 2)`. Us ke paas bhi count 2 aya tha, to condition true ho jati hai. Wo bhi samajhta hai ke "Leave dena bilkul safe hai."
+
+
+* **Step 3 (The Write & Overwrite/Commit):**
+* Aaliyah ki transaction table mein update karti hai: `set on_call = false where name = 'Aaliyah'`. Aur transaction **Commit** ho jati hai.
+* Bryce ki transaction bhi apni row ko update karti hai: `set on_call = false where name = 'Bryce'`. Aur wo bhi **Commit** ho jati hai.
+
+
+* **The Final Disaster (Bug):** Ab final database state check karein! Aaliyah bhi `False` ho gayi, Bryce bhi `False` ho gaya, aur Caleb pehle se hi `False` tha. Shift mein **0** doctors on-call reh gaye! Hospital ka sab se sakht rule ("kam az kam aik doctor hona chahiye") poori tarah toot gaya.
+
+> **Bacchon ki Tarah Asaan Samjhein:** Socho aik kamray ka ek hi darwaza hai jis par do security guards kharay hain. Rule yeh hai ke darwaza kabhi khali nahi chorna. Pehla guard sota hai: "Mein washroom chala jata hoon, doosra guard to khara hai." Theek usi waqt doosra guard bhi sota hai: "Mein khana khane chala jata hoon, pehla guard to khara hai." Chunke dono aik doosre se pooche bagair aik sath faisla karte hain, dono kamray se bahar nikal jate hain aur darwaza bilkul khali ho jata hai!
+
+---
+
+## Characterizing write skew
+
+Is ajeeb o gareeb anomaly (ghalti) ko computer science mein **Write Skew** kehte hain.
+
+* **Yeh Lost Update Kyun Nahi Hai?** Yeh na to dirty write hai aur na hi lost update. Lost update tab hota jab Aaliyah aur Bryce dono **aik hi row** ko badalne ki koshish karte. Yahan Aaliyah ne apni row badli hai aur Bryce ne apni row badli hai (two different objects). Dono ne aik doosre ka likha hua data upar se mitaaya (clobber) nahi hai.
+* **Phir Yeh Concurrency Bug Kyun Hai?** Yeh bilkul aik race condition hai. Agar yeh dono transactions parallel chalne ke bajaye aik ke baad aik (serially) chaltin, to pehli doctor off-call chali jati, aur jab doosri doctor check karti to database count sirf **1** bhejta. If condition `1 >= 2` fail ho jati aur doosri doctor ko system janay se rok deta.
+
+Writer batate hain ke Write Skew asal mein **lost-update problem ka aik bara roop (generalization)** hai. Agar do transactions parallel mein data parhein aur phir alag alag rows ko update karein, to write skew hota hai. Agar khush-kismati ya bad-kismati se dono aik hi row ko update kar dein, to wo lost update ban jata hai.
+
+### Purane Fixes Yahan Kyun Nakaam Hote Hain? (Trade-offs)
+
+Jo tareeqay hum ne lost update ko rokne ke liye parhe thay, wo write skew ke samnay bilkul be-bas ho jate hain:
+
+1. **Atomic Single-Object Operations Nakaam:** `UPDATE doctors SET on_call = false...` jaisi simple atomic query yahan kaam nahi kar sakti, kyunke check karne ke liye humein bohot saari rows ka count chahiye, aur badalna humein kisi aur row ko hai. Aik se zyada rows involved hain.
+2. **Automatic Lost Update Detection Nakaam:** Databases (jaise Postgres, Oracle, SQL Server) ka automatic engine lost update tabhi pakadta hai jab do log aik hi row par takraayein. Chunke yahan rows alag alag thin, is liye database ka automatic system is ghalti ko **detect nahi kar paata**. Is ko pakadne ke liye humein asli **Serializable Isolation** chahiye.
+3. **Database Constraints Nakaam:** Databases mein uniqueness constraint (jaise ID unique ho) ya foreign key lagana asaan hai. Lekin aik aisa rule lagana jo poore table ke columns ka total check kare ("at least one true"), aam databases ke constraints ke bas ki baat nahi hai. Is ko karne ke liye advanced **triggers** ya **materialized views** likhne parte hain jo kafi bhaari (expensive) partay hain.
+
+### Behtareen Hal: Explicit Locking (`FOR UPDATE`)
+
+Agar aap ka database serializable level par nahi chal raha, to is write skew se bachne ka doosra behtareen aur safe hal yeh hai ke aap **Explicit Locking** use karein. Aap queries ko is tarah likhenge:
+
+```sql
+-- Transaction shuru karein
+BEGIN TRANSACTION;
+
+-- Count check karne wali rows ko pehle hi lock kar dein
+SELECT * FROM doctors
+ WHERE on_call = true
+   AND shift_id = 1234 
+FOR UPDATE;
+
+-- Application ab check karegi ke agar rows ki ginti 2 ya us se zyada hai:
+UPDATE doctors
+   SET on_call = false
+ WHERE name = 'Aaliyah'
+   AND shift_id = 1234;
+
+-- Saara kaam pakka save karein aur taalay kholein
+COMMIT;
+
+```
+
+#### Code Ki Detail Explanation:
+
+* `FOR UPDATE`: Yeh lafz database ko hukam deta hai ke shift number 1234 ke jitne bhi doctors abhi active (`on_call = true`) hain, un saari rows ko pakad kar **Write Lock** laga do.
+* **Is Ka Faida:** Jab Aaliyah ki transaction yeh query chalayegi, to wo Aaliyah aur Bryce dono ki rows ko lock kar degi. Jab Bryce parallel mein apni transaction shuru kar ke check karne aayega, to database usay **rok dega (wait karwayega)** kyunke un rows par Aaliyah ne pehle se taala lagaya hua hai. Bryce tab tak check hi nahi kar sakega jab tak Aaliyah ka faisla commit nahi ho jata. Is tarah data bilkul safe rahega.
+
+---
+
+## More examples of write skew
+
+Writer kehte hain ke write skew shuruat mein aik ajeeb aur mushkil kitabi masla lagta hai, lekin jab aap aik baar is ko samajh lete hain, to aap ko asli software architecture mein is ki hazaron misalein nazar aane lagti hain:
+
+### 1. Meeting room booking system
+
+Farz karein aap aik aisa software bana rahe hain jahan company ke log meeting rooms book karte hain. Rule yeh hai ke **aik hi room aik hi waqt mein do alag meetings ke liye book nahi ho sakta**.
+
+Aap ka code aisa dikhta hai:
+
+```sql
+BEGIN TRANSACTION;
+
+-- Check karein ke kya room 123 pehle se 12 se 1 baje ke darmiyan book to nahi hai?
+SELECT COUNT(*) FROM bookings
+ WHERE room_id = 123 
+   AND end_time > '2025-01-01 12:00' 
+   AND start_time < '2025-01-01 13:00';
+
+-- Agar upar wali query ne 0 returned kiya (yaani room khali hai):
+INSERT INTO bookings (room_id, start_time, end_time, user_id)
+VALUES (123, '2025-01-01 12:00', '2025-01-01 13:00', 666);
+
+COMMIT;
+
+```
+
+#### Masla (The Bug):
+
+Under Snapshot Isolation, agar do users aik hi waqt mein Room 123 ko 12 se 1 baje ke liye book karne ka button dabayenge, to dono ki select query **0** return karegi. Dono ka software samjhega ke room khali hai aur dono table mein do alag rows `INSERT` kar denge. Room **Double-book** ho jayega! Is se bachne ke liye bhi serializable isolation lazmi hai.
+
+### 2. Multiplayer game
+
+Pichle section mein hum ne robot ko move karne ke liye row lock ki thi taake lost update na ho. Lekin lock do alag players ko do alag robots utha kar **board ke aik hi khane (same position)** par lane se nahi rok sakta. Agar game ka rule hai ke aik khane mein aik hi robot hoga, to do alag robots ko parallel move karne se write skew aa jayega aur dono aik hi jagah aakar baith jayenge.
+
+### 3. Claiming a username
+
+Ek website par jab naya user account banata hai, to check kiya jata hai ke kya yeh **username** pehle se majood to nahi? Agar do log aik hi waqt mein "hashim12" naam rakhne ki koshish karein, to snapshot isolation mein dono ko username khali milega aur dono ka account ban jayega.
+
+* *Khush-kismati ka hal:* Yahan humein kisi lambay software logic ki zaroorat nahi parti, kyunke database ka simple **Uniqueness Constraint** (`UNIQUE` key) hi kafi hai. Jab doosri transaction commit hone lagegi, database constraint tootney ki wajah se usay automatically abort kar dega.
+
+### 4. Preventing double-spending
+
+Paise ya loyalty points kharch karne wali apps mein yeh check karna parta hai ke user ke paas total balance positive (plus mein) hai ya nahi. Software pehle aik tentative spending row insert karta hai, phir saari rows ka sum nikalta hai. Agar do kharchay aik hi waqt mein parallel insert ho jayein, to dono ka sum check pass ho jayega lekin final balance **Negative (minus)** mein chala jayega, kyunke dono transactions ko aik doosre ke kharche ka pata hi nahi chala.
+
+---
+
+## Phantoms causing write skew
+
+Agar aap upar di gayi tamaam misalon par ghor karein, to in ka aik hi **3-step pattern** nazar aayega:
+
+1. **The Check (SELECT):** Ek select query chalti hai jo database mein dhoondti hai ke kya hamari requirement poori ho rahi hai ya nahi (jaise: kitne doctors hain? kya room khali hai? balance kitna hai?).
+2. **The Decision:** Us query ke result ko dekh kar application ka code faisla karta hai ke aage barhna hai ya error dikhana hai.
+3. **The Write (Action):** Agar code aage barhne ka faisla karta hai, to wo database mein `INSERT`, `UPDATE`, ya `DELETE` karta hai aur transaction commit kar deta hai.
+
+Is write ka asar step 1 ke check ko poori tarah badal deta hai. Agar aap transaction commit karne ke baad step 1 wali query dubara chalayenge, to aap ko bilkul alag result milega (doctor kam ho chuka hoga, room book ho chuka hoga, ya balance kam ho chuka hoga).
+
+#### Phantom Kya Hai? (The Core Theoretical Concept)
+
+> **Definition:** Jab aik transaction ka kiya hua write (data save karna) kisi doosri transaction ki chalne wali search query (SELECT) ka result hi badal de (yaani naye records peda kar de ya mita de), to is asar ko database ki duniya mein **Phantom** (Aasaib/Saya) kehte hain.
+
+#### `FOR UPDATE` Yahan Kyun Fail Ho Jata Hai? (The Great Catch!)
+
+Doctor wali misal mein jo row hum badal rahe thay (Aaliyah ki row), wo pehle step ke SELECT query mein majood thi. Is liye hum ne `SELECT FOR UPDATE` chala kar us row par taala laga diya aur system safe ho gaya.
+
+Lekin meeting room booking ya username wali misal mein masla bilkul ulta hai! Wahan hum check kar rahe hain **rows ki gair-majoodgi (absence of rows)**. Hum dhoond rahe hain ke "kya 12 se 1 baje ka booking record **nahi** hai?".
+
+* Agar room khali hai, to SELECT query return karegi **0 rows**.
+* Ab socho, agar query ne 0 rows nikal kar di hain, to `SELECT FOR UPDATE` **kis cheez par taala lagayega?** Kuch bhi nahi! Wo hawa par taala nahi laga sakta. Rows to abhi tak insert hi nahi huin!
+* Is liye yahan phantoms ki wajah se snapshot isolation mein write skew ko rokna aam locks ke bas ka kaam nahi hota.
+
+---
+
+## Materializing conflicts
+
+Agar phantoms ka sab se bara masla hi yeh hai ke database mein lock lagane ke liye koi row (object) majood hi nahi hoti, to kya hum **jaan boojh kar nakli rows (artificial lock objects)** database mein nahi bana sakte? Bilkul bana sakte hain!
+
+Meeting room booking ki misal lein:
+
+* Hum database mein aik naya table banate hain jis ka naam rakh dete hain `time_slots`.
+* Is table mein hum pehle se hi aane wale 6 mahino ke saare rooms aur un ke 15, 15 minutes ke time slots ki rows khud se insert kar ke rakh dete hain (jaise: Room 123 - 12:00 to 12:15, Room 123 - 12:15 to 12:30 wagera).
+* Ab jab bhi koi user Room 123 ko 12 se 1 baje ke liye book karne lagega, to hamari transaction pehle `bookings` table ko nahi dekhegi. Wo pehle is nakli `time_slots` table mein jayegi aur un 4 rows ko chalayegi: `SELECT ... WHERE room_id = 123 AND time BETWEEN 12:00 AND 13:00 FOR UPDATE;`.
+* Chunke yeh rows table mein pehle se majood hain, database un par **pakka write lock** laga dega. Ab koi parallel user un slots ko hath nahi laga sakega. Jab lock mil jaye, to application purani tarah check kar ke asli `bookings` table mein entry insert kar degi.
+
+Is ajeeb o gareeb taknik ko **Materializing Conflicts** kehte hain, kyunke yeh aik hawaai maslay (phantom) ko pakad kar database ki concrete (asli zinda) rows par aik lock conflict bana deti hai.
+
+### Is Ka Bara Trade-off (Nuksan)
+
+Bhale hi yeh tarika kaam karta hai, lekin asli software architecture mein isay aik **Last Resort (aakhri hal)** samjha jana chahiye jab koi aur rasta na bacha ho. Is ki do bari wajah hain:
+
+1. **Error-Prone & Complex:** Yeh dhoondna aur manage karna bohot mushkil hai ke har scenario ke liye nakli tables kaise banayein aur unhein har saal kaise populate karein. Is mein ghalti ka chance bohot hota hai.
+2. **Ugly Architecture:** Yeh bohot bura lagta hai ke database ka aik concurrency control ka masla hal karne ke liye aap ko apni application ka saaf suthra data model (tables layout) kharab karna paray aur faltu tables banane parein.
+
+**Final Conclusion:** Is gande tarike se bachne ka sab se behtareen aur asaan tarika yeh hai ke aap hamesha **Serializable Isolation Level** ka istemal karein, jis ko hum aglay section mein poori detail aur asaan alfaz ke sath parhenge!
+
+---
