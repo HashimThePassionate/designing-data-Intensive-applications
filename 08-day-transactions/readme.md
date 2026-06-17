@@ -355,3 +355,118 @@ Lekin aap ko yeh nahi bhoolna chahiye ke **Attackers (hackers)** jaan boojh kar 
 Is section mein hum aage chal kar un saare weak isolation levels ko informal tareeqay se, bohot saari dilchasp real-world examples ke sath parhenge. Hum dekhenge ke kaunse level mein kaunsi race condition aati hai aur kis se bacha ja sakta hai, taake aap apne project ke liye behtareen faisla kar sakein. Jab yeh mukammal ho jayega, to hum aakhir mein detail mein **Serializability** ko bhi parhenge.
 
 ---
+
+## Read Committed
+
+Yeh transaction isolation ka sab se buniyadi aur pehla level hai. Jab koi database yeh daawa karta hai ke wo **Read Committed** level par chal raha hai, to wo aap ko do baaton ki pakki kasam (guarantees) deta hai:
+
+1. **No Dirty Reads:** Jab aap database se koi data parhenge (**read** karenge), to aap ko sirf wohi data dikhega jo poori tarah commit (final save) ho chuka hai.
+2. **No Dirty Writes:** Jab aap database mein koi data likhenge (**write** karenge), to aap sirf pehle se committed data ke upar hi overwrite kar sakte hain. Aap kisi ke adhoore (uncommitted) data ko mita nahi sakte.
+
+Chalein in dono guarantees ko aik aik kar ke poori gehri detail mein samajhte hain.
+
+---
+
+### No dirty reads
+
+Farz karein aik transaction ne database mein kuch naya data likha (write kiya), lekin abhi tak us transaction ne apna kaam khatam nahi kiya—yaani wo abhi tak na to **Commit** hui hai aur na hi **Abort** hui hai. Agar is doran koi doosri transaction aa kar us adhoore data ko parh sakti hai, to is ghalti ko **Dirty Read** kehte hain.
+
+Read-Committed isolation level ka sab se bada kaam hi yeh hai ke wo dirty reads ko rokay. Is ka matlab yeh hua ke agar Transaction A koi data badal rahi hai, to us ka badla hua data baqi logon ko sirf aur sirf tabhi nazar aayega jab Transaction A kamyab (commit) ho jayegi.
+
+---
+
+#### Figure 8-4. No dirty reads: user 2 sees the new value for x only after user 1’s transaction has committed
+
+Chalein is image (Figure 8-4) ke aik aik step ko timeline ke mutabaq break down karte hain ke Read-Committed level dirty reads ko kaise rokta hai:
+
+<div align="center">
+  <img src="./images/04.png" width="700"/>
+</div>
+
+* **Initial State:** Database mein aik variable `x` hai jis ki shuruati value **2** hai.
+* **Step 1 (User 2 Reads):** User 2 pehli baar query karta hai `get x`. Database check karta hai ke kya `x` par koi chal rahi transaction hai? Abhi tak kuch nahi tha, to database User 2 ko value **2** bhej deta hai.
+* **Step 2 (User 1 Writes x):** User 1 apni transaction shuru karta hai aur kehta hai `set x = 3`. Database apni memory mein isay 3 to kar deta hai aur User 1 ko **"OK"** bhej deta hai, lekin abhi yeh commit nahi hua!
+* **Step 3 (User 2 Reads Concurrently):** Isi dauran User 2 dobara query chalata hai `get x`. Bhale hi User 1 ne `x` ko 3 kar diya hai, lekin chunke User 1 abhi tak commit nahi hua, is liye database User 2 ko purani committed value yaani **2** hi dikhata hai. **Yeh hai "No Dirty Read" ka saboot.**
+* **Step 4 (User 1 Writes y):** User 1 apna doosra kaam karta hai: `set y = 3`. Database isay bhi **"OK"** keh deta hai.
+* **Step 5 (User 1 Commits):** User 1 apna saara kaam mukammal kar ke **Commit** bhejta hai. Ab database dono values (`x=3` aur `y=3`) ko pakka save kar ke sab ke liye khol deta hai.
+* **Step 6 (User 2 Reads Finally):** Ab User 1 ke commit karne ke *baad* jab User 2 teesri baar `get x` chalaayega, to database usay nayi value yaani **3** de dega.
+
+---
+
+#### Dirty Reads Ko Rokna Kyun Zaroori Hai? (Theoretical Reasons)
+
+Writer ne is ke do bohot bade architectural reasons bataye hain:
+
+1. **Partial Updates Se Bachna:** Agar aik transaction ko 5 alag alag rows ko update karna hai, aur database dirty reads allow kar de, to doosri transaction ko system adha badla hua aur adha purana dikhega. Jaisa hum ne pichli email wali misal (Figure 8-2) mein dekha tha ke naya email to dikh raha tha lekin counter 0 tha. Aisi adhoori haalat users ko confuse kar deti hai aur software ke doosre hissay is ghalat data ki wajah se ghalat faislay kar sakte hain.
+2. **Cascading Aborts Se Bachna:** Farz karein Transaction A ne data badla aur abhi commit nahi kiya tha. Transaction B ne us adhoore data ko parh kar (Dirty Read kar ke) aage apna koi bada calculation shuru kar diya. Lekin achanak Transaction A mein koi error aaya aur wo **Abort (Rollback)** ho gayi (yaani us ka data mita diya gaya). Ab chunke Transaction B ne aik aise data par kaam shuru kiya tha jo kabhi asliyat mein save hi nahi hua, is liye majbooran database ko Transaction B ko bhi abort karna parega. Agar Transaction B se aage kisi aur ne data parha tha, to usay bhi abort karna parega. Is lambay nuksan aur dominos effect ko **Cascading Aborts** kehte hain. No Dirty Reads is musibat ko jadd se khatam kar deta hai.
+
+> **Bacchon ki Tarah Asaan Samjhein:** Socho aik painter aik board par painting bana raha hai. Abhi us ne sirf aadhi sketch banayi hai aur painting poori nahi hui (Uncommitted state). Agar koi bacha achanak aa kar us aadhi painting ko dekh kar kahani banana shuru kar de, aur baad mein painter ko painting pasand na aaye aur wo poora board saaf kar ke naye siray se kuch aur banana shuru kar de (Abort), to bache ki banayi hui kahani bilkul be-maani aur ghalat ho jayegi. Is liye rule yeh hai ke jab tak painter "Done" (Commit) na keh de, tab tak kisi ko dekhne ki ijaazat nahi hai!
+
+---
+
+### No dirty writes
+
+Agar do transactions aik hi waqt mein database ki **aik hi row** ko update karne ki koshish karein, to kya hoga? Humesha yeh mana jata hai ke jo write aakhir mein aayega, wo pehle wale write ke upar overwrite ho jayega.
+
+Lekin socho agar pehla write chalane wali transaction abhi tak commit nahi hui thi, aur doosri transaction ne aa kar us uncommitted value ke upar apna naya data likh diya, to isay **Dirty Write** kehte hain. Read-Committed level dirty writes ko sakhti se rokta hai. Is ka tarika yeh hota hai ke agar Transaction B us row par write karna chahe jahan Transaction A pehle se kaam kar rahi hai, to database Transaction B ko tab tak ke liye **delay (rok)** deta hai jab tak Transaction A commit ya abort na ho jaye.
+
+---
+
+#### Figure 8-5. With dirty writes, conflicting writes from different transactions can be mixed up
+
+Chalein is used-car sales website wali dilchasp misal (Figure 8-5) ko step-by-step break down karte hain ke jab dirty writes hote hain, to data ka kachra kaise banta hai:
+
+<div align="center">
+  <img src="./images/05.png" width="700"/>
+</div>
+
+* **The Goal:** Aik purani gari bik rahi hai (id = 1234). Is ko khareedne ke liye database mein do kaam karne hain: pehla `listings` table mein khareedne wale ka naam likhna hai, aur doosra `invoices` table mein usay bill (invoice) bhejna hai.
+* **Step 1 (Aaliyah Writes Listings):** Aaliyah gari khareedne ke liye button dabati hai. Us ki transaction `listings` table ko update karti hai: `set buyer = 'Aaliyah'`. Database kehta hai **"OK"**. Lekin Aaliyah ne abhi commit nahi kiya.
+* **Step 2 (Bryce Dirty Writes Listings):** Theek isi lamhe Bryce bhi wahi gari khareedne ka button dabata hai. Agar dirty write allow ho, to Bryce ki transaction Aaliyah ke uncommitted data ke upar apna naam likh degi: `set buyer = 'Bryce'`. Database kehta hai **"OK"**. Ab `listings` mein buyer Bryce ban chuka hai.
+* **Step 3 (Bryce Writes Invoices):** Bryce ki transaction aage barhti hai aur bill apne naam karti hai: `set recipient = 'Bryce'` in `invoices` table. Database kehta hai **"OK"**. Phir Bryce **Commit** kar deta hai.
+* **Step 4 (Aaliyah Writes Invoices):** Ab Aaliyah ki transaction jo pehle step ke baad ruki hui thi, wo apna doosra kaam karti hai aur bill apne naam karne ki query chalati: `set recipient = 'Aaliyah'` in `invoices` table. Wo Bryce ke committed data ke upar apna naam overwrite kar deti hai kyunke us ke dimag mein tha ke pehla kaam to mera hi chal raha hai. Phir Aaliyah bhi **Commit** kar deti hai.
+* **The Disaster (Mishap):** Ab final data check karein! `listings` table keh raha hai ke gari **Bryce** ne khareedi hai, lekin `invoices` table keh raha hai ke bill **Aaliyah** ko jana chahiye! Gari kisi aur ki ho gayi aur paise koi aur bhar raha hai. Yeh tabahi is liye hui kyunke Bryce ko Aaliyah ke uncommitted listings data par dirty write karne ki ijaazat mili thi. Read-Committed level isay har giz hone nahi deta.
+
+> **Important Limitation:** Yaad rahe ke Read-Committed level pichli counter increment wali race condition (Figure 8-1) ko **nahi rok sakta**. Kyunke counter wale maslay mein doosra write pehli transaction ke *commit hone ke baad* aata hai, is liye wo dirty write nahi kehlata. Wo aik alag kism ka bug hai jisay "Lost Update" kehte hain, aur usay rokne ke tarike hum agay parhenge.
+
+---
+
+### Implementing read-committed
+
+Chunke yeh isolation level bohot zyada kaamad hai, is liye yeh **Oracle Database, PostgreSQL, Microsoft SQL Server** aur kayi doosre mashhoor databases ka **Default Setting** hota hai.
+
+Databases is ko background mein kaise chalaate hain? Is ki engineering ke do bade hissay hain:
+
+#### 1. Row-Level Locks (Dirty Writes Ko Rokne Ke Liye)
+
+Dirty writes se bachne ke liye databases taqreeban hamesha **Row-level locks** (taalay) use karte hain.
+
+* Jab bhi koi transaction kisi row ya document ko badalna (modify) chahti hai, to database automatically us row par aik **Write Lock** laga deta hai.
+* Jab tak wo transaction poori tarah commit ya abort nahi ho jati, wo tala us row par laga rehta hai.
+* Aik waqt mein sirf aik hi transaction us talay ki chabi rakh sakti hai. Agar koi doosri transaction us row par kuch likhna chahegi, to database usay line mein khara kar dega (delay karega) jab tak pehli transaction tala khol nahi deti.
+
+#### 2. Dirty Reads Ko Rokna: Locks vs MVCC
+
+Dirty reads ko rokne ke do tarike ho sakte hain:
+
+* **Tarika A (Read Locks):** Aik tarika yeh ho sakta hai ke jab kisi ko data parhna ho, to wo bhi thodi der ke liye us row par lock lagaye aur parhte ہی tala khol de. Is se koi bhi adhoori value parh nahi sakega kyunke write transaction ne pehle hi tala lagaya hoga.
+* *Nuksan:* Yeh tarika asli zindagi mein bohot bura sabit hota hai. Agar koi aik lambi write transaction chal rahi hai, to wo saare parhne wale (read-only) users ko block kar ke bitha degi, bhale hi unhon ne database mein kuch badalna na ho. Is se pooray software ki speed slow ho jati hai.
+* *Kahan use hota hai?* Phir bhi kuch databases isay use karte hain jaise **IBM Db2** aur **MS SQL Server** (agar us mein `read_committed_snapshot=off` set kiya gaya ho).
+
+
+* **Tarika B (Old/New Version Keeping - MVCC):** Yeh sab se mashhoor aur kamal ka tarika hai (jo Figure 8-4 mein dikhaya gaya hai). Database har badli jaane wali row ke **do versions** apne dimag mein yaad rakhta hai:
+1. **Old Value:** Jo pehle se committed aur safe thi.
+2. **New Value:** Jo abhi chal rahi uncommitted transaction likh rahi hai.
+
+
+Jab tak naya kaam chal raha hai, dukan mein aane wale baqi saare parhne wale users ko database chupke se **Old Value** utha kar deta rehta hai. Unhein line mein khara hoke intezar nahi karna parta. Aur jaise hi nayi transaction commit hoti hai, database purani value ko mita kar sab ko nayi value dena shuru kar deta hai. Isay **Multi-Version Concurrency Control (MVCC)** ka aghaaz bhi kehte hain.
+
+#### Read Uncommitted (Bonus Weakest Level)
+
+Kuch databases is se bhi aik darja neechay ka level support karte hain jisay **Read Uncommitted** kehte hain.
+
+* Yeh dirty writes ko to rokta hai (locks ke zariye), lekin dirty reads ko **nahi rokta**.
+* Yaani agar koi transaction aadha kaam kar ke baithi hai, to yeh level foran sab ko wo adhoora data dikhana shuru kar deta hai.
+* Is ka faida sirf yeh hota hai ke database ko aik row ke do versions yaad nahi rakhne parte, jis se thodi performance tez ho jati hai, lekin yeh data mein bohot saari ghaltiyan la sakta hai.
+
+---
