@@ -665,7 +665,7 @@ Hum ne rebalancing (data ko naye siray se bantanay) ke baare mein kaafi baatein 
 
 Industry mein alag-alag databases ne is maslay ko hal karne ke liye mukhtalif tareeqay apnaye hain, jinhein hum teen baray hisson (spectrum) mein takseem kar sakte hain:
 
-* **Fully Automatic (Mukammal Automated):** Is mein database system khud hi saare faislay karta hai ke kab shard ko todna (split karna) hai aur kab usay doosri machine par bhej k rebalance karna hai. Is mein kisi insan ya administrator ki ratti barabar bhi intervention ( दखलअंदाज़ी) nahi hoti.
+* **Fully Automatic (Mukammal Automated):** Is mein database system khud hi saare faislay karta hai ke kab shard ko todna (split karna) hai aur kab usay doosri machine par bhej k rebalance karna hai. Is mein kisi insan ya administrator ki ratti barabar bhi intervention nahi hoti.
 * **Fully Manual (Mukammal Manual):** Is tareeqay mein sharding aur rebalancing ka poora control administrator ke hath mein hota hai. Woh khud command chala kar har cheez explicit tor par configure karta hai.
 * **The Middle Ground / Hybrid (Darmiyani Rasta):** Yeh tareeqa beech ka rasta nikalta hai. Maslan, **Couchbase** aur **Riak** jaise databases data ka load dekh kar ek naya suggested shard assignment (mashwara) khud ba khud generate kar dete hain, lekin jab tak administrator khud usay check kar ke **Commit (approve)** nahi karta, tab tak woh badlao lagu (apply) nahi hota.
 
@@ -675,7 +675,7 @@ Industry mein alag-alag databases ne is maslay ko hal karne ke liye mukhtalif ta
 
 Agarchay automated rebalancing sunne mein bohot aasan lagti hai, iske apne kuch vazeh faide hain:
 
-* **Kam Operational Bojh:** Normal maintenance aur maintenance tasks ke liye system engineers ko baar baar database ko monitor nahi karna पड़ता, jisse operational work bohot kam ho jata hai.
+* **Kam Operational Bojh:** Normal maintenance aur maintenance tasks ke liye system engineers ko baar baar database ko monitor nahi karna, jisse operational work bohot kam ho jata hai.
 * **Autoscaling:** Aise systems workload (load ke upar niche hone) ke mutabaq khud ko dhal lete hain.
 * **Real-World Example:** Cloud databases jaise **Amazon DynamoDB** ke baare mein yeh claim kiya jata hai ke agar aapke system par achanak load bohot barh jaye ya kam ho jaye, toh yeh **kuch hi minutes ke andar** automatically naye shards add ya remove kar deta hai taake customer ki application smooth chalti rahe.
 
