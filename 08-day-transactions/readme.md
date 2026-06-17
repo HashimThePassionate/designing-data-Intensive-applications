@@ -1687,3 +1687,107 @@ XA transactions distributed systems ko aapas mein jurne ka standard to zaoor det
 Heterogeneous technologies ke darmiyan distributed transactions chalaane mein yeh saare operational masle inherent (lazmi) aate hain. Lekin alag alag data systems ko aapas mein hamesha consistent rakhna software architecture ka aik intehai asli aur zaroori masla hai. Agar 2PC aur XA itne complex aur performace-heavy hain, to is ka naya aur modern alternative solution kya hai? Is behtareen taknik ko hum aglay section aur **Chapter 12** mein poori detail ke sath bacchon ki tarah asaan kar ke parhenge!
 
 ---
+
+## Database-Internal Distributed Transactions
+
+Pichle section mein hum ne heterogeneous (alag alag vendors ke) distributed transactions aur un ke sath aane wali mushkilaat (XA transactions ke masle) ko dekha tha. Lekin writer yahan aik bohot bara aur zaroori farq samjhate hain: **Dunya mein do kism ki distributed transactions hoti hain.** Aik wo jo bilkul alag alag software technologies (jaise MySQL aur RabbitMQ) ke darmiyan chalti hain, aur doosri wo jo **Database-Internal** hoti hain.
+
+* **Internal Distributed Transaction Kya Hai?** Is ka matlab hai ke transaction mein hissa lene wali saari nodes (machines) **aik hi database software** ka hissa hain aur un par bilkul same code chal raha hai.
+* **NewSQL Ka Feature:** Yeh internal distributed transactions naye dhang ke **"NewSQL"** databases ka sab se main feature hain, jaise **CockroachDB, TiDB, Google Spanner, FoundationDB, aur YugabyteDB**. Yahan tak ke **Apache Kafka** jaise naye message brokers bhi is internal transaction ko support karte hain.
+
+### Yeh Systems XA Ke Maslon Se Kaise Bachte Hain?
+
+Bohot saari NewSQL databases aik se zyada shards (partitions) par data save karne aur atomicity barkarar rakhne ke liye **2PC (Two-Phase Commit)** ka hi use karti hain, lekin **un mein XA transactions jaisi tabahi aur blocking nahi hoti!** Is ki wajah yeh hai ke unhein baahir ki kisi ajeeb technology se baatein nahi karni partin. Wo kisi "Lowest Common Denominator" (kamzoor tareen standard) ke paband nahi hote. Un ke designers bilkul azaad hote hain ke wo aapas mein baatein karne ke liye behtareen, tez, aur safe custom protocols design karein.
+
+XA ke jo bade bade masle hum ne pichle section mein dekhe thay, NewSQL databases unhein in 4 behtareen tareeqon se theek karti hain:
+
+1. **Coordinator Ki Replication:** Agar main coordinator node crash ho jaye, to poora system jam nahi hota. Background mein automatic failover hota hai aur doosri replica node foran naya coordinator ban jati hai.
+2. **Direct Communication:** Coordinator aur data shards ke darmiyan baatein direct hoti hain. Beech mein koi application ka code ya fuzool drivers ka network delay nahi hota.
+3. **Shards Ki Replication:** Jis shard (machine) par asli data para hai, us ki bhi bohot saari zinda copies (replicas) dunya mein majood hoti hain. Agar aik shard kharab bhi ho jaye, to transaction ko abort nahi karna parta, balke doosri zinda shard se kaam chala liya jata hai.
+4. **Concurreny Control Ka Jod (Coupling):** Atomic commitment protocol (2PC) aur distributed concurrency control aapas mein mil kar chalte hain. Is wajah se **Cross-Shard Deadlock Detection** (machines ke darmiyan aapsi phansaav pakadna) aur saare shards par aik sath haseen **Consistent Reads** dena mumkin ho jata hai.
+
+#### Consensus Algorithms Ka Jadoo
+
+In systems mein coordinator aur data shards ki copies banane ke liye **Consensus Algorithms** (jaise Paxos ya Raft) use hote hain (jo hum Chapter 10 mein gehri detail mein parhenge). Yeh algorithms bina kisi insaan (administrator) ke madad ke, automatic tor par kharab node ko raste se hata kar nayi node active kar dete hain aur data ko hamesha safe aur strong consistent rakhte hain.
+
+Is ke alag alag shards par chalne ke bawajood, dunya ke top-level isolation levels jaise **Snapshot Isolation** aur **Serializable Snapshot Isolation (SSI)** ko poori tarah support kiya ja sakta hai.
+
+---
+
+## Exactly-Once Message Processing Revisited
+
+Hum ne pichle section mein dekha tha ke distributed transaction ka aik bohot bada use-case yeh hota hai ke hum kisi operation ko dunya mein **Exactly Once** (sirf aur sirf aik baar) chalana chahte hain, bhale hi system crash ho jaye aur software ko kaam dobara retry karna paray. Hum ne parha tha ke message broker (queue) ka ACK aur database ka write operation dono ko aik 2PC transaction mein band kiya jata hai.
+
+Lekin writer yahan aik intehai kamal ka design decision aur shortcut samjhate hain: **Exactly-once semantics achieve karne ke liye dunya mein cross-technology distributed transactions (2PC) ki koi sakht zaroorat nahi hai!** Aap yeh poora ka poora kaam bina kisi 2PC ke, sirf aur sirf **Database ke andar ki local transaction** use kar ke achieve kar sakte hain. Chalein is behtareen 4-step algorithm ko step-by-step bacchon ki tarah asaan kar ke samajhte hain:
+
+1. **Step 1 (The Check):** Hum yeh maante hain ke har naye aane wale message ke sath aik unique ID (jaise `msg_12345`) lazmi aati hai. Hum database ke andar aik naya chota sa table bana dete hain jis ka naam rakh dete hain `processed_messages`. Jab bhi message queue se koi naya message processing ke liye aayega, hum database mein aik nayi transaction shuru karenge aur sab se pehle check karenge: *kya yeh ID pehle se table mein majood hai?* Agar ID pehle se majood hai, to software samajh jayega ke yeh kaam pehle ho chuka hai; wo message queue ko **ACK (Acknowledgement)** bhejega aur us duplicate message ko bina chalaye kachray mein phenk (**drop**) dega.
+2. **Step 2 (The Save & Process):** Agar wo ID table mein majood nahi hai, to hum us ID ko `processed_messages` table mein insert kar denge. Us ke baad hum message ka asli kaam (logic) chalayenge, jis se database ke baqi tables mein naye writes honge. Yeh saara kaam **theek usi aik transaction ke andar** ho raha hoga. Jab kaam khatam ho jaye, hum database transaction ko **Commit** (final save) kar denge.
+3. **Step 3 (The Queue ACK):** Jab database transaction successfully commit ho jaye (yaani ID aur asli kaam dono disk par pakkay save ho jayein), us ke baad application message queue (broker) ko sukoon se **ACK** bhejegi ke "Bhai, naya message processed ho gaya hai, ab isay apni queue se mita do."
+4. **Step 4 (The Cleanup):** Jab message broker successfully ACK receive kar leta hai, to humein pata chal jata hai ke ab broker yeh message dobara kabhi nahi bhejega. Ab hum aik **alag se alag transaction** shuru kar ke database ke us chote table se us message ID ko delete (saaf) kar sakte hain taake space khali ho jaye.
+
+#### Crash Analysis (Kya Kuch Kharab Ho Sakta Hai?)
+
+Aayein check karte hain ke agar is process ke darmiyan computer achanak crash ho jaye, to kya hamara data safe rahega?
+
+* **Scenario A (Crash Before Commit):** Agar application message processing ke darmiyan (Step 2 se pehle) crash ho jaye, to database transaction **Abort** ho jayegi. ID aur asli kaam dono mita diye jayenge. Message broker dobara message bhejega (retry karega), aur software bilkul naye siray se sukoon se kaam shuru karega.
+* **Scenario B (Crash After Commit But Before ACK):** Agar database mein data committed ho gaya lekin broker ko ACK bhejne se pehle hi computer mar gaya. Dobara zinda hone par message broker dobara wahi message bhejega. Lekin is baar jab software Step 1 par check karne aayega, to usay database mein wo ID pehle se save milegi! Software us naye kaam ko chalaye bagair chupke se drop kar dega aur broker ko ACK bhej dega. **Data duplicate hone se bach gaya!**
+* **Scenario C (Crash Before Delete ID):** Agar ACK chali gayi lekin database se ID delete karne se pehle computer crash ho gaya, to wo purani ID table mein thodi si jagah ghere rakhegi, lekin system mein data ka koi nuksan nahi hoga.
+* **Scenario D (Concurrent Attack/Retry):** Agar network delay ki wajah se message processor aur database ka raabta slow ho gaya aur background mein do requests aik sath parallel aa gayin, to database table par laga **Uniqueness Constraint** (`UNIQUE` key on message ID) do concurrent transactions ko aik hi ID save karne se rok dega aur aik request automatically abort ho jayegi.
+
+> **Idempotence (The Core Concept):** Is behtareen approach ko computer science mein **Idempotence** kehte hain. Idempotence ka matlab hai aik aisa operation jise aap bhale hi dunya mein 100 baar chalayein, final result hamesha bilkul wahi aik hi baar jaisa aayega. Kafka Streams jaise modern frameworks isi taknik ko use kar ke exactly-once semantics achieve karte hain.
+
+NewSQL databases ki internal distributed transactions yahan is liye kaam aati hain taake system ko scale kiya ja sake; jaise aap message IDs ko database ke aik shard par rakh sakein aur asli business data ko doosre shards par, aur 2PC un shards ke darmiyan atomicity ko sambhal le.
+
+---
+
+## Summary
+
+Transactions dunya mein aik aisa **Abstraction Layer** (parda/sahulat) hain jo application developers ko yeh azadi deta hai ke wo ajeeb concurrency maslon, network ke jhatkon, aur hardware/software ke failures ko mukammal tor par bhool jayein. Hazaron kism ke complex errors ko database aik simple **Transaction Abort** mein tabdil kar deta hai, aur application ko sirf itna karna hota hai ke kaam dobara shuru (**retry**) kar de.
+
+Agar aap ki application ka access pattern intehai simple hai (jaise aik waqt mein sirf aik single row ko read ya write karna), to aap bina transactions ke bhi guzar-basar kar sakte hain. Lekin agar aap ka software complex hai, to transactions aap ke dimag ka bohot bara bojh hal kar deti hain.
+
+Transactions ke bagair:
+
+* Jab processes crash hote hain, network kat'ta hai, ya hard drive full hoti hai, to data aapas mein completely toot-phoot (inconsistent) ho jata hai.
+* Denormalized data (copies wala data) main source data se out-of-sync ho jata hai.
+* Bohot saari concurrent requests ke aapsi takraav ka software par kya asar hoga, is ka andaza lagana insani dimag ke liye na-mumkin ho jata hai.
+
+Hum ne is chapter mein **Concurrency Control** (aik sath hone wale kaamon ko sambhalna) par bohot gehri detail mein baat ki aur dunya ke mashhoor isolation levels ko parha: **Read Committed, Snapshot Isolation (Repeatable Read), aur Serializable**. Hum ne un ke darmiyan farq ko samajhne ke liye mukhtalif race conditions (anomalies) ko dekha.
+
+Writer ne in saare maslon ka aik aik line ka aasan nichor **Table 8-1** mein diya hai, jise samajhna revision ke liye intehai zaroori hai.
+
+---
+
+### Table 8-1. Summary of anomalies that can occur at various isolation levels
+
+Chalein is table ko bilkul asaan kar ke dekhte hain ke kis level mein kaunsa bug aa sakta hai aur kaunsa block ho jata hai (Yahan **✓ Prevented** ka matlab hai ke us level mein yeh bug **nahi aa sakta / database isay rok leta hai**, aur **✗ Possible** ka matlab hai ke is level mein yeh bug **aa sakta hai / data kharab ho sakta hai**):
+
+| Isolation Level | Dirty Reads | Read Skew | Phantom Reads | Lost Updates | Write Skew |
+| --- | --- | --- | --- | --- | --- |
+| **Read Uncommitted** | ✗ Possible | ✗ Possible | ✗ Possible | ✗ Possible | ✗ Possible |
+| **Read Committed** | ✓ Prevented | ✗ Possible | ✗ Possible | ✗ Possible | ✗ Possible |
+| **Snapshot Isolation** | ✓ Prevented | ✓ Prevented | ✓ Prevented | **? Depends** | ✗ Possible |
+| **Serializable** | ✓ Prevented | ✓ Prevented | ✓ Prevented | ✓ Prevented | ✓ Prevented |
+
+#### Anomalies Ka Ek Chota Sa Quick Recap:
+
+* **Dirty Reads:** Ek client doosre client ka adhoora (uncommitted) data parh leta hai. Is ko **Read Committed** aur us se upar ke saare levels pakka rok lete hain.
+* **Dirty Writes:** Ek client doosre client ke uncommitted data ke upar apna data overwrite kar deta hai. Chunke yeh dunya ka sab se ganda bug hai, **dunya ka taqreeban har isolation level (Read Uncommitted bhi) isay default tor par hi rok deta hai**, is liye isay table mein shamil hi nahi kiya gaya.
+* **Read Skew (Nonrepeatable Read):** Ek user lambi query chalate waqt database ke alag alag hisson ko alag alag waqt par dekhta hai, jis se data out-of-sync nazar aata hai (jaise Aaliyah ke bank accounts se paise gayab dikhna). Isay **Snapshot Isolation** (jo ke MVCC ke zariye frozen snapshot banati hai) poori tarah rok leti hai.
+* **Phantom Reads:** Ek transaction search query (SELECT WHERE) chalati hai, aur theek usi waqt doosra client naye rows `INSERT` ya `DELETE` kar ke us search ka asli result hi hawa mein badal deta hai. Snapshot Isolation simple phantoms ko parhne se to rok leti hai, lekin write skew wale phantoms se bachne ke liye range locks chahiye hote hain.
+* **Lost Updates:** Do users aik hi waqt mein Read-Modify-Write ka chakar chalate hain (jaise counter barhana), aur baad wala write pehle wale ke kaam ko mita (clobber) deta hai. Snapshot isolation ki kuch implementations (jaise Postgres) isay automatically detect kar ke abort kar deti hain, jabke kuch databases (jaise MySQL) mein developers ko khud `SELECT FOR UPDATE` lagana parta hai.
+* **Write Skew:** Do transactions data parhti hain, us haalat par bharosa kar ke faisla karti hain, lekin alag alag rows ko update karti hain (jaise do doctors ka aik sath shift chor dena). Committed hone par un ka faisla jhoota (outdated premise) ho jata hai. **Is dangerous bug ko dunya mein sirf aur sirf Serializable level hi rok sakta hai.**
+
+Weak isolation levels aap ko kuch maslon se to bachate hain, lekin baqi maslon ko hal karne ki poori zimmedari aap (application developer) par chor dete hain (jaise explicit locks lagana). Sirf Serializable isolation dunya ke har maslay se azaadi deti hai.
+
+Hum ne **Serializable Transactions** ko chalane ke **Teen (3) Architectural Approaches** par detail mein baat ki:
+
+1. **Actual Serial Execution (Asli Single-Thread Loop):** Agar aap ki saari transactions bohot choti aur tez hain (RAM ke andar chalne wali **Stored Procedures**), aur aap ka load aik CPU core jitna hai ya data cleanly shard ho sakta hai, to concurrency ko mita kar aik single-thread par line mein kaam chalana aik intehai simple aur outstanding tarika hai (**Redis, VoltDB**).
+2. **Two-Phase Locking (2PL - Pessimistic Approach):** Pichle 30 saalon se serializability ka standard tarika raha hai. Is ka asool hai ke "Writers readers ko rokenge aur readers writers ko rokenge." Range locks aur Predicate locks ke zariye yeh phantoms ko rokta hai, lekin locks ke bohot zyada bojh aur blocking ki wajah se is ki performance bohot gandi hoti hai.
+3. **Serializable Snapshot Isolation (SSI - Optimistic Approach):** Ek bilkul naya aur advanced algorithm hai jo purane saare tareeqon ke nuqsanat se bachata hai. Yeh transactions ko parallel chalne deta hai (no blocking), aur bilkul aakhir mein commit ke waqt check karta hai ke agar koi serializability violation hui ho to transaction ko abort kar deta hai. Is ki speed bohot predictable aur behtareen hoti hai.
+
+Aakhir mein hum ne dekha ke jab transaction aik se zyada machines par phail jaye (**Distributed Transaction**), to **2PC (Two-Phase Commit)** ke zariye atomicity kaise banti hai (Wadon ka system aur Commit Point). Agar saari machines par aik hi company ka database chal raha ho (**Database-Internal**), to distributed transactions bohot outstanding kaam karti hain. Lekin agar alag alag vendors ki technologies aaps mein jurein (**XA Transactions**), to 2PC bohot sensitive aur performace-heavy ban jata hai, coordinator ke marne par systems `in-doubt` state mein phans kar locks pakad lete hain, aur range/deadlock detection nakaam ho jati hai.
+
+Khush-kismati se, hum database ke andar ki local transaction aur **Idempotence (Unique Message IDs)** ka use kar ke bina kisi complex cross-technology 2PC ke, aaram se **Exactly-Once Message Processing** achieve kar sakte hain!
+
+---
