@@ -895,7 +895,7 @@ Writer ne secondary index ko samjhane ke liye teen behtareen real-world queries 
 
 Key-value stores ke andar aam tor par secondary indexes ka feature nahi hota, lekin **Relational Databases** (SQL) ka yeh ek bunyadi aur standard feature hai, aur aaj kal **Document Databases** (NoSQL) mein bhi yeh bohot aam ho chuka hai.
 
-Hatta ke jo bade full-text search engines hain jaise **Apache Solr** aur **Elasticsearch**, unke wajood ki asli wajah (raison d’être) hi yeh secondary indexing aur searching hai.
+Hatta ke jo bade full-text search engines hain jaise **Apache Solr** aur **Elasticsearch**, unke wajood ki asli wajah hi yeh secondary indexing aur searching hai.
 
 **Sabsay Bada Architectural Masla:** Secondary indexes ke sath sabsay badi aafat yeh hai ke **yeh shards ke sath neatly map nahi hote (yaani inka shards ke sath koi seedha aur asaan jor nahi banta)**.
 
@@ -940,7 +940,7 @@ Jab aap database mein koi index declare kar dete hain, toh database indexing ka 
 Chalein is diagram ke ek-ek box, index entry aur poore flow ko bohot bareeki se step-by-step samajhte hain:
 
 <div align="center">
-  <img src="./images/09.png" width="700"/>
+  <img src="./images/09.png" width="800"/>
 </div>
 
 #### 1. Shard 0 Ka Internal Data Structure (IDs 0 se 499):
