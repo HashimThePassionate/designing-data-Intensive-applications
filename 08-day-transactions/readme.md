@@ -293,3 +293,65 @@ Bhale hi retry karna aik behtareen tarika hai, lekin yeh bilkul perfect nahi hai
 5. **Client Process Crash:** Agar retry karne ke dauran client ka apna computer (application server) hi crash ho jaye, to jo data wo save karne ki koshish kar raha tha, wo hamesha ke liye hawa mein gayab ho jata hai.
 
 ---
+
+## Weak Isolation Levels
+
+Agar do transactions alag alag data par kaam kar rahi hain, ya dono sirf data ko parh rahi hain (**read-only**), to unhein bilkul sukoon se aik sath parallel chalaya ja sakta hai. Masla tab shuru hota hai jab aik transaction data ko badal rahi ho (**modify**) aur theek usi waqt doosri transaction usay parhne ki koshish kare, ya phir dono transactions aik hi data ko aik sath badalna chahein. Tab peda hoti hain **Concurrency Issues** yaani **Race Conditions**.
+
+---
+
+### Concurrency Bugs Itnay Mushkil Kyun Hain?
+
+Concurrency ke bugs ko dhoondna aur unhein theek karna software engineering mein sab se mushkil kaamon mein se aik mana jata hai. Is ki wajah yeh hai:
+
+* **Kismat aur Timing ka Khel:** Yeh bugs testing ke dauran aam tor par nazar nahi aate. Yeh sirf tab samnay aate hain jab aap ki kismat kharab ho aur do requests ka timing bilkul micro-second ke farq se aapas mein takra jaye.
+* **Reproduce Karna Na-mumkin:** Chunke yeh timing par depend karte hain, is liye agar aik baar koi bug aa bhi jaye, to dobara usay test kar ke check karna bohot mushkil hota hai.
+* **Baray Codebase ki Complexity:** Ek bade software mein jahan hazaron lines ka code chal raha ho, aap ko andaza hi nahi hota ke kab kaunsa code background mein database ko touch kar raha hai.
+
+> **Bacchon ki Tarah Asaan Samjhein:** Socho aik ghar mein do bache hain. Agar dono alag alag khilone se khel rahe hain, to koi larki nahi hogi (Safe Parallel Execution). Lekin agar dono ko aik hi khilona chahiye aur dono aik hi milli-second mein us par jhapattein, to un ka sir aapas mein takra jayega (Race Condition). Yeh takraav tabhi hoga jab timing bilkul perfect ho, warna aik pehle le lega aur doosra baad mein, aur aap ko kabhi pata hi nahi chalega ke yahan koi masla ho sakta tha.
+
+---
+
+### Isolation aur Serializability: Khwab vs Haqeeqat
+
+Isi liye databases hamesha se developers se yeh saari mushkilaat chupane ki koshish karte aaye hain. Database kehta hai ke "Tum fikar mat karo, mein isolation apply karunga."
+
+* **The Theory (Khwab):** Idealy, database aap ko **Serializable Isolation** deta hai. Is ka matlab hai ke aap ka code aise chalega jaise system mein koi doosra user hai hi nahi. Saari transactions line mein aik ke baad aik chalengi.
+* **The Practice (Haqeeqat):** Lekin serializability ki aik keemat hoti hai—**Performance Cost**. Agar sab ko line mein khara kar diya jaye to database bohot slow ho jata hai. Is liye taqreeban tamaam databases jaan boojh kar **Weak Isolation Levels** (kamzoor isolation) use karte hain. Yeh levels kuch maslon ko to rok lete hain, lekin saare maslon ko nahi rok paate.
+
+---
+
+### Real-World Disasters (Haqeeqi Nuksaanat)
+
+Writer samjhate hain ke weak isolation ki wajah se aane wale bugs koi kitabi baatein nahi hain, balke inhon ne asli duniya mein bohot tabahi machayi hai:
+
+* **Bitcoin Exchange ka Diwala:** Ek mashhoor Bitcoin exchange is concurrency bug ki wajah se bilkul **bankrupt (kangal)** ho gayi, kyunke attackers ne un ke system se aik hi waqt mein bohot saari requests bhej kar naye coins nikalwa liye (Double Spending).
+* **Auditors aur Data Corruption:** Is tarah ke bugs ki wajah se bade bade financial institutions ki auditing mein ghaltiyan niklin aur customers ka zaroori data hamesha ke liye corrupt ho gaya.
+* **The Myth (Ek Purani Ghalat Fehmi):** Log aksar internet par kehte hain ke *"Agar tum financial (paise ka) data handle kar rahe ho, to ACID database use karo!"* Lekin writer is fehmi ko door karte hain ke **yeh kehna bilkul ghalat hai**. Kyunke jo mashhoor relational databases (MySQL, Postgres wagera) ACID kehlate hain, wo bhi default tor par **Weak Isolation** use karte hain! Is liye sirf ACID database rakhne se aap in bugs se nahi bach sakte jab tak aap ko un ke levels ka sahi ilm na ho.
+
+---
+
+### Banking System ki Ek Dilchasp Haqeeqat
+
+Writer aik mazeed mazedaar real-world fact batate hain ke hamara jo aam banking system hai, wo mukammal tor par ACID properties par bharosa nahi karta.
+
+* **The Secure FTP Reality:** Aaj bhi bohot saare banks aapas mein transaction ka data share karne ke liye raat ko aik text file banate hain aur usay **Secure FTP** ke zariye aik doosre ko bhejte hain.
+* **Insaani Check aur Audit Trails:** Banks ke liye database ki technical sakhti se zyada yeh zaroori hota hai ke un ke paas **Audit Trail** (aik poori history ke paise kahan se aaye aur kahan gaye) ho aur insaani tor par fraud ko rokne ke tareeqay majood hon. Agar database mein koi concurrency bug aa bhi jaye, to wo raat ko file checking ke dauran ya audit mein pakda jata hai.
+
+---
+
+### Security aur Attacker ka Mindset
+
+Agari point mein writer aik intehai zaroori security aspect samjhate hain.
+
+Aap yeh soch sakte hain ke *"Chalo, aam zindagi mein to timing ka aisa takraav lakhon mein aik baar hota hai, to humein fikar karne ki kya zaroorat hai?"*
+
+Lekin aap ko yeh nahi bhoolna chahiye ke **Attackers (hackers)** jaan boojh kar aap ke system par aik hi waqt mein hazaron **highly concurrent requests** (burst commands) bhejte hain. Un ka maqsad hi yeh hota hai ke system ke dimag ko ghumaya jaye aur concurrency bug ko trigger kar ke paise ya data churaya jaye. Is liye aik secure application banane ke liye aap ko in bugs ko jad se khatam karna parega.
+
+---
+
+### Agla Kadam (What's Next?)
+
+Is section mein hum aage chal kar un saare weak isolation levels ko informal tareeqay se, bohot saari dilchasp real-world examples ke sath parhenge. Hum dekhenge ke kaunse level mein kaunsi race condition aati hai aur kis se bacha ja sakta hai, taake aap apne project ke liye behtareen faisla kar sakein. Jab yeh mukammal ho jayega, to hum aakhir mein detail mein **Serializability** ko bhi parhenge.
+
+---
