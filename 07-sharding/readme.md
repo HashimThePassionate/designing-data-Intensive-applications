@@ -1,5 +1,47 @@
 # Sharding
 
+<details open>
+<summary><h2 style="display:inline">📑 Table of Contents</h2></summary>
+
+## Core Concepts
+- [Sharding Introduction](#sharding-introduction)
+- [Sharding Ka Basic Rule](#sharding-ka-basic-rule)
+- [Sharding Aur Replication Ka Milap](#sharding-aur-replication-ka-milap)
+- [Sharding and Partitioning](#sharding-and-partitioning)
+
+## Advantages & Disadvantages
+- [Pros and Cons of Sharding](#pros-and-cons-of-sharding)
+
+## Use Cases & Patterns
+- [Sharding for Multitenancy](#sharding-for-multitenancy)
+- [Sharding of Key-Value Data](#sharding-of-key-value-data)
+
+## Sharding Strategies
+- [Sharding by Key Range](#sharding-by-key-range)
+- [Rebalancing key-range sharded data](#rebalancing-key-range-sharded-data)
+- [Sharding by Hash of Key](#sharding-by-hash-of-key)
+
+## Operational Challenges
+- [Skewed Workloads and Relieving Hot Spots](#skewed-workloads-and-relieving-hot-spots)
+  - [Write Hot Keys](#write-hot-keys-kaise-nipatna-hai)
+  - [Read Hot Keys](#read-hot-keys-kaise-nipatna-hai)
+- [Operations: Automatic Versus Manual Rebalancing](#operations-automatic-versus-manual-rebalancing)
+
+## System Architecture
+- [Request Routing](#request-routing)
+- [Sharding and Secondary Indexes](#sharding-and-secondary-indexes)
+  - [Local Secondary Indexes](#local-secondary-indexes)
+  - [Global Secondary Indexes](#global-secondary-indexes)
+
+## Conclusion
+- [Summary](#summary)
+
+</details>
+
+---
+
+## <a id="sharding-introduction">Sharding Introduction</a>
+
 Grace Murray Hopper ne 1962 mein ek bohot gehri baat kahi thi ke humein computers ko sequential (ek ke baad ek kaam karne) ki limit mein nahi bandhna chahiye. Humein data ke aapas ke relationships aur uski priorities ko define karna chahiye, na ke sirf purane ruttay-rattaye tareeqon (procedures) par chalna chahiye.
 
 Jab data bohot bada ho jata hai, toh ek akela computer usay sambhal nahi pata. Ek distributed database data ko alag-alag nodes (machines) par do bade tareeqon se phelata (distribute) hai:
@@ -13,11 +55,11 @@ Jab data bohot bada ho jata hai, toh ek akela computer usay sambhal nahi pata. E
 > 
 > 
 
-### Sharding Ka Basic Rule
+## <a id="sharding-ka-basic-rule">Sharding Ka Basic Rule</a>
 
 Normally, shards ko is tarah design kiya jata hai ke data ka **har ek piece (yaani har ek row, record, ya document) sirf aur sirf ek hi shard ka hissa hota hai**. Har shard apne aap mein ek complete, chota independent database hota hai, halankay kuch databases aise advanced operations bhi support karte hain jo aik sath bohot se shards ko touch kar sakte hain.
 
-### Sharding Aur Replication Ka Milap (Combination)
+## <a id="sharding-aur-replication-ka-milap">Sharding Aur Replication Ka Milap (Combination)</a>
 
 Sharding ko aam tor par replication ke sath milakar chalaya jata hai taake data gum na ho. Iska matlab yeh hai ke bhale hi ek record sirf **ek hi shard** ka hissa ho, lekin fault tolerance (system kharab na hone) ke liye us shard ki **multiple copies** alag-alag nodes par majood hoti hain.
 
@@ -61,7 +103,7 @@ Diagram ke bottom-right corner mein ek user (`Writing to shard 4`) ko dikhaya ga
 
 ---
 
-## Sharding and Partitioning
+## <a id="sharding-and-partitioning">Sharding and Partitioning</a>
 
 Aap jo software use kar rahe hain, uske mutabaq is "Shard" ke alag-alag naam hote hain. Writer ne yahan poori industry ke tools ki terminologies ko clear kiya hai:
 
@@ -97,7 +139,7 @@ Database replication ke jitne bhi rules aur concepts hote hain, woh sab shards k
 
 ---
 
-## Pros and Cons of Sharding
+## <a id="pros-and-cons-of-sharding">Pros and Cons of Sharding</a>
 
 Database ko shard (tukde) karne ki sab se **badi aur primary wajah scalability hai**. Agar aapke data ka volume (size) ya us par data likhne ki raftaar (write throughput) itni zyada barh jaye ke ek akeli machine usay handle na kar sakay, toh sharding aapko yeh sahulat deti hai ke aap us data aur un writes ko bohot saari alag-alag machines par pheladein.
 
@@ -145,7 +187,7 @@ Yeh tamam databases ek single machine ke andar **har CPU core par ek process** c
 
 ---
 
-## Sharding for Multitenancy
+## <a id="sharding-for-multitenancy">Sharding for Multitenancy</a>
 
 Software as a Service (SaaS) products aur cloud services aksar **multitenant** hoti hain. Multitenant ka aasan matlab yeh hai ke **ek hi software/application ko bohot saare alag-alag customers  (tenants) istemal kar rahe hotay hain**. Ek single tenant ke andar multiple users login kar sakte hain (jaise ek company ke bohot se employees), lekin har tenant ka apna data bilkul self-contained (apne andar mukammal) hota hai aur doosre tenants se bilkul alag aur alahda rakha jata hai.
 
@@ -201,7 +243,7 @@ Faidon ke sath sath, writer ne is approach ke teen bade **challenges (mushkilat)
 
 ---
 
-## Sharding of Key-Value Data
+## <a id="sharding-of-key-value-data">Sharding of Key-Value Data</a>
 
 Farz karein aapke paas bohot zyada data (huge amount of data) majood hai aur aap uske chote-chote tukde (sharding) karna chahte hain. Lekin sab se bada sawaal yeh khara hota hai ke aap yeh kaise faisla karenge ke kaun sa record kis machine (node) par bhejkar store karna hai?
 
@@ -241,7 +283,7 @@ Database designer ke liye sab se bada challenge yeh hota hai ke is sharding algo
 
 ---
 
-## Sharding by Key Range
+## <a id="sharding-by-key-range">Sharding by Key Range</a>
 
 Sharding karne ka ek bohot hi seedha aur asaan tareeqa yeh hai ke aap partition keys ki ek mukammal aur lagataar range (yaani ek minimum value se le kar ek maximum value tak) har ek shard ko assign kar dein. Iski misaal bilkul paper par print hui **Encyclopedia (lugaat ya maloomati kitabon ke set)** jaisi hai.
 
@@ -307,7 +349,7 @@ Is sensor database ke maslay se bachne ke liye aapko timestamp ko key ka pehla h
 
 ---
 
-## Rebalancing key-range sharded data
+## <a id="rebalancing-key-range-sharded-data">Rebalancing key-range sharded data</a>
 
 ### Pehla Setup Aur Pre-Splitting
 
@@ -338,7 +380,7 @@ Lekin, **shard ko split karna ek bohot hi mehanga aur bhari operation (expensive
 
 ---
 
-## Sharding by Hash of Key
+## <a id="sharding-by-hash-of-key">Sharding by Hash of Key</a>
 
 Key-range sharding (jo hum ne pehle parha) wahan bohot faida mand hoti hai jahan hum chahte hain ke aapas mein milti julti keys ek hi shard mein ikatthi store hon (jaise timestamps). Lekin agar aapko is baat se koi farq nahi parta ke keys ek doosre ke kareeb hain ya nahi (maslan, kisi multitenant application mein tenants ki IDs), toh sab se behtareen aur aam tareeqa yeh hota hai ke pehle partition key ko ek **Hash Function** mein dala jaye, aur phir us se milne wale number ke mutabaq shard decide kiya jaye.
 
@@ -542,7 +584,7 @@ Is diagram mein hashing range (0 se 1024) ko nodes ke darmiyan aik makhsoos tara
 
 ---
 
-## Skewed Workloads and Relieving Hot Spots
+## <a id="skewed-workloads-and-relieving-hot-spots">Skewed Workloads and Relieving Hot Spots</a>
 
 Hum ne pehle parha ke **Consistent Hashing** is baat ko yakeeni banati hai ke keys ko tamam nodes (machines) par barabar (uniformly) phelaya jaye. Lekin yahan ek bohot bada twist hai: **Keys ka barabar batwara hone ka yeh matlab hargiz nahi hai ke un par aane wala asli load (throughput) bhi barabar takseem hoga.**
 
@@ -618,7 +660,7 @@ Yeh masla is liye mazeed pechida (compound) ho jata hai kyunke load hamesha aik 
 
 ## Strageties between write hot keys vs read hot keys 
 
-### Write Hot Keys (Kaise Nipatna Hai?)
+### <a id="write-hot-keys-kaise-nipatna-hai">Write Hot Keys (Kaise Nipatna Hai?)</a>
 
 Write hot key tab banti hai jab bohot saari requests ek hi waqt mein ek hi record ko modify (update) kar rahi hon. Iska maqsad **Load ko Distribute** karna hai.
 
@@ -632,7 +674,7 @@ Write hot key tab banti hai jab bohot saari requests ek hi waqt mein ek hi recor
     * Write request ko direct DB par bhejne ke bajaye, ek Queue mein daal dein. Queue se worker process uthayega aur sukoon se DB mein likhega.
     * *Faida:* "Write Contention" khatam ho jati hai kyunke database ko apne pace par kaam karne ka moka milta hai.
 
-### Read Hot Keys (Kaise Nipatna Hai?)
+### <a id="read-hot-keys-kaise-nipatna-hai">Read Hot Keys (Kaise Nipatna Hai?)</a>
 
 Read hot key tab banti hai jab hazaron log ek hi record ko bar-bar fetch kar rahe hon (e.g., "Latest News", "System Config"). Iska maqsad **DB ko bypass** karna hai.
 
@@ -659,7 +701,7 @@ Kuch modern database systems (khass tor par baray scale ki cloud services) is ho
 
 ---
 
-## Operations: Automatic Versus Manual Rebalancing
+## <a id="operations-automatic-versus-manual-rebalancing">Operations: Automatic Versus Manual Rebalancing</a>
 
 Hum ne rebalancing (data ko naye siray se bantanay) ke baare mein kaafi baatein toh kar leen, lekin ab ek bohot hi important aur bunyadi sawaal khara hota hai: **Kya shards ka split hona aur unka ek node se doosre node par jana khud ba khud (automatically) hota hai ya isay hath se (manually) karna parta hai?**
 
@@ -732,7 +774,7 @@ Aise known events se pehle, ek administrator khud sukoon se cluster mein naye no
 
 ---
 
-## Request Routing
+## <a id="request-routing">Request Routing</a>
 
 Hum ne yeh toh achhi tarah samajh liya ke data ko alag-alag nodes (machines) par split (shard) kaise kiya jata hai, aur machines ke aane ya jaane par un shards ko dobara se rebalance kaise karte hain. Lekin ab ek bohot hi important aur practical sawaal samnay aata hai: **Agar aapko database mein koi makhsoos key parhni (read) ya likhni (write) ho, toh aapko kaise pata chalega ke is waqt kis physical machine (IP address aur port number) ke sath connect karna hai?**
 
@@ -868,7 +910,7 @@ Iske bar-aks, jo bade **Analytical Databases (OLAP - Data Warehouses)** hote hai
 
 ---
 
-## Sharding and Secondary Indexes
+## <a id="sharding-and-secondary-indexes">Sharding and Secondary Indexes</a>
 
 Hum ne abhi tak jitni bhi sharding schemes discuss ki hain, woh sab is cheez par depend karti hain ke client ko har record ki **Partition Key** ka pata ho. Yeh kaam **Key-Value Data Model** mein bohot hi asani se poora ho jata hai, kyunke wahan partition key ya toh poori ki poori `Primary Key` hoti hai ya us primary key ka sab se pehla hissa (first part) hoti hai.
 
@@ -909,7 +951,7 @@ Is zabardast architectural challenge aur pechidegi se nipatne ke liye databases 
 
 ---
 
-## Local Secondary Indexes
+## <a id="local-secondary-indexes">Local Secondary Indexes</a>
 
 Is indexing ke pehle tareeqay mein, **har ek shard bilkul azaadana (independently) apne secondary indexes khud manage karta hai**. Iska matlab yeh hai ke ek shard ke andar jo secondary index banta hai, woh sirf aur sirf usi shard ke andar majood records ko cover karta hai. Usay is baat se koi saroor ya lena-dena nahi hota ke doosre shards mein kya data store ho raha hai.
 
@@ -1025,7 +1067,7 @@ Itni complexities ke bawajood, writes ke asaan aur tez hone ki wajah se industry
 
 ---
 
-## Global Secondary Indexes
+## <a id="global-secondary-indexes">Global Secondary Indexes</a>
 
 Local secondary index ke bilkul ulat (opposite), hamare paas doosra tareeqa **Global Secondary Index** ka hota hai. Is approach mein hum har shard ke liye alag-alag chota index banane ke bajaye, ek aisa **bada central index (global index)** banate hain jo pure cluster ke tamam shards ke data ko ek sath cover karta hai.
 
@@ -1154,7 +1196,7 @@ Writer is topic ko is deep decision par end karta hai ke **Global Secondary Inde
 
 ---
 
-## Summary
+## <a id="summary">Summary</a>
 
 Is pooray chapter mein hum ne bade datasets ko chote-chote hisson (subsets) mein takseem karne ke mukhtalif tareeqon ko gehrai se explore kiya hai, jise distributed databases ki dunya mein **Sharding ya Partitioning** kaha jata hai. Sharding tab aik majboori ban jati hai jab aapke paas data ka volume ya writes ka load itna zyada ho jaye ke usay ek akeli physical machine par store aur process karna feasibility (mumkin) ki had se bahar nikal jaye.
 
