@@ -353,3 +353,82 @@ Internet service providers (ISPs) ke darmiyan jo peering agreements hote hain au
 
 ---
 
+## Unreliable Clocks
+
+Distributed systems mein waqt (time) aur ghardiyan (clocks) bohot zyada zaroori hoti hain. Hamari applications bohot saare aam sawaalon ka jawab dhundne ke liye ghardiyon par depend karti hain, jaise ke:
+
+1. Kya is request ka timeout waqt khatam ho chuka hai?
+2. Is service ka 99th percentile response time (yani sab se slow requests ka time) kya hai?
+3. Is service ne pichle 5 minutes mein average kitni queries per second (QPS) handle keen?
+4. User ne hamari website par kitna waqt guzara?
+5. Yeh article kis tareekh aur kis waqt publish hua tha?
+6. Kis tareekh aur kis waqt par user ko reminder email bhejni chahiye?
+7. Yeh cache entry kab expire (khatam) hogi?
+8. Log file mein is error message ka sahi timestamp (waqt) kya hai?
+
+Agar aap ghor karein to sawaal **1 se 4** tak kisi **Dauraniye (Durations)** ko naapte hain (yani request bhejne aur jawab aane ke darmiyan kitna waqt guzara). Jabke sawaal **5 se 8** tak **Waqt ke ek khas makhsoos nukte (Points in Time)** ko bta rahe hain (yani ek khas tareekh ko ek khas waqt par kya waqt ho raha tha).
+
+Distributed system mein waqt ka hisab rakhna bohot hi tedhi kheer hai, kyunke network par koi bhi baat instant (palkon ke jhapakte hi) nahi hoti. Ek computer se doosre computer tak message jaane mein waqt lagta hai. Jab message doosre server par pahonchega, to woh hamesha bhejne wale waqt se baad ka hi hoga, par network ke badalte hue delays ki wajah se humein yeh kabhi pakka nahi pata hota ke woh kitna baad pahoncha. Is wajah se yeh andaza lagana bohot mushkil ho jata hai ke agar do alag machines par kaam hua, to pehle kaunsa hua aur baad mein kaunsa?
+
+Is se bhi bada masla yeh hai ke network par mojood har machine ki apni ek alag hardware ghardi hoti hai—jo aam tor par ek chota sa **quartz crystal oscillator** (ek chamakti hui kani) hoti hai. Yeh devices bilkul 100% accurate nahi hotikhud-ba-khud thodi aage peeche ho jati hain. Isliye har machine ka waqt ka andaza doosri machine se thoda alag ho sakta hai (koi tez chal rahi hoti hai to koi slow). Hum in ghardiyon ko ek sath jorhne ki koshish zaroor karte hain, aur iske liye sab se zyada **NTP (Network Time Protocol)** use hota hai. NTP ke zariye computer ki ghardi ko internet par mojood kuch main servers ke mutabaq adjust kiya jata hai, jo khud GPS receivers ya atomic clocks se bilkul sahi waqt late hain.
+
+---
+
+## Monotonic Versus Time-of-Day Clocks
+
+Aaj kal ke computers mein kam se kam do tarah ki ghardiyan hoti hain: ek **Time-of-Day clock** aur doosri **Monotonic clock**. Dono waqt hi naapti hain, par dono ka maqsad bilkul alag hai aur in ka farq samajhna bohot zaroori hai.
+
+### Time-of-Day clocks
+
+Yeh bilkul wahi ghardi hai jo aap ki deewar par lagi hoti hai ya jo aap ko calendar ke mutabaq aaj ki tareekh aur waqt bati hai (isay **wall-clock time** bhi kehte hain). Misal ke tor par, Linux mein `clock_gettime(CLOCK_REALTIME)` aur Java mein `System.currentTimeMillis()` aap ko yeh btaate hain ke **1 January 1970** ki aadhi raat (UTC) se lekar ab tak kitne seconds ya milliseconds guzar chuke hain (isay Unix Epoch kehte hain, aur is mein leap seconds ko nahi gina jata).
+
+In ghardiyon ko NTP ke sath sync (barabar) kiya jata hai, taake ideally Machine A aur Machine B ka timestamp bilkul ek hi waqt dikhaye. Lekin is ghardi mein ajeeb o gareeb masle aate hain:
+
+* **Peeche Chhalaang Maarna (Jumping Backwards):** Agar aap ke computer ki local ghardi NTP server se bohot aage nikal jaye, to NTP server usay jhatke se sahi waqt par wapas le aata hai. Is se achanak lagta hai ke waqt **peeche ki taraf chala gaya hai**.
+* **Leap Seconds aur DST:** Leap seconds ki wajah se ya Daylight Saving Time (jo kuch mumalik mein ghardiyan ek ghanta aage peeche ki jati hain) ki wajah se bhi is ghardi mein achanak jumps aate hain.
+
+**Sabak:** Kyunke yeh ghardi achanak aage ya peeche chhalaang maar sakti hai, isliye isay do kaamon ke darmiyan ka **elapsed time (guzra hua waqt ya stopwatch wala kaam)** naapne ke liye bilkul istemal nahi karna chahiye.
+
+### Monotonic clocks
+
+Yeh ghardi kisi tareekh ya calendar se waqif nahi hoti, yeh sirf ek **Stopwatch** ki tarah kaam karti hai jo hamesha sirf aage ki taraf barhti hai (isi liye isay Monotonic kehte hain). Linux mein `clock_gettime(CLOCK_MONOTONIC)` aur Java mein `System.nanoTime()` iski misalain hain.
+
+Iski kaam karne ki salahiyat bohot hi seedhi hai: aap ek kaam shuru karne se pehle iski value check karein, kaam khatam hone par dobara check karein, aur dono ka farq nikal lein. Woh farq aap ko bilkul sahi btaayega ke kitne nanoseconds ya microseconds guzre. Lekin is ghardi ki absolute value (yani akele ek number) ka koi matlab nahi hota; ho sakta hai yeh computer ke on (boot) hone se lekar ab tak ka waqt ginn rahi ho. Isliye **do alag computers ki monotonic clock ke numbers ko aapas mein compare karna bilkul be-maani hai**, kyunke dono ka shuruati point alag ho sakta hai.
+
+Agar ek server mein ek se zyada CPUs (sockets) lage hon, to har CPU ka apna alag timer ho sakta hai jo aapas mein perfectly sync na ho. Operating System is masle ko khud handle karne ki koshish karta hai taake software threads ko hamesha ek hi seedha waqt miley, par phir bhi is guarantee par aankhein band karke bharosa nahi kiya ja sakta.
+
+**NTP Ka Slew Karna (Slewing):**
+NTP monotonic clock ke sath zabardasti nahi karta (yani isay jhatke se aage peeche nahi koodata). Agar NTP ko lage ke computer ka apna quartz crystal slow ya tez chal raha hai, to woh ghardi ki tick-tick karne ki raftaar ko thoda sa badha ya kam kar deta hai (jisay slewing kehte hain). Default tor par NTP raftaar ko **0.05%** tak tez ya dheema kar sakta hai, par jump kabhi nahi lagata. Isliye distributed systems mein timeouts aur durations naapne ke liye monotonic clock bilkul perfect aur mehfooz hai.
+
+---
+
+## Clock Synchronization and Accuracy
+
+Monotonic clocks ko to kisi ke sath barabar hone ki zaroorat nahi hoti, lekin **Time-of-Day clocks** ko sahi tareekh batane ke liye NTP server ka mohtaj hona padta hai. Afsoos ki baat yeh hai ke hamare paas ghardiyon ko perfectly barabar rakhne ka koi 100% reliable tareeqa nahi hai. Hardware ghardiyan aur NTP aksar dhoka de jaate hain. Iski kuch real-world misalain yeh hain:
+
+* **Clock Drift (Ghardi ka bhatakna):** Computer ke andar laga quartz crystal hararat (temperature) ke badalane se apni raftaar badal leta hai. Google apne servers ke liye **200 ppm (parts per million)** tak ka clock drift maan kar chalta hai. Iska matlab hai ke agar ek computer din mein sirf ek baar sync ho, to din ke aakhir tak uski ghardi sach se **17 seconds** aage ya peeche ho sakti hai! Agar har 30 seconds baad bhi sync karein, tab bhi **6 ms** ka farq aa sakta hai.
+* **NTP Refusal:** Agar computer ki ghardi NTP server se bohot zyada alag ho jaye (bohot bada farq ho), to NTP sync karne se mana kar deta hai ya phir ghardi ko jhatke se reset karta hai, jis se applications ke liye waqt achanak aage ya peeche kood jata hai.
+* **Firewall Blocks:** Agar galti se koi firewall NTP ke traffic ko rok de, to kisi ko pata bhi nahi chalega aur ahista ahista computer ka waqt baqi network se bohot door nikal jayega.
+* **Network Congestion:** NTP ki accuracy is baat par depend karti hai ke network par packet kitni jaldi aa ja raha hai. Agar internet par congestion (traffic jam) ho, to minimum error bhi **35 ms** tak chala jata hai, aur achanak aane wale jhatkon se yeh farq **1 second** tak bhi pahonch sakta hai. Agar network bohot zyada kharab ho, to NTP client umeed chor kar baith jata hai.
+* **Bad/Misconfigured Servers:** Kuch internet par mojood public NTP servers khud galat configure hote hain aur ghanton ka galat waqt bta dete hain. Halankeh clients do teen servers se confirm karke outlier ko chor dete hain, par internet par kisi anjan server par apne poore system ka daromadar rakhna thoda khofnak hai.
+* **Leap Seconds Ki Tabaahi:** Jab kabhi minute ko 59 ya 61 seconds ka kiya jata hai (leap second adjustment), to jo systems iske liye design nahi hote woh crash kar jate hain. Iska hal **Leap Smearing** hota hai, jahan NTP server poore din mein ahista ahista us ek second ko chupa kar adjust karta hai, par har server aisa nahi karta. (Khush-qismati se, saal 2035 se leap seconds ka kissa hamesha ke liye khatam kiya ja raha hai).
+* **Virtual Machines (VMs) Ka Masla:** Cloud mein jab ek CPU core par kai VMs chal rahi hoti hain, to jab aap ki VM ko thodi der ke liye pause (rok) kiya jata hai, to software ke liye waqt achanak agle lamhe **bohot aage chhalaang maar jata hai**. VM ke andar chalne wale NTP client ko is pause ka pata nahi chalta, isliye woh apni accuracy ka galat andaza lagata hai.
+* **User Devices Par Zero Trust:** Agar aap ka software logon ke mobile phones ya tablets par chal raha hai, to aap un ki ghardi par bilkul bharosa nahi kar sakte. Log aksar games mein cheat karne ke liye (jaise candies ya lives dobara lene ke liye) jaan booch kar apne mobile ka waqt badal dete hain.
+
+**High Accuracy Kaise Mumkin Hai?**
+Agar aap ke paas bohot paisa aur resources hon, to bohot achhi accuracy hasil ki ja sakti hai. Jaise Europe ki **MiFID II** regulation ke mutabaq high-frequency trading (tezi se shares khareedne aur bechne wale) funds ke liye zaroori hai ke un ki ghardiyan UTC ke **100 microseconds ($100\,\mu\text{s}$)** ke andar perfectly sync hon, taake market ke krash ya hera-pheri ko pakada ja sake.
+
+Yeh accuracy khusoosi hardware (jaise data center ke andar **GPS receivers** ya **Atomic Clocks**) aur **PTP (Precision Time Protocol)** ke zariye hasil ki jati hai. Lekin sirf GPS par rehte huay bhi khatra hota hai kyunke military areas ke qareeb GPS ke signals ko jam (block) kar diya jata hai. Kuch cloud providers ab VMs ke liye high-accuracy clocks de rahe hain, par is ke liye abhi bhi bohot zyada dekh-bhaal aur monitoring ki zaroorat hoti hai. Agar aap ka NTP daemon kharab ho jaye ya firewall block ho, to ghardi ka drift bohot jaldi aap ke system ka bera ghaark kar sakta hai.
+
+---
+
+### Revision Hints (Tezi se yaad karne ke liye)
+
+* **Durations vs Points in time:** Sawaal 1-4 stop-watch wale hain (Dauraniya), sawaal 5-8 calendar wale hain (Makhsoos lamha).
+* **Time-of-Day Clock (`CLOCK_REALTIME`):** Calendar waqt bati hai, Epoch (1970) se naapti hai, NTP sync par peeche jump maar sakti hai (Don't use for timeouts!).
+* **Monotonic Clock (`CLOCK_MONOTONIC`):** Sirf aage barhti hai, absolute value be-maani hai, timeouts aur stopwatch ke liye perfect hai, NTP iski raftaar badalta hai (`slewing`) par jump nahi lagata.
+* **Clock Drift:** Temperature badalne se quartz crystals bhatak jate hain (Google's 200 ppm rule = 17 seconds drift per day without sync).
+* **Leap Smearing:** Leap second ke jhatke se bachne ke liye poore din mein thoda thoda karke second ko adjust karna.
+* **MiFID II ($100\,\mu\text{s}$):** Financial trading mein bohot high accuracy chahiye hoti hai jiske liye PTP aur atomic clocks use hoti hain.
+
+---
