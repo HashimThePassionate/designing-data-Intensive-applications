@@ -283,3 +283,73 @@ Public clouds (jaise AWS) mein aap resources doosre customers ke sath share kar 
 * **Noisy Neighbor:** Cloud mein doosre logon ke heavy usage ki wajah se aapka network slow ho sakta hai, jiska hal **Phi Accrual** jaise dynamic failure detectors hain.
 
 ---
+
+## Synchronous Versus Asynchronous Networks
+Distributed systems bohot aasan ho jate agar hum aankhein band karke network par bharosa kar sakte ke packet bina kisi delay ke aur bina drop hue doosri taraf pahonch jayega. To phir hum is masle ko hardware level par hi solve kyun nahi kar dete taake software developers ko iski fikar hi na ho?
+
+Is sawaal ka jawab samajhne ke liye, hum data center ke networks ka muqabla purane zamane ke **traditional landline telephone network** (non-cellular, non-VoIP) se karte hain, jo ke nihayat reliable hota hai; wahan na to aawaz rukti hai aur na hi call achanak katti hai. Phone call ko hamesha ek constant kam latency (delay) aur barabar bandwidth chahiye hoti hai. To kya hi achha ho agar computer networks mein bhi humein aisi hi reliability mil jaye?
+
+Jab aap landline se call karte hain, to network ek **Circuit** (ek pakka aur makhsoos rasta) bana deta hai. Dono baat karne walon ke darmiyan poore raste mein ek fixed, guaranteed bandwidth allocate (reserve) ho jati hai jo sirf unhi ki hoti hai jab tak call khatam nahi hoti. Misal ke tor par, ek ISDN network har second mein 4,000 frames bhejta hai. Jab call milti hai, to har frame mein 16 bits ki jagah is call ke liye fix ho jati hai. Iska matlab hai ke call ke dauran har 250 microseconds mein aap pakki 16 bits audio data bhej sakte hain.
+
+Yeh network **Synchronous** hota hai. Data bhale hi kai routers se guzre, usay kahin bhi line (queue) mein khara nahi hona parta kyunke aage wale raste mein uski 16 bits ki seat pehle se reserved hoti hai. Aur jab queueing nahi hogi, to delay bhi bilkul fixed hoga. Isay hum **Bounded Delay** (aik had mein rehne wala delay) kehte hain.
+
+---
+
+### Can we not simply make network delays predictable?
+
+Yaad rakhein ke telephone network ka ek **Circuit** aur computer network ka ek **TCP Connection** do bilkul alag cheezein hain. Circuit mein bandwidth ka ek fixed hissa pakka book hota hai jisay koi doosra banda use nahi kar sakta jab tak call chal rahi hai, jabke TCP connection ke packets aapas mein dhakka-pel karke jo bhi bandwidth milti hai usay opportunistically (moka parast tarike se) istemal karte hain. Aap TCP ko kisi bhi size ka data de dein (jaise ek email ya web page), woh usay kam se kam waqt mein pohnchane ki koshish karega. Aur jab TCP khaali betha ho, to woh koi bandwidth zaya nahi karta (siwaye kabhi kabhar ek chote se keepalive packet ke).
+
+Agar hamare data centers aur internet bhi telephone ki tarah circuit-switched networks hote, to jab circuit banta tabhi hum ek guaranteed maximum round-trip time (delay) set kar sakte تھے. Lekin aisa nahi hai. Ethernet aur IP protocols **Packet-switched** hote hain, jahan data queues mein phans jata hai aur isi wajah se network mein delay **Unbounded** (bina kisi aakhri had ke) ho jata hai. In protocols mein circuit ka koi concept hi nahi hota.
+
+**Hum data centers aur internet mein packet switching kyun use karte hain?**
+Iska jawab yeh hai ke computer networks ko **Bursty Traffic** ke liye optimize kiya gaya hai. Ek circuit us kaam ke liye behtar hai jahan har second barabar data (bits) bhejna ho, jaise audio ya video call. Lekin jab aap koi web page kholte hain, email bhejte hain, ya koi file download karte hain, to koi constant bandwidth ki shart nahi hoti—hum bas chahte hain ke jo bhi kaam ho, woh jaldi se jaldi khatam ho jaye.
+
+Agar aap circuit-switched network par koi file bhejenge, to aap ko pehle se andaza lagana padega ke "mujhe itni bandwidth chahiye." Agar aapne kam bandwidth maangi, to file bohot slow transfer hogi aur network khali hone ke baajood zaya jayega. Agar aapne zyada bandwidth maangi aur network ke paas itni free bandwidth na hui, to aapka circuit ban hi nahi payega (request reject ho jayegi). Iske bar-aks, TCP halaat ke mutabaq khud ko dhal leta hai aur jitni jagah milti hai us hisab se tezi se data bhejta hai.
+
+---
+
+### Latency and Resource Utilization
+
+Agar hum bade paimane par dekhein, to variable delays (badalte hue delays) asal mein **Dynamic Resource Partitioning** (resources ko moqa ke mutabaq baantna) ka nateeja hain.
+
+Farz karein do telephone switches ke darmiyan ek fiber wire hai jo ek waqt mein 10,000 simultaneous calls chala sakti hai. Har circuit jo is wire se guzre gaa, woh un 10,000 slots mein se ek slot pakad lega. Yeh resource ka **Static Partitioning** (pakka batwara) hai. Agar wire par sirf aap akele call kar rahe hain aur baqi 9,999 slots bilkul khaali hain, tab bhi aap ko sirf aap ka apna ek hi slot milega, baqi saari wire khaali padi rahegi par aap usay use nahi kar sakte.
+
+Iske ulat, internet par bandwidth ka batwara **Dynamically** hota hai. Saare senders ek doosre ke sath push aur jostle (dhakkam-dhakka) karte hain taake unka packet wire par pehle nikal jaye, aur network switches har lamhe yeh faisla karte hain ke ab kis packet ko pehle bhejna hai (yani bandwidth kisko deni hai). Is approach ka nuksaan yeh hai ke **Queues (linen)** lag jati hain, lekin faida yeh hai ke wire poori tarah istemal (**Maximize Utilization**) hoti hai. Wire lagane ka kharcha fixed hota hai, to jitna zyada data us se guzrega, har ek byte aap ko utna hi sasta padega.
+
+**CPU ki misal:**
+Bilkul yahi scene CPU ke sath bhi hota hai. Agar aap ek CPU core ko mukhtalif threads ke darmiyan dynamically share karte hain, to ek thread ko thodi der Operating System ki run queue mein intezar karna parta hai jab tak doosra thread chal raha ho. Is wajah se threads alag-alag time ke liye pause hote hain (variable delay). Lekin is se hardware ka utilization bohot behtar hota hai, bajaye iske ke hum har thread ke liye CPU cycles ka ek hissa pakka fix kar dein aur thread kuch na kar raha ho to woh cycles zaya jayein. Cloud platforms (jaise AWS/Azure) bhi isi wajah se ek hi physical machine par alag-alag customers ki kai Virtual Machines (VMs) chalate hain taake hardware zaya na ho.
+
+**Mehnge vs Saste ka Trade-off:**
+Agar aap resources ko pakka baant dein (**Static Partitioning** / dedicated hardware aur exclusive bandwidth), to aap ko delay ki guarantee mil sakti hai, par iska nuksaan yeh hai ke hardware sahi se utilize nahi hoga aur yeh tarika bohot **Mehenga (Expensive)** padega. Doosri taraf, jahan bohot saare log mil kar dynamic tareeqay se resource share karte hain (**Multitenancy**), to hardware poora istemal hota hai aur yeh bohot **Sasta (Cheaper)** padega, par nuksaan variable delay hai. Network mein delays koi kudrati qanoon nahi hain, balki yeh sirf ek **Cost/Benefit Trade-off** ka nateeja hain.
+
+---
+
+### Combining circuit switching and packet switching
+
+Dono tareeqon (circuit aur packet switching) ko mila kar hybrid networks banane ki koshishain bhi ki gayi hain. 1980s mein **ATM (Asynchronous Transfer Mode)** aya jo Ethernet ka muqabla karna chahta tha, lekin yeh telephone company ke main switches ke bahar zyada kamyab nahi ho saka.
+
+**InfiniBand** mein bhi is jaisi cheezein hain: yeh link layer par hi end-to-end flow control lagata hai jis se network ke andar queues ki zaroorat kam ho jati hai, halankeh raste mein rush (link congestion) ki wajah se is mein bhi delay aa sakta hai.
+
+Agar hum **QoS (Quality of Service)** ke tareeqon ko dhyan se use karein—jaise packets ko priority dena (prioritization), scheduling karna, aur data bhejne walon ki speed control karna (**admission control**) — to hum packet network par bhi telephone ke circuit jaisa mahaul bana sakte hain ya kam az kam delay ko ek had tak control kar sakte hain.
+
+* Naye algorithms jaise **L4S (Low Latency, Low Loss, Scalable Throughput)** client aur router dono level par queue aur congestion ke masle ko hal karne ki koshish karte hain.
+* Linux ka **Traffic Controller (TC)** bhi applications ko ye ijazat deta hai ke woh QoS ke liye apne packets ki priority badal sakein.
+
+**Lekin Cloud mein kya hota hai?**
+Yeh saare QoS mechanisms filhal shared data centers aur public clouds mein ya aam internet par **enable nahi hote**. Jo technology aaj kal deploy hui hai, woh humein delay ya reliability ki koi pakki guarantee nahi deti; humein har haal mein yeh maan kar chalna padega ke network jam hoga, queues banengi, aur unbounded delays aayenge. Consequently, timeouts ki koi ek "correct" value nahi hoti, humein hamesha testing aur experiments karke hi andaza lagana padta hai.
+
+Internet service providers (ISPs) ke darmiyan jo peering agreements hote hain aur **BGP (Border Gateway Protocol)** ke zariye jo raaste tay kiye jate hain, woh aam IP routing ke muqable mein telephone circuit se zyada milte julte hain. Is level par aap dedicated bandwidth khareed sakte hain. Lekin internet routing poore networks ke level par kaam karti hai, akele hosts ke darmiyan nahi, aur yeh bohot lambe timescale par operate karti hai.
+
+---
+
+### Revision Hints (Tezi se yaad karne ke liye)
+
+* **Synchronous Network (Telephone):** Circuit-switched hota hai. Bandwidth pehle se reserve hoti hai, koi queues nahi banti, delays guaranteed aur fixed (**Bounded Delay**) hote hain.
+* **Asynchronous Network (Internet/Ethernet):** Packet-switched hota hai. Data ko tukdon (packets) mein bhejta hai, queues banti hain, delays unpredictable (**Unbounded Delay**) hote hain.
+* **Why Packet Switching?** Yeh **Bursty Traffic** (achanak heavy data aana jaise web pages/emails) ke liye perfect hai. Constant bits wale kaam (voice/video) ke liye circuit switching behtar hai.
+* **Resource Partitioning Trade-off:** * *Static (Fixed):* Latency ki guarantee + expensive + low hardware utilization.
+* *Dynamic (Shared):* Variable delays + cheaper + high hardware utilization (Multi-tenancy/Cloud).
+* **QoS (Quality of Service):** L4S aur Linux `tc` jaise tools se circuit switching ko emulate (copy) karne ki koshish ki jati hai, par public cloud/internet par iski koi guarantee nahi hoti.
+
+---
+
