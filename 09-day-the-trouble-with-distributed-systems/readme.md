@@ -163,3 +163,123 @@ Faults ko handle karne ka matlab hamesha yeh nahi hota ke system ko har haal mei
 * **Fault Injection:** Jaan booch kar network kharab karke system ki recovery test karna zaroori hai.
 
 ---
+
+
+## Fault Detection
+
+Distributed systems mein chalte hue computers (nodes) ka achanak kharab ho jana ek aam baat hai. Lekin system ko kaise pata chalega ke koi machine mar chuki hai? Iski zaroorat humein bohot jagah parti hai, jaise:
+
+* **Load Balancer:** Agar ek server down ho jaye, to Load Balancer ko foran pata chalna chahiye taake woh naye users ki requests us mare hue server par na bheje (**take it out of rotation**).
+* **Single-Leader Databases:** Agar database ka main leader fail ho jaye, to kisi ek follower ko tarakki de kar naya leader banana parta hai (**failover**). Agar purane leader ke marne ka pata nahi chalega, to naya leader kaise banega?
+
+Lekin network par itna shak hota hai ke yeh pakka maloom karna namumkin ho jata hai ke samne wali machine zinda hai ya mar gayi. Kuch khas halaat mein hamara Operating System ya Network hamari thodi madad karte hain aur seedha jawab (**explicit feedback**) de dete hain:
+
+* **TCP RST ya FIN Packet:** Agar machine chal rahi hai par uske andar chalne wala software (process) crash ho gaya hai, to jab aap us port par connect karne ki koshish karenge, to us machine ka Operating System aapko **RST (Reset)** ya **FIN (Finish)** packet bhej kar saaf mana kar dega ke "bhai, yahan koi sunne wala nahi hai."
+* **Crash Notification Scripts:** Agar process khud crash ho jaye ya system administrator usay jaan booch kar band kare, to background mein ek script doosre nodes ko foran bta sakti hai ke "main ja raha hoon, tum sambhal lo." (Jaise **HBase** database mein hota hai). Is se timeout ka intezar nahi karna parta.
+* **Switch Management Interfaces:** Agar aap apne hi data center mein hain, to aap network switches se pooch sakte hain ke kya falana machine ki wire mein hardware level par power aa rahi hai ya nahi. Lekin agar aap cloud (AWS/Azure) use kar rahe hain ya internet ke zariye connect hain, to aap switches ko direct touch nahi kar sakte.
+* **ICMP Destination Unreachable:** Agar raste ka koi router pakka jaanta hai ke jis IP address par aap ja rahe hain woh rasta hi band hai, to woh aapko ek **ICMP** error message bhej deta hai. Lekin router ke paas bhi koi jaadu nahi hai, woh bhi network ke unhi maslo ka shikaar ho sakta hai.
+
+Yeh saari feedback bohot achhi hain, par aap in par **100% bharosa nahi kar sakte**. Aksar auqaat aapko koi jawab hi nahi milta—sirf khamoshi milti hai.
+
+Is khamoshi ka wahid hal hai ke aap kuch der intezar karein (**Timeout**), aur agar us dauran jawab na aaye to node ko "mra hua" (**dead**) declare kar dein. Lekin yahan ek bada trade-off hai: **False Positives vs False Negatives**. Agar timeout bohot chota rakha to zinda node ko galti se dead samajh liya jayega, aur agar bohot bada rakha to mare hue node ke intezar mein system slow ho jayega.
+
+---
+
+## Timeouts and Unbounded Delays
+
+Agar timeout hi wahid rasta hai, to timeout kitna bada hona chahiye? Iska koi ek aasan jawab nahi hai.
+
+* **Chota Timeout (Short Timeout):** Kharabi ka foran pata chal jata hai, par risk yeh hai ke agar koi node sirf thoda sa slow hua tha (load ki wajah se), to system usay galti se dead samajh lega.
+* **Bada Timeout (Long Timeout):** System safe rehta hai par jab sach mein koi node marta hai, to users ko lambe arsay tak intezar karna parta hai ya errors dekhne parte hain.
+
+**Zinda machine ko dead declare karne ka nuksaan:**
+Farz karein ek node zinda tha aur user ke kehne par email bhej raha hai. Network slow hone ki wajah se aapne usay dead declare kar diya aur uska kaam doosre node ko de diya. Ab doosra node bhi wahi email bhej dega, yani user ko **do baar email** chali jayegi!
+
+Is se bhi bada masla **Cascading Failure (Aafat ka ek silsila)** hai. Jab ek node ko dead declare kiya jata hai, to uska saara bojh (load) baqi nodes par daal diya jata hai. Agar woh node mara nahi tha balki pehle hi load ki wajah se slow tha, to uska load doosre nodes par jaane se woh doosre nodes bhi load se dabb kar slow ho jayenge. Phir unhein bhi dead declare kar diya jayega, aur ahista ahista poora system dominoes ki tarah baith jayega.
+
+### Ek Farzi Perfect System Ka Timeout ($2d + r$)
+
+Writer kehta hai ke farz karein hum ek khayali (fictitious) duniya mein hain jahan network guarantee deta hai ke ek packet zyada se zyada $d$ time mein deliver ho jayega (ya phir raste mein ghum jayega, par $d$ se zyada time kabhi nahi lega). Aur zinda server hamesha $r$ time ke andar request ko process kar leta hai.
+
+Is ideal duniya mein, agar aap request bhejenge to:
+
+1. Request ko server tak jaane mein maximum time lagega = $d$
+2. Server ko process karne mein maximum time lagega = $r$
+3. Jawab ko wapas aap tak aane mein maximum time lagega = $d$
+
+To total maximum time ho gaya:
+
+
+$$2d + r$$
+
+Agar aapne timeout 
+
+$$2d + r$$
+
+ rakha aur is time ke andar jawab nahi aaya, to aap 100% yakeen se keh sakte hain ke ya to network toot gaya hai ya server mar gaya hai.
+
+Lekin haqeeqat mein hamare networks **Asynchronous** hote hain jin mein **Unbounded Delays** hote hain—yani delay ki koi aakhri had (upper limit) nahi hoti. Data jitna chahein der se pahonch sakta hai, isliye hum yeh ideal formula real life mein use nahi kar sakte.
+
+---
+
+## Network congestion and queueing
+
+Real life mein gaari chalate huay travel time kyun badhta hai? Traffic jam (congestion) ki wajah se. Computers mein bhi delay ki sab se badi wajah **Queues (Linen)** hoti hain:
+
+### Figure 9-2 Ka Mukammal Breakdown
+
+Aap ne jo diagram share ki hai, woh network switch ke andar ka traffic jam dikhati hai. Isko step-by-step samajhte hain:
+
+<div align="center">
+  <img src="./images/02.png" width="700"/>
+</div>
+
+1. **Input Links (Port 1, 2, 3, 4):** Baayein (left) taraf se chaar alag-alag ports se data ke chhote blocks (packets) switch ke andar aa rahe hain. Har port ke packets ka rang alag hai (Port 1 ke kaale hain, Port 2 ke grey hain, Port 4 ke safaid hain).
+2. **Switch Fabric:** Yeh switch ka andaruni rasta hai jo packets ko sahi disha mein bhejta hai.
+3. **The Problem (Destination Port 3):** Is diagram mein Port 1, Port 2, aur Port 4 teeno ke teeno computer achanak apna data ek hi waqt mein **Port 3** ki taraf bhej rahe hain (**Output Links** par Port 3 ko dekhein).
+4. **Output Queues (Traffic Jam):** Chunke Port 3 ki nikalne wali line (wire) ek waqt mein sirf ek hi packet bhej sakti hai, isliye switch ke andar Port 3 ke samne ek lambi line (**Output Queue**) lag gayi hai. Aap dekh sakte hain ke us queue mein kaale, grey aur safaid saare packets line mein khare apni baari ka intezar kar rahe hain.
+5. **Packet Drop (Congestion):** Agar peeche se data aata raha aur yeh line (buffer) poori bhar gayi, to switch naye aane wale packets ko **drop (gira)** dega. Network bilkul theek chal raha hai, koi taar nahi tooti, lekin jagah na hone ki wajah se packet ghum gaya aur usay dobara (retransmit) bhejna padega, jis se bohot zyada delay aayega.
+
+Switch ke alawa queues aur kahan kahan banti hain?
+
+* **Destination Machine OS Queue:** Jab packet computer tak pahonch jata hai, agar CPU ke saare cores ya application ke threads pehle se busy hain, to Operating System us packet ko ek queue mein rakh deta hai jab tak application free na ho.
+* **Virtualization Pauses (VM Monitor):** Cloud mein jab aapki Virtual Machine (VM) chal rahi hoti hai, to achanak hypervisor aapki VM ko kuch milliseconds ke liye rok (pause) deta hai taake doosri VM ko CPU mil sake. Us dauran aane wala data background mein queue hota rehta hai.
+* **TCP Sender Buffer / Backpressure:** TCP khud network ko jam hone se bachane ke liye data ko pehle bhejne wale ke buffer mein rok leta hai (Backpressure), jis se network par jaane se pehle hi delay aa jata hai.
+
+Jab TCP kisi packet ke ghumne par usay dobara bhejta hai, to aapki application ko yeh nahi pata chalta ke packet khoya tha, usay sirf itna lagta hai ke "yaar, aaj jawab bohot der se aaya."
+
+---
+
+## TCP Versus UDP
+
+Kuch applications aisi hoti hain jinhein har haal mein speed chahiye hoti hai (jaise video calling, voice calling, ya online gaming). Woh TCP ke bajaye **UDP (User Datagram Protocol)** use karti hain. Yeh reliability aur delay ke darmiyan ek trade-off hai:
+
+* **UDP** na to data ko retransmit (dobara) bhejta hai aur na hi speed control karta hai. Is wajah se TCP wale lambe delays se bach jata hai.
+* **Kyun use hota hai?** Kyunke aisi jagah par purana data bilkul bekar hota hai. Agar aap phone par baat kar rahe hain aur aap ki aawaz ka ek tukda raste mein ghum gaya, to TCP usay dobara bhejega, par tab tak baat aage nikal chuki hogi! Behtar yeh hai ke us khali jagah par halki si khamoshi aa jaye aur stream aage chalti rahe. Agar baat samajh na aaye, to insan khud hi pooch leta hai: *"Kya kaha aapne? Aawaz kat gayi thi."* (Retry human layer par hota hai).
+
+---
+
+## Variability of network delays
+
+Network mein delays tab sab se zyada ajeeb aur unpredictable hote hain jab system apni poori capacity ke qareeb chal raha ho. Agar system khali hai, to queues foran saaf ho jati hain, par agar load zyada hai, to queues bohot tezi se lambi ho jati hain.
+
+**Noisy Neighbor (Cloud ka masla):**
+Public clouds (jaise AWS) mein aap resources doosre customers ke sath share kar rahe hote hain. Ek hi physical switch ya network wire se aap ka data bhi ja raha hai aur kisi aur ka bhi. Agar aapke sath wala koi customer (Noisy Neighbor) achanak bohot bhari data transfer shuru kar de, to uski wajah se network switches jam ho jayenge aur **aapko delay ka samna karna padega**, halankeh aap ne kuch bhi galat nahi kiya.
+
+**Iska Hal Kya Hai?**
+
+1. **Experimental Timeouts:** Cloud mein aap ko mukhtalif machines par lambe arsay tak network ka round-trip time measure karna padta hai taake aap ko delays ki distribution samajh aaye, aur phir aap ek suitable timeout decide karte hain.
+2. **Dynamic Timeouts:** Sab se behtar tareeqa yeh hai ke system khud hi har waqt network ki speed aur thartharahat (**jitter / variability**) ko naapta rahe aur halaat ke mutabaq timeout ko khud hi kam ya zyada karta rahe. Iska ek mashhoor tareeqa **Phi Accrual Failure Detector** hai, jo Cassandra aur Akka systems mein istemal hota hai. TCP bhi apne retransmission timeouts ko isi tarah dynamic tareeqay se adjust karta hai.
+
+---
+
+### Revision Hints (Tezi se yaad karne ke liye)
+
+* **Explicit Feedback:** RST packets, crash scripts, aur ICMP madad karte hain, par in par 100% relying nahi ki ja sakti.
+* **Timeout Formula:** Ideal duniya mein formula $2d + r$ hota hai, par real life asynchronous networks mein delays **unbounded** (bina had ke) hote hain.
+* **Cascading Failure Trap:** Chote timeout se zinda nodes ko dead declare karne se baki nodes par load badhta hai aur poora cluster crash ho sakta hai.
+* **Figure 9-2 (Switch Jam):** Jab mukhtalif ports ek hi port par data bhejein, to switch queue bhar jati hai aur packets drop ho jate hain.
+* **TCP vs UDP Trade-off:** UDP retransmit nahi karta, isliye video/voice calls ke liye behtar hai kyunke wahan delayed data kachra hota hai.
+* **Noisy Neighbor:** Cloud mein doosre logon ke heavy usage ki wajah se aapka network slow ho sakta hai, jiska hal **Phi Accrual** jaise dynamic failure detectors hain.
+
+---
