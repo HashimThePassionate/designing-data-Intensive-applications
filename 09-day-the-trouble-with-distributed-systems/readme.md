@@ -588,3 +588,140 @@ Garbage-collected languages mein rehte huay bhi in pauses ke asar ko kam karne k
 * **GC Hiding Trick:** Node par GC chalane se pehle traffic rokh do, taake clients ko milliseconds ka delay bhi nazar na aaye.
 
 ---
+
+## Knowledge, Truth, and Lies
+
+Ab tak hum ne dekha ke distributed systems aam computers se bilkul alag hote hain: in mein koi shared memory nahi hoti, sirf ek na-kaabili-e-etemaad (unreliable) network hota hai jahan packets der se pahonchte hain, computers achanak aadhi-adhuri kharabi (**partial failure**) ka shikaar ho sakte hain, ghardiyan dhoka de jati hain, aur chalte chalte programs so (**process pause**) jate hain.
+
+In sab cheezon ki wajah se distributed system mein kaam karna dimaag ghumane jaisa hai. Network par mojood koi bhi computer doosre computers ke baare mein kuch bhi pakka nahi jaanta—woh sirf un messages ki buniyaad par andaze lagata hai jo usay milte hain. Agar samne wala computer jawab na de, to yeh jaan-na namumkin hai ke woh computer mar chuka hai ya raste ka network toot gaya hai.
+
+Lekin hamien zindagi ka maqsad dhoondne jitni philosophy mein jaane ki zaroorat nahi hai. Hum software banate huay pehle se kuch asool aur assumptions tay kar lete hain (jisay **System Model** kehte hain), aur phir apne algorithms ko is tarah design karte hain ke woh un asoolon ke andar bilkul sahi kaam karein.
+
+---
+
+## The Majority Rules
+
+Writer yahan haalat ko samjhane ke liye **3 ڈراؤنے خواب (Nightmares)** jaisi misalein deta hai:
+
+* **Pehla Khwab (Asymmetric Fault):** Ek node perfectly kaam kar raha hai aur sab ke messages receive bhi kar raha hai. Lekin uske apne bahar jaane wale messages network drop kar raha hai. Node cheekh cheekh kar keh raha hai ke *"Main zinda hoon!"* par kisi ko uski aawaz nahi ja rahi. Baqi nodes usay mara hua samajh kar uska janaza nikaal dete hain aur woh kuch nahi kar sakta.
+* **Doosra Khwab:** Ek node ko andaza ho jata hai ke doosre nodes uske messages ka ACK nahi bhej rahe, isliye network mein masla hai. Par phir bhi baqi nodes usay dead declare kar dete hain aur yeh bebas rehta hai.
+* **Teesra Khwab (Process Pause):** Ek node achanak 1 minute ke liye so (pause) jata hai. Baqi nodes intezar karke thak jate hain aur usay dead declare karke uski zimmedariyan kisi aur ko de dete hain. Jab 1 minute baad uski aankh khulti hai, to woh maut ke kofin se sar bahar nikaal kar baqi nodes se achanak baatein shuru kar deta hai, jabke usay khud andaza hi nahi hota ke poora 1 minute guzar chuka hai!
+
+**Moral of the Story (Sabak):** Distributed system mein koi bhi akela node apne faisle ya apni soch par 100% bharosa nahi kar sakta. Agar hum sirf ek hi node ki baat par poora system chalaenge, to system kahin bhi phans sakta hai.
+
+### Quorum (Aksariyat Ka Faisla)
+
+Iska hal yeh hai ke hum faisle ek computer par nahi chorthay, balki **Voting (Quorum)** karate hain. Agar nodes ki aksariyat (majority — yani aadhe se zyada nodes) mil kar kisi node ko dead declare kar dein, to usay mara hua hi mana jayega, bhale hi woh node andar se khud ko kitna hi zinda kyun na samajh raha ho. Us akele node ko aksariyat ka faisla maan kar peeche hatna padega.
+
+* **Faida:** Agar minority (kam tadad) computers kharab ho jayein, to system chalta rehta hai. 3 nodes mein se 1 kharab ho to system chalta hai, 5 nodes mein se 2 kharab hon to bhi chalta hai.
+* **Safety:** Poore system mein ek waqt par sirf **aik hi majority** ho sakti hai, do alag majorities kabhi aapas mein takra nahi saktiyn.
+
+---
+
+## Distributed Locks and Leases
+
+Locks aur Leases distributed systems mein bugs ki bohot badi wajah bante hain agar unhein dhyan se use na kiya jaye. Lease ek aisi chabi (lock) hoti hai jis ka ek fixed expiry time hota hai (jaise 30 seconds). Hum lease wahan use karte hain jahan humein guarantee chahiye ke ek waqt mein sirf **aik hi banda** kaam kare, jaise:
+
+* Database ka sirf ek hi Leader ho (taake Split-Brain na ho).
+* Ek waqt mein sirf ek hi user kisi khas file ya object ko update kare taake data corrupt na ho.
+
+Lekin agar process pause ki wajah se do alag-alag nodes achanak yeh samajhne lag gae ke lease un dono ke paas hai, to kya hoga? Chalein aap ki bheji gayi pehli do diagrams se is tabaahi ko dekhte hain.
+
+---
+
+### Figure 9-4 Ka Mukammal Breakdown (Process Pause Bug)
+
+Yeh diagram dikhati hai ke agar hum distributed lock ko ghalat tarike se implement karein to data kaise corrupt hota hai (HBase database mein asal mein yeh bug aa chuka hai):
+
+<div align="center">
+  <img src="./images/04.png" width="700"/>
+</div>
+
+1. **Client 1 Request:** Client 1 lock service se kehta hai ke mujhe file par likhne ke liye chabi do (**Get lease**).
+2. **Lease Granted:** Lock service usay lease de deti hai (`OK`). Ab Client 1 ke paas ek makhsoos waqt ke liye exclusive haq hai.
+3. **The Pause Trap:** Lekin kaam shuru karne se pehle hi Client 1 ka software achanak so jata hai (**Process paused**).
+4. **Lease Expires:** Jab tak Client 1 soya hua hai, lock service ka timer khatam ho jata hai (**Lease expired**).
+5. **Client 2 Takes Over:** Chunke Client 1 ka koi pata nahi, Lock service wohi chabi ab Client 2 ko de deti hai (`OK`). Client 2 bina ruke apna data storage mein likh deta hai (**Write data**).
+6. **The Zombie Wakes Up:** Ab Client 1 hosh mein aata hai. Usay lagta hai ke *"Main to abhi lease lekar soya tha, chabi abhi bhi mere paas hai!"* Woh bina dobara check kiye apna data storage par bhej deta hai (**Write data**).
+7. **Tabaahi:** Dono clients ka data aphas mein takra jata hai aur file hamesha ke liye kharab ho jati hai (**File corrupted**).
+
+---
+
+### Figure 9-5 Ka Mukammal Breakdown (Network Delay Bug)
+
+Yeh diagram batati hai ke agar process pause na bhi ho, tab bhi sirf network packet ke der se pahonchne se bilkul same tabaahi mach sakti hai:
+
+<div align="center">
+  <img src="./images/05.png" width="700"/>
+</div>
+
+1. **Client 1 Sends Write:** Client 1 ke paas valid lease thi. Usne apna data storage ko bhej diya (**Write data**).
+2. **The Crash & Delay:** Request bhejne ke foran baad Client 1 crash ho gaya (**Process crashed**). Lekin jo packet usne network par bheja tha, woh network ke traffic jam mein phans gaya aur bohot der tak raste mein hi rha.
+3. **Lease Expires:** Jab tak woh packet raste mein tha, Client 1 ka lease time khatam ho gaya.
+4. **Client 2 Writes:** Lock service ne naya lease Client 2 ko de diya. Client 2 ne sukoon se apna data storage mein likha aur storage ne usay `OK` keh diya.
+5. **The Ghost Packet Arrives:** Ab achanak Client 1 ka woh purana delayed packet jo raste mein phansa hua تھا, storage tak pahonch jata hai. Storage bina soche samajh us purane packet ka data upar likh deti hai, jis se Client 2 ka naya data badal jata hai aur file dobara corrupt ho jati hai (**File corrupted**).
+
+---
+
+## Fencing off zombies and delayed requests
+
+Aise computer ko jo apni lease kho chuka hai par usay is baat ka pata nahi aur woh abhi bhi khud ko leader samajh raha hai, **Zombie** kehte hain.
+
+* **STONITH (Shoot The Other Node In The Head):** Kuch systems zombie ko dafnane ke liye usay hardware level par shut down ya power off kar dete hain. Par yeh tarika nakaam hai kyunke yeh Figure 9-5 wale network delay ka kuch nahi bigarh sakta (packet to pehle hi nikal chuka hai), aur kabhi kabhi galti se saare nodes ek doosre ko hi goli maar dete hain.
+
+### Asli Hero: Fencing Tokens (Figure 9-6)
+
+Iska sab se solid hal **Fencing Token** hai. Asol yeh hai ke jab bhi lock service kisi ko lease degi, to woh sath mein ek number degi jo har baar **barhta (increment hota)** jayega. (Kafka mein isay Epoch Number aur Paxos/Raft mein Ballot/Term number kehte hain).
+
+---
+
+### Figure 9-6 Ka Mukammal Breakdown (Safe Fencing)
+
+<div align="center">
+  <img src="./images/06.png" width="700"/>
+</div>
+
+1. **Token 33:** Client 1 ko lease milti hai sath mein token milta hai = **33**. Iske baad Client 1 so jata hai (**Process paused**).
+2. **Token 34:** Lease expire hoti hai, aur Client 2 ko naya lease milta hai jiska token barh kar ho jata hai = **34**.
+3. **Storage Checking:** Client 2 storage ko kehta hai ke *"Mera data likho aur mera token **34** hai."* Storage isay likh leti hai aur apne paas note kar leti hai ke **ab tak ka sab se bada token 34 aa chuka hai**.
+4. **Zombie Blocked:** Client 1 jagta hai aur storage ko apna data bhejta hai ke *"Mera token **33** hai, data likho."*
+5. **Rejection:** Storage check karti hai ke mere paas to pehle hi 34 token ka data aa chuka hai, to yeh 33 wala zaroor koi purana zombie hai! Storage is request ko laat maar kar bahar nikal deti hai (**Rejected: old token**). System tabaahi se bach gaya!
+
+Aap ZooKeeper use kar rahe hon to `zxid` ya `cversion` token banta hai, aur cloud storage (jaise S3 ya Azure Blob) mein isay **Conditional Writes** ya Preconditions kehte hain jo purani entry par naya data likhne se mana kar dete hain.
+
+---
+
+## Fencing with multiple replicas
+
+Agar hamara storage kisi ek server par nahi hai balki bohot saare alag computers (**Multiple Replicas**) par bikhra hua hai (jaise leaderless replication mein hota hai jahan LWW use hota hai), to hum is fencing token ko kaise chalayenge?
+
+Iska hal yeh hai ke hum client ke bheje gaye timestamp ke **shuru wale hisse (Most Significant Bits)** mein is Fencing Token ko ghusa dete hain. Is se yeh guarantee ho jati hai ke naye leaseholder (Token 34) ka timestamp hamesha purane leaseholder (Token 33) ke timestamp se bada hi dikhega, bhale hi purane wale ka data aakhir mein kyun na pohnche.
+
+---
+
+### Figure 9-7 Ka Mukammal Breakdown (Multi-Replica Fencing)
+
+<div align="center">
+  <img src="./images/07.png" width="700"/>
+</div>
+
+1. **Client 2 Writes:** Client 2 ke paas token 34 hai, isliye uske writes ka timestamp `340000851` banta hai. Woh Replica 1 aur Replica 2 par data likh deta hai (`OK`). Lekin uski pahonch Replica 3 tak nahi hoti kyunke woh down hai (**Node offline**).
+2. **Quorum Complete:** Chunke 3 mein se 2 replicas par data likha ja chuka hai, Client 2 ka kaam pakka (Quorum complete) ho gaya.
+3. **Zombie Client 1 Arrives:** Client 1 (Zombie) hosh mein aata hai. Uska token 33 tha, isliye uske write ka timestamp `330000994` banta hai.
+4. **Replicas Action:** Client 1 apna data teeno replicas ko bhejta hai:
+* **Replica 1 & Replica 2:** Dono dekhte hain ke hamare paas pehle hi `34...` wala bada timestamp mojood hai, isliye woh Client 1 ke `33...` wale data ko ignore kar dete hain (**Ignored**).
+* **Replica 3:** Yeh node achanak online aata hai. Iske paas Client 2 ka data nahi pohncha tha, isliye yeh chupchaap Client 1 ka `33...` wala data save kar leta hai (`OK`).
+
+
+5. **No Problem:** Yeh koi masla nahi hai! Jab bhi koi user agli baar data parhne ke liye **Quorum Read** karega (yani kam az kam 2 replicas se poochega), to usay Replica 1 aur Replica 3 se jawab milega. System dono ke timestamps compare karega: `34...` vs `33...`. Chunke Client 2 ka timestamp bada hai, system hamesha Client 2 ka data hi sahi manega, aur background mein **Read Repair** ke zariye Replica 3 ke ghalat data ko bhi theek kar dega.
+
+---
+
+### Revision Hints (Tezi se yaad karne ke liye)
+
+* **The Core Truth:** Distributed network mein koi node khud ki soch par trust nahi kar sakta, hamesha **Quorum ( Aksariyat/Majority)** ka faisla chalta hai.
+* **Figure 9-4 & 9-5 Trap:** Process pause ya network delay ki wajah se purana leaseholder (Zombie) naye leaseholder ke data ko overwrite karke file corrupt kar sakta hai.
+* **Fencing Token (Figure 9-6):** Har baar lock milne par number barhta hai (33 -> 34). Storage hamesha chote token wale zombie ko reject kar deti hai.
+* **Multi-Replica Fencing (Figure 9-7):** Token ko timestamp ke shuru mein daal dete hain taake leaderless replicas par LWW rule ke tehat hamesha naya token hi jeete, aur baqi nodes read-repair se theek ho jayein.
+
+---
