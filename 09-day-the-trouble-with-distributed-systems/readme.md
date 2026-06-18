@@ -432,3 +432,159 @@ Yeh accuracy khusoosi hardware (jaise data center ke andar **GPS receivers** ya 
 * **MiFID II ($100\,\mu\text{s}$):** Financial trading mein bohot high accuracy chahiye hoti hai jiske liye PTP aur atomic clocks use hoti hain.
 
 ---
+
+## Relying on Synchronized Clocks
+
+Ghardiyan dekhne mein bohot aasan aur seedhi lagti hain, par in ke andar bohot saare khufia khadde (pitfalls) hote hain. Haqeeqat mein ek din mein hamesha fix 86,400 seconds nahi hote, time-of-day ghardiyan peeche ki taraf chhalaang maar sakti hain, aur cluster mein alag-alag computers ka waqt ek doosre se kaafi alag ho sakta hai.
+
+Jaise hum ne pehle padha ke network kharab ho sakta hai aur software ko us ke liye tayyar rehna chahiye, bilkul waise hi software ko **galat ghardiyon** ke liye bhi tayyar rehna chahiye.
+
+**Sab se bada khatra:** Agar computer ka CPU kharab ho ya network band ho, to computer chalna band ho jata hai aur humein foran pata chal jata hai. Lekin agar computer ki ghardi (quartz clock) kharab ho ya NTP kharab ho, to **sab kuch bilkul theek chalta hua nazar aayega**, jabke background mein ghardi asli waqt se door nikalti jayegi. Iska nateeja software ka crash hona nahi hota, balki **chupchaap data ka zaya (silent data loss)** ho jana hota hai, jo ke zyada khatarnak hai.
+
+Isliye agar aap aisa software chalate hain jise synchronized clocks chahiye, to aap ko har waqt machines ke darmiyan waqt ke farq (**clock offsets**) ko monitor karna padega. Agar koi node zyada bhatak jaye, to usay dead declare karke cluster se nikaalna zaroori hai.
+
+### Timestamps for ordering events
+
+Jab do alag clients distributed database mein data likhte hain, to yeh pata lagana ke "pehle kaun aaya" bohot mushkil hota hai. Jaise hum ne Figure 9-3 mein dekha, systems aksar **Last Write Wins (LWW)** ki policy istemal karte hain—yani jis ka timestamp bada hoga, wahi jeetega, baqi sab delete. Cassandra aur ScyllaDB jaise databases extra round-trip se bachne ke liye client ki ghardi ka timestamp use karte hain, jis se yeh 3 bade masle paida hote hain:
+
+* **Writes Gayab Ho Jana:** Agar ek computer ki ghardi slow chal rahi hai, to us node par likha gaya naya data un nodes ke samne kabhi nahi jeet payega jin ki ghardi tez chal rahi hai. Data bina kisi error message ke silently drop hota rahega.
+* **Causality (Aage-Peeche Ka Rishta) Khatam Hona:** LWW yeh farq nahi kar sakta ke kaunsa kaam pehle wale kaam ko dekh kar kiya gaya (jaise Client B ka increment Client A ke write par depend karta tha) aur kaunse do kaam bilkul ek hi waqt par alag-alag aazad tareeqay se huay. Is ke liye **Version Vectors** jaise logical tareeqon ki zaroorat hoti hai.
+* **Same Timestamps Ka Takraav:** Agar do nodes bilkul ek hi millisecond par data likhein, to dono ka timestamp same ho jayega. Phir faisla karne ke liye koi random number (tiebreaker) use karna parta hai, jo phir se insaf aur tareeqay ke khilaf ho sakta hai.
+
+**NTP Ki Had:** Hatta ke agar aap ka NTP bilkul perfect chal raha ho, tab bhi network delay ki wajah se yeh ho sakta hai ke aap ne apni ghardi ke mutabaq packet 100 ms par bheja aur samne wale ko uski ghardi ke mutabaq woh 99 ms par mila! Aisa lagega jaise packet bhejne se pehle hi pahonch gaya, jo ke namumkin hai.
+
+Isliye event ordering ke liye quartz crystal ke bajaye counters par mabni **Logical Clocks** (jo sirf events ki tarteeb ginti hain, seconds nahi) ek mehfooz rasta hain. Physical clocks sirf guzre huay waqt ko naapne ke liye achhi hain.
+
+### Figure 9-3 Ka Mukammal Breakdown (Ghardiyon Ka Dhoka)
+
+Aap ne jo diagram share ki hai, woh distributed systems mein time-of-day clocks par bharosa karne ka sab se bada khatra dikhati hai. Is kahani ko step-by-step samajhte hain:
+
+<div align="center">
+  <img src="./images/03.png" width="700"/>
+</div>
+
+1. **Client A Ka Kaam:** Client A sab se pehle aata hai aur Node 1 par ek data set karta hai: `x = 1`. Node 1 apni ghardi ke mutabaq is kaam par ek parchi (timestamp) laga deta hai: **`42.004`**.
+2. **Replication:** Node 1 yeh data doosre nodes ko bhejta hai. Yeh request Node 3 tak pahonch jati hai.
+3. **Client B Ka Kaam:** Client B, Client A ke kaam ke **baad** aata hai. Woh Node 3 se kehta hai ke `x` ki value ko ek barha do (**Increment** `x += 1`), yani ab `x = 2` hona chahiye.
+4. **Maseebat (Clock Skew):** Chunke Client B ka kaam Client A ke baad hua hai, isliye iska timestamp bada hona chahiye tha. Lekin Node 3 ki ghardi Node 1 se sirf 3 milliseconds peeche chal rahi hai! Isliye Node 3 apni ghardi ke mutabaq is naye kaam par timestamp laga deta hai: **`42.003`**.
+5. **Tabaahi (Node 2 Par):** Ab Node 1 aur Node 3 dono apna apna data Node 2 ko bhejte hain. Node 2 ke paas do entries aati hain:
+* `x = 1` (Timestamp = `42.004`)
+* `x = 2` (Timestamp = `42.003`)
+6. **Last Write Wins (LWW) Ka Faisla:** Node 2 dono ka timestamp dekhta hai. Chunke `42.004` bada number hai `42.003` se, Node 2 samajhta hai ke `x = 1` sab se naya kaam hai. Woh Client B ke naye data (`x = 2`) ko **hamesha ke liye delete (drop)** kar deta hai! Client B ka increment ghum gaya, aur database corrupt ho gaya.
+
+
+---
+
+## Clock readings with a confidence interval
+
+Jab aap computer se waqt poochte hain, to bhale hi woh aap ko microseconds ya nanoseconds mein jawab de, iska matlab yeh nahi ke woh bilkul accurate hai. Internet ke NTP server se sync karne par bhi ghardi mein tens of milliseconds ka farq ho sakta hai, aur agar network jam ho to yeh farq 100 ms se upar ja sakta hai.
+
+Isliye waqt ko ek single point samajhna galat hai. Waqt asal mein ek **Confidence Interval (Umeed ka daira / Range)** hota hai. Jaise system 95% confident hai ke is waqt time 10.3 seconds se 10.5 seconds ke darmiyan hai. Agar hamara error margin +/- 100 ms hai, to timestamp ke aakhir wale microseconds ke digits bilkul be-maani hain.
+
+Yeh range (uncertainty bound) aap ke time source par depend karti hai. Agar computer ke sath apna GPS ya atomic clock laga ho to error range bohot choti hoti hai. Lekin aam operating systems (jaise Linux ka `clock_gettime`) aap ko yeh error margin nahi btaate, woh bas ek number de dete hain.
+
+Google Spanner ka **TrueTime API** aur Amazon ka **ClockBound** is mamle mein alag hain. Jab aap un se waqt poochte hain, to woh ek number nahi dete, balki do values dete hain: **$[earliest, latest]$**. Ghardi khud bati hai ke asli waqt is range ke andar kahin mojood hai. Yeh range jitni choti hogi, ghardi utni hi accurate hogi.
+
+---
+
+## Synchronized Clocks for Global Snapshots
+
+Databases mein **MVCC (Multi-Version Concurrency Control)** ka maqsad yeh hota hai ke jab koi bada analytics ka kaam ya backup chal raha ho, to usay database ki ek mukammal aur consistent tasweer (**Snapshot**) nazar aaye, bina transactions ko roke. Iske liye har transaction ko ek monotonically barhta hua ID chahiye hota hai. Akele computer par to ek counter ($1, 2, 3...$) kafi hai, par distributed system mein poore cluster ke liye aisa counter banana ek bohot bada bottleneck (rukawat) ban jata hai.
+
+To kya hum time-of-day clock ke timestamps ko transaction IDs bana sakte hain? Google Spanner ne isay mumkin banaya hai, aur woh TrueTime API ke confidence interval ko use karta hai. Spanner ka asool bohot hi simple hai:
+
+Agar aap ke paas do transactions hain, $A$ aur $B$, aur unki time ranges (confidence intervals) aapas mein bilkul nahi takraateen—yani:
+
+
+$$A_{\text{earliest}} < A_{\text{latest}} < B_{\text{earliest}} < B_{\text{latest}}$$
+
+
+To is mein koi shak nahi ke Transaction $B$ har haal mein Transaction $A$ ke **baad** hi hui hai. Masla sirf tab aata hai jab ranges aapas mein overlap (takra) rahi hon.
+
+**Spanner Ka Jadu (TrueTime Wait):**
+Causality ko barkarar rakhne ke liye, Google Spanner kisi bhi transaction ko commit (save) karne se pehle **thodi der ke liye jaan booch kar ruk jata hai (wait karta hai)**. Woh itna waqt wait karta hai jitna uski ghardi ka confidence interval (uncertainty) hota hai. Is tarah woh guarantee deta hai ke agli jo bhi transaction aayegi, uski time range purani transaction se aage nikal chuki hogi aur dono kabhi overlap nahi karengi! Is wait time ko kam se kam rakhne ke liye Google ne apne har data center mein **Atomic Clocks** aur **GPS receivers** lagaye hain taake error range sirf $7\,\text{ms}$ tak rahe.
+
+---
+
+## Process Pauses
+
+Aayein ab distributed systems mein ghardiyon ke istemal ka ek aur khatarnak scene dekhte hain. Farz karein ek database ka leader hai aur sirf usay hi data likhne (writes accept karne) ki ijazat hai. Leader ko kaise pata chalega ke baki nodes ne usay abhi tak zinda mana hua hai?
+
+Iske liye leader baqi nodes se ek **Lease** (aik makhsoos waqt ka lock) leta hai. Jab tak lease zinda hai, wahi leader hai. Apne aap ko leader rakhne ke liye usay har thodi der baad lease ko renew karna parta hai. Code kuch aisa dikhta hai:
+
+```java
+while (true) {
+ request = getIncomingRequest();
+ 
+ // Check karein ke kya lease ke khatam hone mein kam az kam 10 seconds baqi hain?
+ if (lease.expiryTimeMillis - System.currentTimeMillis() < 10000) {
+     lease = lease.renew(); // Agar time kam hai to lease renew karein
+ }
+ 
+ if (lease.isValid()) {
+     process(request); // Agar lease valid hai to request process karein
+ }
+}
+
+```
+
+### Is Code Mein Do Bade Nuqs Hain:
+
+1. **Synchronized Clocks Par Bharosa:** Lease khatam hone ka waqt (`expiryTimeMillis`) doosri machine ne set kiya tha, aur aap usay apni local ghardi (`System.currentTimeMillis()`) se compare kar rahe hain. Agar ghardiyan aage peeche huayin to bera ghaark!
+2. **The Execution Pause Trap:** Farz karein ghardiyan bilkul sahi hain. Code ne line `if (lease.isValid())` par check kiya aur lease bilkul valid thi. Lekin agli hi line `process(request)` chalne se pehle, **aap ka program achanak 15 seconds ke liye so gaya (pause ho gaya)!** Jab program 15 seconds baad hosh mein aayega, to lease kab ki expire ho chuki hogi aur cluster ne kisi naye node ko leader bana diya hoga. Lekin is be-khabar purane leader ka thread wahin se shuru hoga aur request ko process kar dega (galat data database mein likh dega) kyunke usay pata hi nahi ke woh 15 seconds tak soya hua tha!
+
+### Computers Mein Program Itna Lamba Kyun So Jata Hai? (7 Badi Wajahat)
+
+* **Garbage Collection (GC) Pauses:** Java (JVM) jaise runtimes mein jab Garbage Collector chalta hai, to woh kabhi kabhi poore program ke saare threads ko rok deta hai (**Stop-the-world pause**). Purane zamane mein yeh pauses minutes tak chale jaate تھے!
+* **Thread Contention:** Jab bohot saare threads ek hi lock ya queue par aapas mein larr rahe hon, to kuch threads ko lambe arsay tak baari ka intezar karna parta hai.
+* **Virtual Machine (VM) Suspension:** Cloud mein hypervisor aap ki poori VM ko zameen par utaar kar disk par save kar sakta hai aur doosre host par shift kar sakta hai (**Live Migration**). Is dauran aap ka poora system kuch milliseconds se lekar seconds tak sunn ho jata hai.
+* **CPU Steal Time:** Agar ek hi physical machine par chalne wali doosri VMs bohot heavy load daal dein, to aap ki VM ko CPU milna band ho jata hai jisay steal time kehte hain.
+* **Synchronous Disk I/O:** Agar aap ka code disk se data read kar raha hai (ya Java classloader pehli baar koi class load kar raha hai), to thread disk ke jawab ka intezar karne lagta hai. Agar disk network par ho (jaise Amazon EBS), to network delay bhi is mein jud jata hai.
+* **Paging/Thrashing (Memory Ka Khatam Hona):** Agar RAM bhar jaye, to Operating System data ko hard disk par bhejna shuru kar deta hai (**Swapping**). Agar memory pressure bohot zyada ho, to OS sirf data ko andar bahar karne mein lag jata hai aur asli kaam ruk jata hai (isay **Thrashing** kehte hain).
+* **Unix SIGSTOP Signal:** Agar galti se kisi engineer ne terminal par **Ctrl+Z** daba diya, to OS process ko `SIGSTOP` signal bhej kar foran rok deta hai jab tak `SIGCONT` na bheja jaye.
+
+Distributed system ke node ko hamesha yeh maan kar chalna chahiye ke uski execution kisi bhi function ke darmiyan kitni bhi der ke liye ruk sakti hai. Jab tak woh hosh mein aayega, baqi duniya aage nikal chuki hogi. Akele computer par to hum mutex ya semaphore se threads ko safe kar lete hain kyunke memory share hoti hai, par distributed system mein sirf network messages hote hain, isliye yahan timing par koi andaza nahi lagaya ja sakta.
+
+---
+
+## Provididng response time guarantees
+
+Agar aap bohot zyada mehnat aur paisa kharch karein, to aap in pauses ko khatam kar sakte hain. Aise systems jinhein har haal mein ek makhsoos deadline ke andar respond karna hota hai, unhein **Hard Real-Time Systems** kehte hain (jaise hawai jahaz, rockets, robots, aur gaariyon ke control systems).
+
+Farz karein gaari ka accident hua aur airbag khulna hai, to aap yeh bardasht nahi kar sakte ke airbag ka software achanak Java ke GC pause ki wajah se ruk jaye!
+
+Real-time guarantees dene ke liye poore software stack ko badalna parta hai:
+
+* Ek **RTOS (Real-Time Operating System)** chahiye jo har process ko CPU ka pakka time slot de.
+* Har library function ka worst-case execution time (sab se bura time) pehle se pata aur documented hona chahiye.
+* Dynamic memory allocation (RAM mangna) ya to ban hoti hai ya bohot restricted hoti hai.
+
+Yeh kaam bohot **Mehenga (Expensive)** hota hai aur is mein aap aam programming languages aur tools use nahi kar sakte. Real-time ka matlab high-performance nahi hota, balki iska matlab sirf **timely response (waqt par jawab)** hota hai. Servers aur databases ke liye yeh tareeqa bilkul sasta ya munasib nahi hai, isliye server software ko non-real-time mahaul ke in pauses ke sath hi jeena padta hai.
+
+---
+
+## Limiting the impact of garbage collection
+
+Purane zamane mein Garbage Collection sab se badi dushman thi, par ab naye algorithms (jaise Java ke **ZGC**, **Shenandoah**, **G1** aur Go ka concurrent collector) pauses ko sirf kuch milliseconds tak mehdood kar dete hain.
+
+Agar GC pauses se bilkul jaan chhudani ho, to log ab aisi languages use karte hain jin mein garbage collector hota ہی nahi, jaise **Rust** (jo compiler level par object lifetimes track karti hai), **Swift** (Automatic Reference Counting), ya **Mojo**.
+
+Garbage-collected languages mein rehte huay bhi in pauses ke asar ko kam karne ke **3 bade tareeqay** hain:
+
+1. **Object Pools / Off-heap Allocation:** Objects ko baar baar delete karne ke bajaye unhein dobara use (reuse) karna ya data ko JVM ki normal memory se bahar (off-heap) rakhna.
+2. **GC-Aware Traffic Routing:** Jab ek node par bada GC pause aane wala ho, to runtime application ko pehle hi warn kar deta hai. Application us node par naye requests bhejna band kar deti hai. Jab node purani requests process karke free ho jata hai, to woh sukoon se apna GC chala leta hai jabke baqi nodes traffic sambhal rahe hote hain. Users ko pause ka pata hi nahi chalta.
+3. **Periodic Rolling Restarts:** Sirf un objects ke liye GC chalane dena jo bohot thodi der ke liye bante hain (jo jaldi saaf ho jate hain). Is se pehle ke computer par baday baday purane objects jama hon aur bada pause aaye, node ko traffic se hata kar turn-by-turn restart (**Rolling Upgrade** ki tarah) kar diya jata hai.
+
+---
+
+### Revision Hints (Tezi se yaad karne ke liye)
+
+* **Figure 9-3 Trap:** Slow clock wala node naye data par purana timestamp laga deta hai, jis se LWW rule naye data ko chupchaap delete kar deta hai.
+* **Logical vs Physical Clocks:** Physical clocks (quartz) waqt naapti hain par distributed ordering ke liye dangerous hain; Logical clocks (counters) ordering ke liye safe hain.
+* **Confidence Interval:** Clock time aik nukta nahi balki range $[earliest, latest]$ hai (TrueTime/ClockBound).
+* **Spanner's Secret:** Spanner confidence interval jitna wait karta hai taake do transactions ki ranges kabhi overlap na karein aur consistency barkarar rahe.
+* **Lease Pause Bug:** `isValid()` check karne ke baad agar thread 15 seconds ke liye pause ho jaye (due to GC, VM migration, or Disk I/O), to hosh mein aane par expired lease ke sath galat write kar dega.
+* **Hard Real-Time:** Airbags aur rockets ke liye hota hai jahan deadline miss hona maut hai (Requires RTOS), servers ke liye yeh bohot mehenga hai.
+* **GC Hiding Trick:** Node par GC chalane se pehle traffic rokh do, taake clients ko milliseconds ka delay bhi nazar na aaye.
+
+---
