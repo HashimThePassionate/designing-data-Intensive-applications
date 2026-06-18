@@ -725,3 +725,157 @@ Iska hal yeh hai ke hum client ke bheje gaye timestamp ke **shuru wale hisse (Mo
 * **Multi-Replica Fencing (Figure 9-7):** Token ko timestamp ke shuru mein daal dete hain taake leaderless replicas par LWW rule ke tehat hamesha naya token hi jeete, aur baqi nodes read-repair se theek ho jayein.
 
 ---
+
+## Byzantine Faults
+
+Abhi tak hum ne dekha ke **Fencing Tokens** un computers ko rok sakte hain jo galti se (yaani lease expire hone ki wajah se) purana data likh rahe hon. Lekin farz karein koi computer jaan booch kar poore system ko tabaah karna chahta hai, to woh galti se nahi balki jaan booch kar ek **jhoota (fake) fencing token** bana kar bhej dega!
+
+Is book mein abhi tak hum ne yeh maana tha ke hamare nodes (computers) na-kaabili-e-etemaad (unreliable) hain par **Shareef/Honest** hain. Woh slow ho sakte hain, crash ho sakte hain, unka data purana ho sakta hai, par jab bhi woh jawab dete hain, woh **sach** bolte hain. Woh protocol ke asoolon ke mutabaq hi chalte hain.
+
+Lekin distributed systems ka masla tab bohot zyaada mushkil ho jata hai jab nodes **jhoot bolna (Byzantine fault)** shuru kar dein—yaani jaan booch kar ghalat ya corrupt responses bhejein. Misal ke tor par, ek hi election mein ek node do alag-alag logon ko apna vote de de! Is badmaashi wale behavior ko **Byzantine fault** kehte hain, aur is ajeeb mahaul mein sab computers ka kisi ek baat par raazi hona **Byzantine Generals Problem** kahlata hai.
+
+---
+
+## The Byzantine Generals Problem
+
+Yeh purani kahani do generals wale masle (Two Generals Problem) ki ek badi shakl hai. Tasavvur karein ke $n$ tadad mein fauji generals hain jo ek dushman kilay ko gher kar baithe hain. Woh alag-alag jagah par hain aur sirf ek qasid (messenger) ke zariye aapas mein baat kar sakte hain. Unho ne mil kar faisla karna hai ke hamla kab karna hai. Raste mein qasid der se pahonch sakta hai ya dushman use maar sakta hai (bilkul network packets ki tarah).
+
+Is Byzantine kahani mein twist yeh hai ke **un generals ke darmiyan kuch ghaddar (traitors) mojood hain**. Wafadar generals hamesha sach bolte hain, par ghaddar generals doosron ko confuse karne ke liye jhoote messages bhejte hain (jaise ek ko kehte hain "haan, hamla karo" aur doosre ko kehte hain "nahi, peeche hato"). Kisi ko pehle se nahi pata ke ghaddar kaun hai.
+
+> **Byzantium** ek qadeem yunani shehar tha jo baad mein Constantinople aur ab Turkey ka shehar Istanbul hai. Is baat ka koi tareekhi saboot nahi hai ke wahan ke generals aam logon se zyada dhokebaaz anya the. Asal mein "Byzantine" ka lafz siyasat mein bohot pehle se *bohot hi uljhi hui, makkar, aur pechida* cheez ke liye istemal hota tha. Leslie Lamport (algorithm banane wale) ek aisa naam chunna chahte the jis se koi mulk bura na mane. Kisi ne unhein mashwara diya tha ke isay "Albanian Generals Problem" mat kehna, isliye unho ne Byzantine naam chuna.
+
+---
+
+## Uses of Byzantine fault tolerance
+
+Ek system ko **Byzantine Fault-Tolerant (BFT)** tab kaha jata hai jab uske andar kuch computers badmaashi kar rahe hon ya protocol tod rahe hon, ya koi hacker network ko control kar raha ho, tab bhi poora system bilkul sahi kaam karta rahe. Yeh khusoosi salahiyat kuch khas jagahon par zaroori hoti hai:
+
+* **Aerospace (Hawai jahaz aur Rockets):** Faza mein radiation (shuaon) ki wajah se computer ki RAM ya CPU registers ke andar ka data achanak badal (corrupt ho) sakta hai, jis se computer ajeeb o gareeb ghalat jawab dene lagta hai. Chunke yahan galti ki saza maut hai (jahaz crash ho sakta hai ya rocket International Space Station se takra sakta hai), isliye flight control systems mein BFT algorithms use kiye jate hain.
+* **Mutually Untrusting Parties (Cryptocurrency):** Jab bohot saari alag-alag partiyan aapas mein business karein aur koi ek doosre par bharosa na karta ho, to har koi ek doosre ko dhoka dene ki koshish kar sakta hai. **Bitcoin** aur **Blockchain** ka jo consensus mechanism hai, woh asal mein BFT hi hai, jo bina kisi darmiyani main bank (central authority) ke, sab anjan logon ko is baat par raazi karta hai ke kis ne kis ko kitne paise bheje.
+
+### Aam Servers Mein Hum BFT Kyun Use Nahi Karte?
+
+Lekin is book mein hum jin web applications aur databases ki baat kar rahe hain, wahan hum maan kar chalte hain ke Byzantine faults nahi aayenge. Data center ke saare computers aap ki apni company ke hain (to un par bharosa kiya ja sakta hai), aur zameen par radiation itni nahi hoti ke RAM corrupt ho.
+
+Cloud mein jab alag-alag customers ek hi machine share karte hain, to unhein BFT ke zariye nahi balki Firewalls, Virtualization, aur Access Control ke zariye ek doosre se alag (isolate) rakha jata hai. BFT protocols **bohot mehenge (expensive)** hote hain aur in mein bohot zyada computational power aur network messages zaya hote hain, isliye aam servers par inhein lagana namumkin aur fizool hai.
+
+Websites par users (browsers) zaroor ghalat ya malicious data bhejte hain (jaise SQL Injection ya XSS attacks). Lekin wahan hum BFT use karne ke bajaye input validation aur sanitization karte hain, aur server ko aakhri faisla karne ka mukammal ikhtiyar (**authority**) de dete hain. BFT sirf wahan chahiye jahan Peer-to-Peer network ho aur koi ek main boss na ho.
+
+**Kya BFT software bugs aur hackers se bacha sakta hai?**
+Agar aap ke software mein koi bug hai aur aap ne wahi same software saare nodes par deploy kiya hai, to BFT aap ko nahi bacha sakta, kyunke bug aane par saare computers ek jaisa hi jhoot bolenge! BFT algorithms ko chalne ke liye **two-thirds ($> 2/3$) se zyada** computers ka sahi chalna zaroori hai (agar total 4 nodes hain, to maximum 1 computer hi ghaddar ya kharab ho sakta hai). Agar bug se bachna hai, to aap ko ek hi software alag-alag teams se 4 dafa alag tareeqon se likhwana padega, jo ke bohot mehenga kaam hai. Hackers ke mamle mein bhi agar unho ne ek server tor liya, to software same hone ki wajah se woh baqi saare servers bhi tor lenge. Isliye hackers se bachne ka wahid hal traditional security (Authentication, Encryption, Firewalls) hi hai.
+
+---
+
+## Weak forms of lying
+
+Bhale hi hum poora BFT system na lagayein, lekin software mein "halke jhoot" (jo hardware kharabi ya software bugs ki wajah se hote hain) ko pakadne ke liye **3 aasan aur saste tareeqay** lagaye ja sakte hain:
+
+* **Application-Level Checksums:** Kabhi kabhi operating system ya drivers ke bugs ki wajah se network packet corrupt ho jata hai aur TCP ka apna checksum usay pakad nahi pata. Is se bachne ke liye hum apni application ke level par data ka checksum (jaise MD5/SHA) bana kar bhejte hain taake corruption pakdi ja sake. TLS (HTTPS) encryption bhi is se bachati hai.
+* **Input Sanitization:** Bahar se aane wale har data ke dangerous characters ko saaf karna (escape karna) taake SQL injection na ho, aur data ke size ki limit rakhna taake koi bohot bada data bhej kar RAM full na kar de (Denial of Service).
+* **NTP with Multiple Servers:** NTP client ko kisi ek server ke bajaye mukhtalif servers ke addresses diye jate hain. Woh sab se waqt poochta hai aur jo server bilkul hi alag waqt bta raha ho (outlier), usay jhoota samajh kar list se nikal deta hai.
+
+---
+
+## System Model and Reality
+
+Distributed systems ke algorithms ko design karne ke liye hum hardware ki barikiyaon mein nahi jaate, balki halaat ka ek khulasa tay kar lete hain jisay **System Model** kehte hain.
+
+Timing ke hisab se **3 bade system models** hain:
+
+### Synchronous model
+
+Yeh model yeh maan kar chalta hai ke network delay, process pauses, aur clock errors kabhi bhi ek makhsoos had (fixed upper bound) se baahar nahi jayenge. Yeh real life mein **sacha model nahi hai** kyunke hum ne padha hai ke network mein unbounded delays aate rehte hain.
+
+### Partially synchronous model
+
+Iska matlab hai ke system **zyada tar waqt bilkul tameez se (synchronous) chalta hai**, lekin kabhi kabhar achanak network delay ya process pause saari haddein paar kar jata hai. Yeh real life ke sab se qareeb aur **sab se realistic model** hai. Hum software banate huay isi model ko zehan mein rakhte hain.
+
+### Asynchronous model
+
+Is model mein algorithm ko waqt ke baare mein koi andaza lagane ki ijazat nahi hoti. Is mein **ghardi (clock) hoti hi nahi**, isliye aap timeouts use nahi kar sakte. Is model mein algorithms banana bohot hi sakht aur mushkil hota hai.
+
+---
+
+Nodes ke fail hone ke hisab se bhi mukhtalif models hain:
+
+* **Crash-stop faults:** Node sirf ek hi tarah se kharab ho sakta hai: woh crash hota hai aur hamesha ke liye mar jata hai, kabhi wapas nahi aata.
+* **Crash-recovery faults:** Node crash ho sakta hai, par woh kuch der baad dobara zinda (recover) ho sakta hai. Memory (RAM) ka data zaya ho jata hai par disk (**stable storage**) ka data bach jata hai. Real life mein yahi model sab se zyada useful hai.
+* **Degraded performance (Limping Node / Gray Failure):** Node marta nahi hai par bohot zyada slow ho jata hai (jaise driver bug se internet speed 1 Gbps se 1 Kbps ho jaye, ya RAM full hone se sirf GC pauses aate rahein). Is adhmare node ko handle karna mukammal crash se zyada mushkil hota hai.
+* **Byzantine (arbitrary) faults:** Node kuch bhi kar sakta hai (jhoot bolna, dhoka dena, ghalat data bhejna).
+
+---
+
+### Defining the correctness of an algorithm
+
+Ek algorithm sahi kaam kar raha hai ya nahi, yeh check karne ke liye hum uski khubiyan (**Properties**) likhte hain. Jaise fencing token ke algorithm ke sahi hone ke liye yeh 3 shartain hain:
+
+1. **Uniqueness:** Kisi bhi do requests par same token number nahi milna chahiye.
+2. **Monotonic sequence:** Agar Request X pehle khatam hui aur Request Y baad mein shuru hui, to Y ka token har haal mein X se bada hona chahiye ($t_x < t_y$).
+3. **Availability:** Agar koi node crash nahi hua aur usne token maanga hai, to usay jawab zaroor milna chahiye.
+
+---
+
+### Distinguishing between safety and liveness
+
+In properties ko hum do hisson mein baantte hain: **Safety** aur **Liveness** (yaad rahe ke *eventual consistency* ek liveness property hai kyunke is mein "eventually" ka lafz aata hai).
+
+| Khubi (Property) | Asan Lafzon Mein | Kharabi Ka Pata Kab Chalta Hai? | Misal |
+| --- | --- | --- | --- |
+| **Safety** | "Kuch bura nahi hona chahiye" | Ek makhsoos lamhe par foran pata chal jata hai ke glass toot gaya (jaise duplicate token generate ho gaya). Is nuksaan ko wapas theek nahi kiya ja sakta. | Uniqueness, Monotonic Sequence |
+| **Liveness** | "Kuch achha eventually (aakhir kaar) zaroor hoga" | Kisi ek lamhe par aap ghalat sabit nahi kar sakte, kyunke hamesha yeh umeed rehti hai ke shaayad agle lamhe jawab aa jaye (jaise tohfe ka intezar). | Availability, Eventual Consistency |
+
+Distributed algorithms mein asool yeh hota hai ke **Safety har haal mein barkarar rehni chahiye**, bhale hi saare nodes crash ho jayein ya network poora toot jaye, system ghalat jawab kabhi na de. Lekin **Liveness par hum thoda compromise kar sakte hain**, yaani hum keh sakte hain ke "jawab sirf tabhi milega agar majority nodes zinda hain aur network theek ho chuka hai."
+
+---
+
+### Mapping system models to the real world
+
+System models asal mein real life ka ek aasan khulasa hote hain, par haqeeqat is se zyada gandi hoti hai. Crash-recovery model kehta hai ke disk ka data bacha rahega, par agar asliyat mein hard disk hi physically jal jaye ya software bug disk ko detect hi na kare to?
+
+Agar quorum ka koi node amnesia (bhoolne ki bimari) ka shikaar ho jaye aur apna purana saved data bhool jaye, to quorum ka poora asool toot jata hai. Computer science theory mein hum keh sakte hain ke *"yeh masla nahi aayega"*, par software engineering mein real code likhte huay humein aisi jagah par ek `printf("Sucks to be you")` aur `exit(666)` lagana parta hai taake jab namumkin cheez bhi ho jaye, to insani operator aa kar kachra saaf kare.
+
+---
+
+## Formal Methods and Randomized Testing
+
+Distributed systems mein itni concurrency aur network delays hote hain ke testing ke dauran saare edge cases pakadna namumkin lagta hai. Iske liye **3 bade advanced tareeqay** use hote hain:
+
+### Model checking and specification languages
+
+Hum asli code likhne se pehle algorithm ka ek math model ek khusoosi zabaan mein likhte hain (jaise **TLA+**, Gallina, ya FizzBee). Phir ek tool (**Model Checker**) is model ke saare possible raste aur states check karta hai ke kahin koi invariant (asool) toot to nahi raha. CockroachDB aur Kafka ne is ke zariye bohot saare khufia bugs pakde hain. Iska nuksaan yeh hai ke yeh asli code test nahi karta, sirf ek farzi model test karta hai.
+
+### Fault injection
+
+Is mein hum chalti hui live application ke environment mein jaan booch kar aafatain paida karte hain (jaise network wire kaat dena, disk unmount karna, process ko `SIGSTOP` de kar sula dena). Netflix ka **Chaos Monkey** iski mashhoor misal hai jisay *Chaos Engineering* kehte hain. Is kaam ke liye log **Jepsen** jaisa framework use karte hain jo databases ki aisi taisi karke un ke andar ke gehre bugs nikaal leta hai.
+
+### Deterministic simulation testing (DST)
+
+Yeh model checker aur fault injection dono ka baap hai! Yeh aap ke **asli code** ko test karta hai, par ek aisi band khayali duniya (simulation) mein jahan Network, Clocks, aur I/O sab kuch fake (mocked) hote hain. Simulator ke paas poora control hota hai ke kaunsa thread kab chalega aur kab network packet drop hoga.
+
+* **Sab se bada faida:** Agar 1 laakh test runs ke baad koi ajeeb o gareeb bug aaya, to aap usay **dobara bilkul same to same chala kar (replay karke) dekh sakte hain**, kyunke har cheez deterministic (pehle se tay) hoti hai. FoundationDB aur TigerBeetle is technology ke pioneers hain. Antithesis tool to hypervisor level par poore operating system ko deterministic bana deta hai.
+
+---
+
+## The Power of Determinism
+
+Distributed systems ke saare rona-dhona (concurrency, delays, clock jumps, crashes) isliye hain kyunke yeh saari cheezein **Nondeterministic** hain (yaani har baar alag tareeqay se hoti hain). Lekin agar hum system ko **Deterministic (Pakka / Fixed)** bana dein, to zindagi bohot aasan ho jati hai.
+
+Hum ne pichle chapters mein determinism ke faide dekhe hain:
+
+* **Event Sourcing:** Agar aap ke paas events ka ek deterministic log ho, to aap use dobara chala kar bilkul sahi database ki state wapas khari kar sakte hain.
+* **Workflow Engines:** Durable execution ke liye in ka deterministic hona zaroori hai.
+* **State Machine Replication:** Har replica par exact same sequence mein deterministic transactions chala kar data copy rakhna.
+
+Lekin code ko poori tarah deterministic banana bohot dhyan maangta hai. Agar aap ne sab control kar bhi liya, tab bhi kuch programming languages mein **Hash Table ke andar loop chalane se data ka order har baar badal jata hai**, ya RAM ka khatam ho jana (OOM) nondeterministic hota hai. Isliye determinism hasil karna ek nihayat hi maharat ka kaam hai.
+
+---
+
+### Revision Hints (Tezi se yaad karne ke liye)
+
+* **Byzantine Fault:** Jab node galti se nahi balki jaan booch kar jhoot bole ya dhoka de (Aerospace / Bitcoin). Standard data centers mein hum isay use nahi karte kyunke yeh bohot expensive hai.
+* **System Models:** * *Partially Synchronous:* Realistic model (zyada tar theek, kabhi kabhar pagal delay).
+* *Crash-Recovery:* Node crash hota hai aur disk ka data lekar wapas aata hai.
+* **Safety vs Liveness:** Safety = "Kuch bura na ho" (damage permanent hai). Liveness = "Kuch achha eventually zaroor ho" (umeed baqi hai).
+* **Deterministic Simulation Testing (DST):** Asli code ko ek fully controlled simulator mein chala kar har bug ko replay karne ki salahiyat hasil karna (TigerBeetle/FoundationDB).
+
+---
