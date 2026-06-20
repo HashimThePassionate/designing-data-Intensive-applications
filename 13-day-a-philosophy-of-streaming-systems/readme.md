@@ -825,3 +825,98 @@ Agar user check karna chahe ke meri payment pass hui ya fail, toh woh source log
 * **Atomicity via Append:** Atomicity log ke pehle slot mein write insert karne se aati hai. Ek dafa event log mein chala gaya, downstream systems use eventually safely process kar hi letay hain.
 
 ---
+
+## Timeliness and Integrity
+
+Traditional transactional databases ki sab se khoobsurat aur aasan khubiyat yeh hoti hai ke jaise ہی ek transaction commit hoti hai, uske badlao (writes) baqi saari transactions ko usi microsecond mein bilkul saaf aur up-to-date nazar aane lagte hain. Is property ko distributed theory mein **Strict Serializability** kaha jata hai.
+
+Lekin jab hum database ko unbundle karke stream processors ke mukhtalif stages mein tor dete hain, toh aisa bilkul nahi hota. Log ke consumers andruni roop se **Asynchronous** (bina ruke chalne wale) design kiye jaate hain. Producer message bhej kar is baat ka wait nahi karta ke consumer ne usay process kiya ya nahi.
+
+Halanqe, agar client chahe toh nateeja dekhne ke liye output stream par thoda sa wait zaroor kar sakta hai—jaise Figure 13-2 wale payment system mein user request bhej kar `Outgoing Payment` ya `Payment Declined` ke event ka wait kar raha tha ke account mein kafi paise hain ya nahi.
+
+Is bank transfer wale example mein, payer ka balance check karne ki correctness (sachai) is baat par depend nahi karti ke user mobile screen par nateejay ka wait kar raha hai ya nahi. User ka raste mein rukna (waiting) sirf usay synchronously inform karne ke liye hai; is notification ka asli data processing ke andruni effects se koi lena dena nahi hota (dono poori tarah decoupled hain).
+
+Asal zindagi mein jab log **Consistency** (aik jaisa data) ka lafz use karte hain, toh woh do alag alag requirements ko aik hi dabba mein mix kar dete hain, jinhein alag karke samajhna farz hai:
+
+| Khasiyat (Requirement) | Iska Asli Matlab Kya Hai? | Galti Hone Par Kya Hoga? | CAP Theorem / ACID Connection |
+| --- | --- | --- | --- |
+| **Timeliness (Waqt par taza data)** | Yeh pakka karna ke users ko har waqt system ki bilkul taza aur up-to-date halat (state) nazar aaye. | Agar timeliness kharab ho jaye, toh user ko thoda purana ya baasi data (**Stale Data**) dikhega. Lekin yeh kharabi temporary (aarzi) hoti hai, bacha thoda sa intezar karke page refresh karega toh data theek ho jayega. | CAP theorem mein jis consistency ki baat hoti hai, woh asli mein **Linearizability** (sab se paki timeliness) hai. Weaker timeliness jaise *read-after-write consistency* bhi is mein aati hai. |
+| **Integrity (Data ka pakiza/saaf hona)** | Data mein koi corruption, data loss, ya aprop mein takraye hue jhootay (contradictory) records na hon. Derived views aur indexes base table ka bilkul sahi naxsha dikhein. | **Yeh tabahi hai.** If integrity is violated, the inconsistency is permanent (hamesha ke liye). Baar baar page refresh karne ya intezar karne se database ki corruption khud theek nahi hoti. Is ke liye manual repair tools chalane parte hain. | ACID transactions mein "C" (Consistency) ka asli matlab application-specific **Integrity** hi hota hai. Atomicity aur Durability is integrity ke pehray-dar hain. |
+
+> **Markazi Slogan (The Core Principle):** > *Violations of timeliness are allowed under eventual consistency, whereas violations of integrity result in perpetual inconsistency.*
+> (Yani waqt par taza data na dikhna eventual consistency mein chalta hai, lekin data ka corrupt ho jana hamesha ke liye system ka qatal hai).
+
+Zyadatar applications mein **Integrity ki ahmiyat Timeliness se lakh guna zyada hoti hai**. Waqt par data ka let (lag) hona users ko thoda gussa ya confuse zaroor kar sakta hai, lekin integrity ka tootna company ke liye tabah-kun (catastrophic) sabit hota hai.
+
+* **Credit Card Ki Real-World Example:** Jab aap apne mobile app par credit card ki statement kholte hain, agar pichlay 24 ghante mein khareedi gayi cheez wahan abhi nazar na aaye (timeliness lag), toh aap pareshan nahi hote kyu ke aap ko pata hai bank piche transactions ko aaram se settlement kar raha hai. Lekin sochein agar statement ka final balance ki math hi galat ho jaye (sum match na kare), ya aap ke account se paise kat jayein aur dukan-dar tak na pohanchen—yeh **Integrity ki violation** hai jise bank kabhi afford nahi kar sakta.
+
+---
+
+### Correctness of dataflow systems
+
+ACID transactions applications ko Timeliness (Linearizability) aur Integrity (Atomic Commit) dono aik sath lapet kar deti hain. Is liye jo log shuru se ACID transactions ki satah se sochte hain, unke liye timeliness aur integrity ka farq koi maani nahi rakhta.
+
+Lekin is chapter ke event-based dataflow systems ki sab se khoobsurat khubiyat yeh hai ke **yeh timeliness aur integrity ko poori tarah aik doosre se judaa (decouple) kar dete hain.** Asynchronous event streams ko process karte waqt timeliness ki koi guarantee nahi hoti, jab tak aap khud consumer ko raste mein rokhein na. Misaal ke tor par, bacha mobile se payment request bheje aur stream processor ke execute karne se pehle hi balance check kar le, toh usay apna bheja naya badlao nazar nahi aayega.
+
+Lekin **Integrity streaming systems ka dil aur jaan hai.** Spark ya Flink ke andar chalne wali *exactly-once* ya *effectively-once* semantics asal mein integrity ko hi zinda rakhne ka nizam hain. Agar aik bhi event network par raste mein kho jaye ya galti se do dafa execute ho jaye, toh system ki integrity tabah ho jayegi. Is liye fault-tolerant delivery aur idempotent duplicate suppression integrity ke ahem hathiyar hain.
+
+Hamein ab kisi mehangay cross-shard distributed transaction (2PC) ki koi zaroorat nahi hai, hamara reliable stream processing system bina locks ke behtareen speed aur kamal robustness ke sath system ki integrity ko $100\%$ paka bacha sakta hai. Hum ne is integrity ko char (4) baray mechanisms ke milap se haasil kiya hai:
+
+* Likhne wale kaam (write operation) ko aik single message ki shakal mein bhejiyen jo atomically log mein append ho jaye (Event Sourcing).
+* Baqi saare updates ko us single message se pure deterministic derivation functions (jaise stored procedures) ke zariye derive karein.
+* Frontend client se paida hone wali unique `request_id` ko pipeline ke aakhir tak pass karein taake end-to-end deduplication aur idempotence pehra lagaye rakhein.
+* Messages ko immutable (na-badalne wala) rakhay rakhin taake bugs aane par purana data dobara reprocess karke recovery asani se ho sakay.
+
+---
+
+### Loosely interpreted constraints
+
+Hum ne parha ke agar traditional strict uniqueness constraint chalani hai, toh saare events ko aik shard ke single leader node se guzar kar consensus haasil karna hi parega, is deewar se stream processing bhi direct bahar nahi nikal sakti.
+
+Lekin agar hum business ke point of view se sochein, toh asli zindagi ki barri barri applications mein in sakht deewaron (**Hard Constraints**) ko todne ki poori ijazat hoti hai aur unho ne andruni roop se loose constraints apnaaye hote hain:
+
+* **E-Commerce Warehouse Stock:** Agar website par flash sale ke dauran customers stock se zyada products order kar dein, toh database ko lock karne ki koi zaroorat nahi hai. Business ka rule bohot simple hai: customer se galti ki maafi mango, unhein thoda discount coupon bhej do, aur piche se naya stock mangwa lo. Kal ko agar godam mein forklift truck chalte chalte products ke dher ke upar charr jaye aur maal tabah ho jaye, tab bhi toh stock ghalti se kam ho hi jayega na! Maafi mangne ka yeh rasta (**Apology Workflow**) business mein pehle se hi tayaar para hota hai, is liye database par stock count ka strict hard constraint lagana zarooriy nahi hota.
+* **Airlines Aur Hotels Overbooking:** Airlines jan-booch kar jahaz ki seats se zyada tickets bechti hain kyu ke unhein pata hai kuch log flight miss karenge. Hotels rooms overbook karte hain ke log cancel karenge. Yahan *"aik seat par aik bacha"* ka hard constraint business ke faide ke liye khud toda jata hai. Agar achanak supply se zyada log aa jayein, toh unhein compensation di jati hai (free upgrade bhej do ya barabar wale hotel mein room de do). Flight agar kharab mausam ya staff ki harrtal ki wajah se cancel ho jaye tab bhi toh yahi business process chalta hai na! Recovering from such issues is just a normal part of business.
+* **Bank Overdraft:** Agar koi bacha account mein para balance se zyada paise ATM se nikal le, toh bank transaction rokta nahi hai, balkay bache par *Overdraft Fee* (jurmana) laga deta hai aur kehta hai baad mein wapis kar dena. Din bhar ki total withdrawal limit set karke bank apna risk pehle se bound (mehood) rakhta hai.
+* **Cross-Organization Systems:** Do alag alag baray idaron (jaise do alag banks) ke darmiyan jab data share hota hai, toh de-sync hona pakka hai. Un ke beech raat ko accounts settle karte waqt correction mechanisms chalaaye jaate hain.
+
+Is liye zyadatar business contexts mein constraint ka temporary tootna bilkul qubool hai, basharteke aap ke paas baad mein galti theek karne ke liye aik **Compensating Transaction** (maafi-nama transaction / ulati entry) ka nizam tayaar para ho.
+
+Maafi mangne ka kharcha (paise ya reputation ke lihaz se) aksar bohot hi kam hota hai. Aap bheja hua email wapis hawa se pakar nahi sakte, par ek correction email zaroor bhej sakte hain. Credit card par double charge hua toh aik charge safely refund ho jata hai. ATM se nikla cash wapis khinch nahi sakte par baad mein debt collectors bhej kar recover kiya ja sakta hai.
+
+Yeh aik poora business decision hai. Agar maafi ka kharcha kam hai, toh data write karne se pehle hi raste mein saare constraints ko check karke system ko slow karna aik faltu ki pabandi hai. Aap optimistic tareeqay se data direct write karein aur constraint ko baad mein aaram se check (**Check constraint after the fact**) kar lein. Haan, koi aisa bara kaam karne se pehle validation zaroor kar lein jahan se wapis palatna bohot mehangā ho, lekin is ke liye writes ko shuruat mein hi rokna zaroori nahi hai.
+
+In saare kaamo ko **Integrity** har haal mein chahiye (koi reservation gum nahi honi chahiye, na hi credits/debits ka hisab kharab hona chahiye). Lekin unhein constraint check karne ke liye **Timeliness** ki koi sakhth zaroorat nahi hoti. Agar extra stock bik gaya hai, aap baad mein patch-up (conflict resolution) kar sakte hain.
+
+---
+
+### Coordination-avoiding data systems
+
+Ab hamare paas distributed systems ke do bohot hi dilchasp aur ahem nateejay samhne aaye hain:
+
+1. Dataflow systems derived data par bina kisi atomic commit, linearizability, ya synchronous cross-shard coordination ke perfect integrity guarantees de sakte hain.
+2. Halanqe strict uniqueness constraints ko coordination chahiye, lekin zyadatar applications loose constraints aur background apology workflows ke sath bilkul khushi khushi chal sakti hain, basharteke data ki integrity mehfooz rahay.
+
+In dono baaton ko agar aprop mein jorha jaye, toh distributed systems ka sab se bada maseeha samhne aata hai: **Coordination-Avoiding Data Systems** (Aise data systems jo raste mein bina rukay bina cross-network baat kiye chalte hain). In ka appeal hadd se zyada hai; yeh un systems se lakh guna behtar speed (performance) aur kamaal fault tolerance haasil kar letay hain jinhein chalne ke liye har waqt synchronous coordination karni parti hai.
+
+Misaal ke tor par, aisa system poori duniya ke alag alag datacenters mein **Multi-Leader Configuration** par azaadana chal sakta hai, jo regions ke darmiyan asynchronously data replicate karta rahega.
+
+* **Fayda:** Agar ek datacenter poori tarah tabah ya offline ho jaye, baqi mulkon ke datacenters par $1.2\%$ farq nahi parega, woh azaadana chalte رہیں ge kyu ke unhein aprop mein synchronous coordination nahi karni thi. Is system mein timeliness thodi kamzor hogi (Linearizable nahi hoga), lekin data ki **Integrity har haal mein $100\%$ paki mazboot rahegi**.
+
+Is pure nizam mein serializable transactions abhi bhi useful hain, lekin unka scope bohot chota (**Small Scope**) kar diya jata hai jahan aik machine ke andar andar transactions safely aur fast chal sakein. XA transactions jaisay mehangay distributed jhanjhaton ko poori tarah nikal phenka jata hai.
+
+Synchronous coordination hum sirf un ginti ke makhsoos kaamo par lagayenge jahan galti hone par wapis palatna poori tarah na-mumkin ho, lekin is chote se hissay ki wajah se poori application ko coordination ka mehanga kharcha dene ki koi zaroorat nahi hai.
+
+> **Aakhri Philosophical Baat:** > Coordination aur strict constraints lagane se aap ke system mein de-sync hone par maafi mangne ki ginti zaroor kam ho jati hai, lekin sath hi aap ke system ki speed aur availability gir jati hai—jis se naye crashes aur outages (website down hone) par user se maafi mangne ki ginti barh jati hai!
+> Aap apni zindagi mein maafi mangne ki tadad ko kabhi zero nahi kar sakte. Aap ka asli kaam software engineer ke tor par yeh hai ke aap apni application ke requirements ke mutabaq aik behtareen **Sweet Spot (balance)** dhoondlein—jahan na toh data mein zyadatar de-sync ka kachra ho, aur na hi website par har waqt downtime aur availability ke maslay hon.
+
+---
+
+### Revision Hints (Fast Recall Rules)
+
+* **Timeliness Vs Integrity:** Timeliness matlab data ka taza hona (lag temporary hota hai). Integrity matlab data ka paak hona bina corruption ke (galti permanent hoti hai). Eventually consistent systems timeliness violate karte hain par integrity ka pehra paka rakhte hain.
+* **Decoupled in Dataflow:** Event-based systems timeliness aur integrity ko alag kar dete hain, jis se bina 2PC ke behtareen scalable karkardagi milti hai.
+* **The Apology Workflow:** Flash sale stock ya flight overbooking ki tarah hard constraints ko todna business mein allowed hota hai, basharteke piche *Compating Transaction* (apology workflow) tayaar ho.
+* **Coordination-Avoiding Core:** Synchronous cross-region coordination chhorr dene se multi-region multi-leader setups super-fast aur highly available ho jaate hain bina data corrupt kiye.
+
+---
