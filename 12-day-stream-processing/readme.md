@@ -235,3 +235,141 @@ Is maut ke kue se nikalne ke liye distributed designs mein **Dead Letter Queue (
 Data engineers DLQ ke upar alerts aur monitoring laga kar rakhte hain (kyunke DLQ mein aik bhi message aane ka matlab hai ke code ya data mein koi galti hai). Jab alert bajta hai, toh operator manually aa kar check karta hai ke is message mein kya kharabi thi. Woh ya toh usay hamesha ke liye delete kar deta hai, ya code ka bug fix karke usay main stream mein dobara inject (reproduce) kar deta hai. RabbitMQ ke sath sath ab log-based frameworks jaise **Apache Pulsar** aur stream processing tools jaise **Kafka Streams** bhi built-in DLQ support karte hain.
 
 ---
+
+
+## Log-Based Message Brokers
+
+Network par koi packet bhejna ya kisi service ko API request karna aam tor par aik عارضی (transient) kaam hota hai, jiska piche koi pakka nishan nahi bachta. Halanqe hum packets ko capture ya log kar sakte hain, lekin aam tor par communication ko temporary hi samjha jata hai.
+
+AMQP/JMS-style ke traditional message brokers (jaise RabbitMQ) isi transient soch par bane hain. Halanqe woh safety ke liye messages ko disk par likhte hain, lekin jaise hi naya bacha (consumer) us message ko parh leta hai aur ACK bhejta hai, **broker us message ko disk se foran delete kar deta hai**.
+
+Duskri taraf, databases aur filesystems ka dhabba bilkul ulat hota hai: wahan jo data aik dafa likh diya gaya, woh tab tak paka save (permanently recorded) rehta hai jab tak koi khud ja kar delete na kare.
+
+Mindset ka yeh farq data processing par bohot bara asar daalta hai:
+
+* **Batch Processing Ki Takat:** Chapter 11 mein hum ne parha ke batch jobs ko aap jitni dafa chahein naye naye experiments ke sath chala sakte hain, kyunke input files read-only hoti hain aur unhein koi nuksan nahi pohanchta.
+* **Traditional Messaging Ka Nuksan:** AMQP/JMS messaging mein aisa nahi hota. Wahan message ko parhna ek destructive (mita dene wala) kaam hai, kyunke ACK milte hi data gayab ho jata hai. Aap us consumer ko dobara chala kar same purana nateeja haasil nahi kar sakte.
+* **Naye Consumer Ka Masla:** Traditional queue mein agar aap koi naya consumer lagayenge, toh usay sirf wahi naye messages milenge jo uske register hone ke baad aaye hain. Purane saare messages hamesha ke liye zaya ho chuke hote hain.
+
+> **Asli Soch (The Hybrid Idea):** Kyun na hum databases ka durable storage (paka data rakhna) aur messaging systems ka low-latency notification (foran push bhejni) aprop mein jorr kar ek hybrid system banayein? Isi shaandar soch se **Log-Based Message Brokers** paida hue hain, jo aaj kal industry mein dhoom macha rahe hain.
+
+---
+
+### Using logs for message storage
+
+Ek **Log** asal mein disk par para hua aik seedha, hamesha agay barhne wala (**Append-Only**) records ka silsila hota hai. Hum ne is log ka zikr Chapter 4 mein storage engines ke write-ahead log (WAL) mein, Chapter 6 mein replication logs mein, aur Chapter 10 mein consensus ke shared logs mein dekha tha.
+
+Hum isi log structure ko aik message broker chalane ke liye use kar sakte hain:
+
+* **Producer Ka Kaam:** Jab bhi koi producer naya message bhejta hai, woh usay log ke aakhir (end of the log) mein jorr (append) deta hai.
+* **Consumer Ka Kaam:** Consumer log ko shuru se line-by-line sequential parhta jata hai. Agar consumer parhte parhte log ke aakhir tak pohanch jaye, toh woh ruk jata hai aur wait karta hai ke kab koi naya message append ho aur usay notification milay.
+* *Unix Ki Analogy:* Yeh bilkul Linux terminal par chalne wale `tail -f` command jaisa kaam hai, jo kisi file ke aakhir mein aane wale naye data par har waqt nazar rakhta hai.
+
+Hazaron-lakhon messages ka heavy load (high throughput) sambhalne ke liye hum is log ko tukron mein baant dete hain, jisay **Sharding** ya **Partitioning** kehte hain. Alag alag shards ko alag alag computers (machines) par host kiya jata hai, jis se har shard aik azaad log ban jata hai jise parallel parha aur likha ja sakta hai. Streaming ki duniya mein aik hi tarah ke messages uthane wale in partitions ke group ko hum **Topic** kehte hain.
+
+##### Figure 12-3 Ka Step-by-Step Breakdown
+
+Writer ne **Figure 12-3** mein dikhaya hai ke kaise producers partitions mein data append karte hain aur consumers unhein tarteeb se parhte hain.
+
+<div align="center">
+  <img src="./images/02.png" width="700"/>
+</div>
+
+1. **Topic Aur Partitions:** Figure 12-3 mein do topics dikhaye gaye hain. Topic A ke paas do partitions hain (Partition 0 aur 1) aur Topic B ke paas teen partitions hain (Partition 0, 1, aur 2).
+2. **The Append Mechanism:** Producers jab bhi naya message bhejte hain, woh hash key ke mutabaq kisi aik partition ki tail (aakhir) par data append karte hain. Jaise Topic A ke Partition 0 mein message 10 ke baad naya slot khali hai jahan data jora ja raha hai.
+3. **The Offset Number:** Har partition ke andar, broker har message ko ek hamesha barhne wala sequence number deta hai, jisay **Offset** kehte hain (diagram mein dabbo ke andar likhe numbers offsets hain). Chunke partition append-only hai, is liye **aik partition ke andar saare messages ka order $100\%$ perfect aur totally ordered hota hai**. Lekin yaad rahe, alag alag partitions ke darmiyan aprop mein ordering ki koi guarantee nahi hoti.
+4. **Consumer Group Reading:** Right side par ek Consumer Group dikhaya gaya hai jahan teen consumer clients hain. Broker har client ko poora ka poora partition sonp (assign) deta hai. Client us partition ke messages ko line se parhta hai.
+5. **Offset Bookkeeping:** Har consumer client ka apna ek pointer hota hai jo batata hai ke us ne kahan tak parh liya hai. Jaise Client 1 ne Partition 0 mein offset 4 tak parha hai (`offset for B.0 = 4`), Client 2 ne Partition 1 mein offset 5 tak parha hai, aur Client 3 ne Partition 2 mein offset 9 tak parh liya hai.
+
+**Apache Kafka** aur **Amazon Kinesis Streams** isi log-based architecture par chalte hain. Google Cloud Pub/Sub bhi andar se aisa hi hai, lekin bahar developers ko dikhane ke liye woh JMS-style API deta hai. Yeh systems saara data disk par likhne ke bawajood hazaron machines par sharding aur replication (copies banana) ke jadu se **aik single second mein lakhon-karoron messages** ka throughput asani se jhel letay hain.
+
+---
+
+### Logs compared to traditional messaging
+
+Log-based architecture mein **Fan-out messaging** (aik hi data kayi consumers ko bhejna) built-in muft mil jata hai. Kyunke parhne se data log se delete toh hota nahi, is liye jitne marzi alag alag consumers aakar apni raftaar se log read karte rahein, koi aik doosre ko disturb nahi karta.
+
+Lekin jab baat aati hai **Load Balancing** ki (kaam ko aprop mein baantna), toh log-based brokers poore ke poore shards (partitions) utha kar consumer group ke nodes ko assign kar dete hain, bajaye aik aik individual message aage piche bantaane ke.
+
+Is coarse-grained (motay paimane wale) load balancing approach ke do baray nuksanat (trade-offs) hain:
+
+* **Parallelism Ki Deewar (Limit):** Ek topic se data parhne ke liye aap max utne hi computer nodes laga sakte hain jitne us topic ke **Total Partitions** hain. Agar partitions 4 hain, aur aap 6 computers lagayenge, toh 2 computers khali baithe rahenge kyunke aik partition ka data aik waqt mein sirf aik hi single-threaded node ko deliver hota hai.
+* *Ilaaj:* Parallelism barhane ke liye partitions ki sankhya barhani parti hai, ya consumer ke andar custom thread pool banana parta hai jo offset management ko complex karta hai.
+
+
+* **Head-of-Line Blocking (Rukawat):** Agar partition ke andar koi aik single message aisa aa jaye jise process karne mein consumer ko bohot waqt lag raha ho, toh uske piche kharay baqi saare naye messages line mein phans (block ho) jayenge.
+
+> **Ustadana Faisla:** Agar aap ka data aisa hai jahan har message par bohot heavy calculations honi hain, aap har message ko azaadana parallel chalana chahte hain, aur messages ke aage-piche hone (ordering) se aap ko koi farq nahi parta, toh aap ke liye **JMS/AMQP style brokers (RabbitMQ)** sab se best hain. Lekin agar aap ka throughput bohot high hai, har message chutki mein process ho jata hai, aur **Order ka barkarar rehna farz hai**, toh **Log-Based architecture** sab se king hai. Halanqe ab Kafka ne bhi traditional style consumer groups ka support dena shuru kar diya hai jis se dono ke darmiyan ka farq kam ho raha hai.
+
+**Ordering Ka Partition Key Rule:**
+Chunke log-based systems mein order sirf aik single shard/partition ke andar mehfooz rehta hai, is liye application ke jo events aap chahte hain ke hamesha aik seedhi line mein tarteeb se process hon, unhein har haal mein **aik hi partition par route** karna hoga. Is ka tareeqa yeh hai ke aap event ka **Partition Key** user ki `user_id` ko bana dein. Is se us makhsoos user ke saare events hamesha aik hi partition mein line se lagayenge.
+
+---
+
+### Consumer offsets
+
+Log ko line se sequentially parhne ka sab se bara faida yeh hai ke **broker ko har aik single message ka ACK track karne ka azab nahi jhelna parta!**
+
+Broker ko bas itna yaad rakhna parta hai ke is makhsoos consumer ka maujooda **Offset Number** kya hai. Agar consumer ka offset 500 hai, iska saaf matlab hai ke 500 se chote saare messages process ho chuke hain, aur 500 se bade messages abhi baqi hain.
+
+* **Throughput Mein Izāfa:** Is tareeqay se broker ka apna hisab kitab (bookkeeping overhead) bohot kam ho jata hai, aur data ko batches mein jaldi jaldi pipeline karna asaan ho jata hai, jis se system ki overall capacity bohot barh jati hai.
+* **Follower Jaisa Behavior:** Yeh offset bilkul single-leader database replication ke **Log Sequence Number** jaisa kaam karta hai. Jaise database replication mein follower disconnect hone ke baad sequence number dekh kar leader se sahi jagah se data sync shuru karta hai, bilkul waise ہی messaging mein consumer ek follower ki tarah kaam karta hai aur broker leader database ki tarah behave karta hai.
+
+**Crash Hone Par Dubara Processing Ka Khatra:**
+Agar koi consumer computer chalte chalte mar (crash ho) jaye, toh consumer group baqi bache computers mein se kisi aik computer ko us kharab computer ke partitions sonp (rebalance kar) deta hai. Naya computer data parhna kahan se shuru karega? **Last recorded offset se**.
+
+Agar purane consumer ne offset 100 ke baad aglay 5 messages parh liye the lekin abhi tak unka naya offset (105) broker ke paas save (commit) nahi karwaya tha, toh naya computer restart hone par un 5 messages ko **dobara parhay ga (duplicate processing)**. Is maslay se nipatne ke tareeqe hum agay dekhenge.
+
+---
+
+### Disk space usage
+
+Agar aap log ke aakhir mein hamesha data append karte chale jayein, toh aik din computer ki hard drive $100\%$ full ho jayegi. Disk space ko khali karne aur recycle karne ke liye log ko chote chote **Segments** (tukron) mein toda jata hai. Thodi thodi dair baad purane segments ko ya toh hamesha ke liye delete kar diya jata hai, ya sasti archive cold storage mein shift kar diya jata hai.
+
+* **Bounded Buffer / Ring Buffer:** Iska matlab hai ke log asal mein ek limited size ka buffer hota hai (jaise aik gol racing track ya circular buffer), jahan jab track full ho jaye toh sab se purane footprints mita diye jaate hain.
+* **Slow Consumer Ka Nuksan:** Agar koi consumer bohot hi zyada sust (slow) ho jaye aur data banane wale bohot fast hon, toh ho sakta hai consumer itna piche reh jaye ke uska offset jis segment par point kar raha ho, broker us segment ko purana samajh kar delete kar chuka ho! Aise mawaqe par consumer ka data miss ho jayega (**Message Loss**).
+
+Chalein disk bharne ka aik andaza lagane ke liye ek simple math (**Back-of-the-envelope calculation**) karte hain:
+
+
+$$\text{Disk Capacity} = 20\text{ TB}$$
+
+$$\text{Sequential Write Throughput} = 250\text{ MB/s}$$
+
+Agar aap drive par poori speed se lagatar data write karein, toh disk ko full hone mein kitna waqt lagega?
+
+
+$$\text{Time to fill} = \frac{20 \times 10^{12}\text{ bytes}}{250 \times 10^6\text{ bytes/s}} \approx 80,000\text{ seconds} \approx 22\text{ hours}$$
+
+Iska matlab hai ke ek akeli aam hard drive bhi full hone se pehle kam az kam **22 ghante** ka data bacha kar rakh sakti hai. Asal zindagi mein clusters mein hazaron disks hoti hain aur log kabhi bhi disk ki poori maximum bandwidth har waqt use nahi karte, is liye log-based brokers aaram se **kayi dino ya hafton** ka data buffer mein sanbhal kar rakh sakte hain.
+
+#### Tiered Storage Aur Object Store Ka Milan
+
+Kharcha bachane aur storage ko mazeed un-limited karne ke liye naye brokers (jaise Kafka aur Redpanda) **Tiered Storage** use karte hain. Yeh naye messages tez local disk par rakhte hain aur purane messages background mein sasti cloud storage (**Amazon S3**) par shift kar dete hain. WarpStream aur Bufstream toh apna saara data hi direct S3 par likhte hain.
+
+Is design ka sab se bara faida yeh hota hai ke S3 par para hua streaming data **Apache Iceberg tables** ki shakal mein save ho jata hai. Is se data warehouse ki jobs bina data copy kiye direct streaming storage ke upar hi apna batch analysis chala sakti hain (Data Integration bohot asaan ho jati hai).
+
+---
+
+### When consumers cannot keep up
+
+Jab data parhne wala computer data banane wale se slow ho jaye, toh log-based system aik bohot baray fixed disk-size **Buffer** ka kirdar ada karta hai.
+
+* **Old Data Dropping:** Agar consumer had se zyada piche chala jaye, toh broker sirf un messages ko chorrta (drop karta) hai jo disk ke buffer size se bahar nikal chuke hon.
+* **Alerting:** Data engineers dashboards par check karte rehte hain ke consumer log ke main head se kitna piche chal raha hai (**Consumer Lag**). Chunke disk ka buffer bohot bada hota hai, is liye data miss hone se pehle engineers ke paas kayi ghante ya din hote hain ke woh slow consumer ka bug fixed karke usay dobara line par le aayein.
+* **Iska Operational Faida:** Agar koi aik consumer slow ya fail ho bhi jaye, toh **baqi ke doosre consumers par is ka $1.2\%$ bhi asar nahi parta!** Unka kaam bilkul smooth chalta rehta hai. Aap production ke live log ko utha kar testing ya debugging ke liye ek naya experimental consumer laga kar check kar sakte hain, bina live system ko slow karne ke darr ke. Jab aap testing consumer ko band karenge, toh memory par koi bojh nahi bachega, bas uska offset piche reh jayega.
+
+Traditional brokers (RabbitMQ) mein aisa nahi hota; wahan agar consumer band ho jaye toh queue memory mein messages jama karna shuru kar deti hai, jis se baqi chalte hue live consumers ke liye RAM khali nahi bachti aur poora server crash hone ka darr hota hai.
+
+---
+
+### Replaying old messages
+
+Hum ne pehle parha ke traditional AMQP/JMS brokers mein message parhna aur ACK bhejna aik mita dene wala (destructive) kaam hota hai. Log-based message broker mein aisa bilkul nahi hai; yahan message parhna bilkul **aik read-only file ko parhne jaisa hai**, log ke andar ka data kabhi badalta nahi hai.
+
+* **Offset Consumer Ke Hath Mein:** Message parhne se sirf ek hi badlao aata hai: consumer ka apna offset kaala arrow aage barh jata hai. Lekin chunke yeh offset poori tarah consumer ke apne control mein hota hai, is liye developer jab chahe is offset ke sath khel sakta hai.
+* **Waqt Mein Piche Jana (Replay):** Sochein aap ke code mein koi bug tha jis se pichlay 24 ghante ka analysis galat calculate hua. Aap ko ghabrane ki koi zaroorat nahi hai. Aap bas code ka bug fix karenge, consumer ka offset pakar kar **kal wale number par piche (rewind) kar denge**, aur output ko aik naye folder mein save karne ke liye run kar denge!
+
+Yeh khubiyat streaming ko bilkul pichlay chapter wale **Batch Processing jaisa safe aur repeatable** bana deti hai, jahan asal input data hamesha mehfooz rehta hai aur naya output bilkul fresh banta hai. Is se systems mein naye naye experiments karna aur galtiyon se recover karna bacho ka khel ban jata hai.
+
+---
