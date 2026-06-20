@@ -284,3 +284,95 @@ Aaj ke daur mein data systems ko compose karne ke tools bohot behtar ho chuke ha
 
 ---
 
+## Designing Applications Around Dataflow
+
+Derived data (nikale hue data) ko automatically update karne ka khyal koi naya naya kal ka larka idea nahi hai. Misaal ke tor par, hamare paas jo **Spreadsheets (Excel/Google Sheets)** hoti hain, un ke paas kamaal ki dataflow programming takat pehle se hoti hai.
+
+* **Bacho ki Tarah Samajhein:** Excel mein agar aap ne aik khane (cell) mein formula lagaya ke `=SUM(A1:A10)`, toh jaise hi aap column A ke kisi bhi khane ka number badlenge, formula wale khane ka nateeja dharak se khud-ba-khud badal (recalculate ho) jayega.
+
+Hamein bilkul yahi cheez poore software data system ke level par chahiye. Jab database ke andar koi ek single record badle, toh us record ka index automatic update hona chahiye, aur us par depend karne wale saare cached views ya calculations khud hi refresh ho jani chahiye. Developer ko is baat ki chinta bilkul nahi karni chahiye ke yeh refresh piche kaise ho raha hai; usay bas system par bharosa hona chahiye ke kaam theek chalega.
+
+Is liye, aaj ke modern data systems ko abhi bhi bohot kuch seekhna baqi hai us feature se jo **VisiCalc** (duniya ka pehla spreadsheet software) ke paas **1979** mein pehle se maujood tha! Farq sirf itna hai ke aaj ke systems ko scale mein bohot bara hona parta hai, fault-tolerant hona parta hai, aur data ko hamesha ke liye durable save rakhna parta hai. Unhein alag alag teams ke likhe hue softwares aur external cloud services ko bhi aprop mein safely jorrna parta hai. Yeh sochna bewakoofi hai ke poori company ka saara code sirf aik hi language ya framework mein likha jayega.
+
+---
+
+### Application code as a derivation function
+
+Aap jab bhi aik dataset se doosra naya dataset nikalte hain, toh data ek badlao ke formula (**Transformation / Derivation Function**) se guzarata hai. Chalein iski char (4) barri examples dekhte hain:
+
+* **Secondary Index:** Iska formula bohot seedha hota hai. Yeh table ki har row uthata hai, indexed fields ki values nikalta hai, aur unhein B-tree ya SSTable ke mutabaq key ke order mein sort (tarteeb) kar deta hai.
+* **Full-Text Search Index:** Iska formula thoda complex hota hai. Yeh text par *Natural Language Processing* (NLP) chalata hai—jaise yeh pehchanna ke language kaun si hai, lafzon ko torti hai (word segmentation), unke aakhir se 'ing' ya 'ed' hata kar asli lafz nikalna (stemming/lemmatization), spelling theek karna, aur makhsoos lafzon ke hum-maani lafz (synonyms) dhoondna. Phir ja kar aik fast search index (inverted index) banta hai.
+* **Machine Learning (ML Systems):** Ek AI/ML model ko aap maan sakte hain ke yeh training data se nikali hui ek nishān (derived state) hai, jahan statistical analysis ke formulas laga kar model ke **Weights** nikalay jaate hain. Jab is model ko naya input diya jata hai, toh nateeja unhi learned parameters (aur indirectly purane training data) se derive hota hai.
+* **UI Cache Layer:** App ke cache memory mein aksar data usi shakal mein pehle se jama (aggregate) karke rakha jata hai jis shakal mein usay mobile ya browser ki screen (UI) par dikhana ho. Agar UI ka design badal jaye, toh cache banane ka formula bhi badalna parta hai aur cache naye siray se rebuild karni parti hai.
+
+Secondary index ka formula itna aam hai ke databases usay core feature ke tor par built-in dete hain aur aap bas `CREATE INDEX` chala dete hain. Full-text search ke liye bhi thodi bohot facilities databases mein hoti hain, lekin heavy kaam ke liye specialized tools chahiye hote hain. Machine Learning mein feature engineering poori tarah se custom hoti hai aur us mein user ke clicks ka detailed knowledge dalna parta hai.
+
+Jab aap ka formula `CREATE INDEX` jaisa aam cookie-cutter (bana-banaya) nahi hota, toh aap ko **Custom Application Code** likhna parta hai. Aur yahin par saare traditional databases haar jaate hain. Halanqe relational databases ke andar triggers, stored procedures, aur user-defined functions (UDFs) hote hain jahan aap code database ke andar chala sakte hain, lekin unhein database design mein hamesha ek aakhri majboori (afterthought) ke tor par dekha gaya hai.
+
+---
+
+### Separation of application code and state
+
+Theory ki duniya mein databases chahein toh operating system ki tarah har tarah ka custom application code apne andar chala sakte hain. Lekin practical real life mein databases is kaam ke liye bohot ghatiya environment sabit huay hain. Woh modern software development ke requirements ko safely jhel nahi sakte—jaise packages aur libraries ka hisab rakhna (dependency management), code ka version control (Git), bina downtime ke naya code deploy karna (rolling upgrades), monitoring metrics nikalna, external network lines par API calls marna, aur baqi systems ke sath integration karna.
+
+Doosri taraf, cluster management ke modern tools—jaise **Kubernetes, Docker, Mesos, aur YARN**—khass tor par bane hi isi kaam ke liye hain ke woh application code ko safely aur kamyabi se chalayein. Aik kaam par focus karne ki wajah se yeh databases se lakh darja behtar code execution sambhaltay hain.
+
+Isi wajah se aaj kal ki zyadatar web applications ko **Stateless Services** ke tor par deploy kiya jata hai:
+
+* **Stateless Ka Fayda:** User ki request kisi bhi azaad application server par ja sakti hai. Server response bhejne ke baad us request ko poori tarah bhool jata hai. Is se faida yeh hota hai ke aap jab chahe naye servers add karein ya purane delete karein, code crash nahi hota.
+* **The Rule:** Lekin data (state) ko kahin toh paka save rakhna hai, is liye state ko hamesha alag se databases mein phenk diya jata hai. Aaj kal ka paka trend yeh hai ke **Stateless Application Logic ko State Management (Databases) se poori tarah judaa (separate) rakha jaye**—yani application ke andar koi paka data na bache, aur database ke andar application ka code na chale.
+
+> **Functional Programming Ka Ek Joke (Separation of Church and State):** Functional programming ke log aksar mazaq mein kehte hain ke *"Hum Church aur State ki separation par yakeen rakhte hain"*.
+> * **Joke Ka Breakdown:** Siasat mein iska matlab hukumat aur mazhab ko alag rakhna hota hai. Lekin coding mein "Church" ka matlab mashhoor mathematician **Alonzo Church** hain, jinho ne *Lambda Calculus* banaya tha (jo functional programming languages ki buniyaad hai). Lambda calculus ke andar koi badalney wali memory (**No Mutable State / No Variables**) nahi hoti. Is liye programming mein mutable state ko Alonzo Church ke kaam se bilkul alag (separate) rakha jata hai.
+> 
+> 
+
+Is typical web application model mein, database computer ki memory mein pare aik aise share kiye hue variable (**Mutable Shared Variable**) ki tarah kaam karta hai jise network par synchronously access kiya jata hai. Application usay read aur update karti hai, aur database usay durable rakhne, concurrency control, aur fault tolerance dene ka bojh uthaata hai.
+
+Lekin aam programming languages mein aap kisi mutable variable ke badlao ko automatic subscribe (listen) nahi kar sakte; aap ko thodi thodi dair baad khud ja kar variable ko parhna (**Polling**) parta hai. Excel spreadsheet ki tarah parhne wale ko khud notification nahi milti ke data badal chuka hai (halanqe *Observer Pattern* se code mein yeh kiya ja sakta hai, par languages mein yeh built-in nahi hota). Databases ne bhi data ka yahi thanda aur passive tareeqa apnaaya hua hai, jahan agar naya data check karna ho toh baar baar query repeat (poll) karni parti hai. Badlao ko subscribe karne ka feature abhi naye naye siray se ana shuru hua hai.
+
+---
+
+### Dataflow: Interplay between state changes and application code
+
+Applications ko **Dataflow** ki nazar se dekhne ka matlab hai ke application code aur state management ke purane talooq ko naye siray se tay kiya jaye. Database ko aik thanda ruka hua variable samajhne ke bajaye, hum data ki halat (state), us mein aane wale badlao (state changes), aur usay process karne wale application code ke darmiyan aik har waqt chalne wali live dosti (**Interplay & Collaboration**) ke baare mein sochte hain. Application code aik jagah hone wale badlao ko sunta hai aur uske reaction mein doosri jagah naya badlao trigger kar deta hai.
+
+Hum ne is soch ko CDC (Change Data Capture) mein, Actor model mein, database triggers mein, aur Incremental View Maintenance (IVM) mein dekha hai. Database ko unbundle (azaad) karne ka asli maqsad hi yeh hai ke hum main database se bahar nikal kar azaadana tareeqe se caches, full-text search indexes, aur Machine Learning pipelines tayaar karein. Is kaam ke liye hum stream processing aur messaging systems (Kafka) ka behtareen istemaal karte hain.
+
+Derived data ko live aur mehfooz rakhne ke liye log-based message brokers hamein do sab se zaroori khubiyan (properties) muft dete hain:
+
+1. **Total Order of Changes:** Badlao ki exact tarteeb bohot aham hai. Agar aik hi event log se 5 alag alag views (caches/indexes) nikal rahe hain, toh un saare consumers ko events aik hi exact order mein process karne parenge taake saari company ke data reports aprop mein hamesha match rahein.
+2. **Solid Fault Tolerance:** Aik bhi message ka raste mein kho jana derived dataset ko main source database se hamesha ke liye out-of-sync (de-sync) kar dega. Is liye message ki delivery aur state ka update hona $100\%$ reliable hona chahiye.
+
+Halanqe stable ordering aur fault-tolerant processing sunne mein kafi sakht demands lagti hain, lekin distributed transactions (2PC) ke muqable mein yeh **bohot sasti aur system par bohot kam bojh (operationally robust) daalti hain**. Modern stream processors bohot baray scale par yeh guarantees de dete hain aur application code ko as a stream operator chalane ki ijazat dete hain.
+
+Yeh application code har tarah ki complex processing khud kar sakta hai jo databases ke built-in functions nahi de paate. Bilkul pipes se jure hue Unix tools ki tarah, aap stream operators ko aik doosre ke aage-piche jorr kar dataflow ke gird ek bohot bara scalable system khara kar sakte hain, jahan har operator input mein badlao ki stream leta hai aur output mein badlao ki nayi stream nikaal deta hai.
+
+---
+
+### Stream processors and services
+
+Aaj kal software ki duniya mein application banane ka sab se mashhoor style **Microservices Architecture** (Service-Oriented Architecture) hai, jahan pooray software ke kaamo ko chote chote tukron (services) mein tor diya jata hai jo aprop mein internet par synchronous network requests (**REST APIs ya RPC**) ke zariye baat karti hain. Is monolithic se microservices par aane ka sab se bara faida company ke level par organizational scalability haasil karna hai, kyu ke alag alag teams aik doosre se azad ho kar apne microservice par bina interference ke kaam kar sakti hain.
+
+Stream operators ko dataflow pipelines mein jorrna bhi microservices jaisa hi azaad ehsas deta hai. Lekin dono ke aprop mein baat karne ka andruni nizam (communication mechanism) ek doosre se bilkul ulat hai: **Microservices synchronous request/response par chalti hain, jabke Dataflow systems aik hi raste par behne wali asynchronous message streams par chalte hain.**
+
+Better fault tolerance ke ilawa, dataflow systems traditional REST APIs ya RPC se **bohot behtar aur fast speed (performance)** haasil kar sakte hain. Chalein is baat ko currency conversion (paise badalney) ki ek bohot hi shaandar real-world example se bacho ki tarah asani se samajhte hain:
+
+Sochein ek customer aap ki website se koi cheez khareed raha hai jis ki keemat Dollars ($) mein hai lekin bacha payment Rupee (Rs) mein kar raha hai. Is transaction ko poora karne ke liye aap ko market ka maujooda Exchange Rate pata hona chahiye. Isay implement karne ke do tareeqay hain:
+
+* **Tariqa A: Microservices Approach (Synchronous REST/RPC):**
+Jo code purchase process kar raha hoga, woh raste mein rukega, network par aik RPC call maaregā 'Exchange Rate Service' ya kisi central database ko, wahan se exchange rate ka rate parh kar wapis aayega, aur phir calculation aage barhayega.
+* *Nuksan:* Agar exchange rate ki service temporary down ho gayi, toh user ki purchase fail ho jayegi! Network call hone ki wajah se process slow bhi hoga. Halanqe local cache laga kar network call se bacha ja sakta hai, par cache ko fresh rakhne ke liye phir se polling karni paregi.
+
+
+* **Tariqa B: Dataflow Approach (Asynchronous Stream Join):**
+Purchase process karne wala code pehle se hi market ke Exchange Rate ki update stream ko subscribe karke baith jata hai. Jab bhi market mein rate badalta hai, stream processor us naye rate ko **apne local database (RAM hash table) mein save kar leta hai**. Ab jab user website par purchase ka button dabayega, toh code ko network par kisi doosri service ke paas bhagney ki koi zaroorat nahi hai! Woh dharak se apne hi **Local process ki memory se rate parhay ga** aur calculation millisecond mein complete kar dega!
+
+**Nateeja:**
+Doosra tareeqa na sirf hadd se zyada fast hai, balkay agar market ki exchange rate service temporary crash bhi ho jaye, tab bhi aap ka purchase system bina ruke chalta rahega! Duniya ka sab se fast aur reliable network request wahi hota hai **jo kabhi network par bheja hi na jaye (No network request at all!)**. RPC ka khatma ho gaya aur iski jagah purchase events aur exchange rate events ka aprop mein ek **Stream Join** lag gaya.
+
+Yahan join waqt par depend karta hai (**Time-Dependent Join**): agar aap 2 saal purane data ko aaj dobara reprocess kar rahe honge, toh aap ko local memory mein aaj ka exchange rate nahi balkay us din ka purana exchange rate chahiye hoga jab sale asli zindagi mein hui thi. Is time dependence ko handle karna distributed engineering ka ek dilchasp khel hai.
+
+Kisi cheez ka data badalne par central database se baar baar poochna (query/polling) chorr kar, agar hum badlao ki stream ko pehle se subscribe karlein, toh hum Excel spreadsheet wale computational model ke bohot kareeb pohanch jaate hain. Jaise hi data badla, derived data khud hi safayi se update ho gaya! Distributed jahan mein building applications around dataflow ki yeh soch systems ko super-fast aur scalable banane ka aik bohot hi roshan aur promising rasta hai.
+
+---
