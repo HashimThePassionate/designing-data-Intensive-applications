@@ -541,3 +541,169 @@ Jab credit card se koi nayi purchase hoti hai, toh fraud detection system ko che
 Data warehouses ke andruni query execution graphs ke andar bhi bilkul yahi khususiyaat hoti hain. Agar aap ki application aisi hai jahan standard database pehle se distributed joins ka feature built-in de raha hai, toh khud se stream processor par isay code karne ke bajaye database use karna zyada asaan hai. Lekin agar aap ka software scale ki us aakhri hadd par pohanch chuka hai jahan market ke aam solutions jawab de jaate hain, toh queries ko as a stream process karna hi aap ka aakhri aur sab se takatwar option banta hai.
 
 ---
+
+## Aiming for Correctness
+
+Stateless services (aisi applications jo memory mein data save nahi kartin, bas requests read karti hain) ke sath agar koi galti ya bug aa bhi jaye, toh masla bohot chota hota hai. Aap code ka bug fix karte hain, service ko restart karte hain, aur sab kuch normal ho jata hai.
+
+Lekin databases jaise **Stateful Systems** ke sath aisa bilkul nahi hai. Inhein banaya hi is liye jata hai ke yeh cheezon ko hamesha ke liye yaad (store) rakhein. Agar in mein koi galti ya bug aa jaye, toh uske bure asraat bhi hamesha ke liye database mein daagh ban kar reh jaate hain—jis ka matlab hai ke inhein chalane ke liye bohot hi barik soch zaroori hai.
+
+* **Bacho ki Tarah Samajhein:** Stateless system ek pencil aur whiteboard jaisa hai, galti hui toh mita kar naya likh diya. Stateful system ek permanent deewar par khurach kar naxsha banane jaisa hai, agar galti se galat lakeer khich gayi, toh deewar par hamesha ke liye nishān reh jayega.
+
+Hum aisi applications banana chahte hain jo reliable aur bilkul correct hon (yani unke rules saaf hon, chahe system mein jitni marzi kharabiyan aayein). Pichlay 40 saaloon se software engineering mein databases ki transactions ki khubiyan—**Atomicity, Isolation, aur Durability (ACID)**—hi correctness haasil karne ka sab se paka hathiyar maani jati hain. Lekin yeh buniyaad jitni mazboot dikhti hai, asliyat mein itni hai nahi; is ki zinda misaal weak isolation levels ka lamba siyapa hai.
+
+Kuch modern systems mein toh transactions ko poori tarah chorr diya gaya hai taake speed aur scalability (performance) achi ho sakay, lekin is se unka andruni logic bohot ganda aur complex ho jata hai. Log "Consistency" ki baten toh bohot karte hain lekin unhein khud nahi pata hota ke iski saaf tareef kya hai. Kuch log kehte hain ke behtar availability ke liye halkan consistency ("embrace weak consistency") apna lo, lekin practical life mein iska kya nateeja niklega, iska unhein andaza nahi hota.
+
+Itne aham topic hone ke bawajood hamare engineering tareeqay kafi kamzor hain. Misaal ke tor par, yeh tay karna hadd se zyada mushkil hai ke kya aap ki application kisi makhsoos isolation level ya replication setting par safely chal sakegi ya nahi. Aksar simple solutions tab toh bilkul perfect chalte hain jab website par rush kam ho aur koi computer kharab na ho, lekin jaise hi heavy load aur network partitions aate hain, un ke andar chhupay hue barik bugs samhne aa jaate hain.
+
+Kyle Kingsbury ke mashhoor **Jepsen Experiments** ne is sachai ko poori duniya ke samne nanga kiya hai. Unho ne sabit kiya ke databases bechne wali companies jo baray baray daaway karti hain ke hamara data kabhi zaya nahi hoga, jab un databases par network partitions aur sudden crashes ka torture test kiya jata hai, toh unka aam behavior unke daaway se bilkul ulat nikalta hai aur data corrupt ho jata hai.
+
+Agar aap ki application aisi hai jahan thoda bohot data zaya hona ya corrupt hona chalta hai, toh zindagi bohot asaan hai; aap bas ankhein band karke achay ki umeed rakh sakte hain. Lekin agar aap ko $100\%$ paki correctness chahiye, toh serializability aur atomic commit hi raste hain, lekin unki apni aik barri keemat hai. Sanjidah baat yeh hai ke yeh tareeqay aam tor par sirf aik single datacenter mein chalte hain (duniya bhar mein phailay distributed systems mein fail ho jaate hain), aur aap ke scaling aur fault tolerance ko limits mein band kar dete hain.
+
+Traditional transactions ka rasta khatam nahi ho raha, lekin applications ko fault-tolerant aur resilient banane ke liye yeh aakhri rasta nahi hai. Is section mein hum dataflow architectures ke context mein correctness haasil karne ke naye naye tareeqon par baat karenge.
+
+---
+
+### The End-to-End Argument for Databases
+
+Sirf is wajah se ke aap ki application ek aisa database use kar rahi hai jo bohot strong safety guarantees (jaise serializable transactions) deta hai, iska yeh matlab hargiz nahi hai ke aap ka data hamesha data loss ya corruption se bacha rahega.
+
+Misaal ke tor par, agar aap ke application code ke andar hi koi aisa bug (galti) hai jo database mein galti se galat data write kar deta hai ya chalte hue sahi data ko delete kar deta hai, toh database ki serializable transactions aap ko is maut se nahi bacha saktin.
+
+Yeh sab se bara point hai **Immutable aur Append-Only data** ke haq mein. Kyunke agar aap code se data mitaane ya overwrite karne ki takat hi chheen lein, toh buggy code sahi data ko kabhi jaan se maar nahi sakega, aur aap purane logs replay karke apni galti se asani se recover kar lenge.
+
+Halanqe immutability bohot useful hai, lekin yeh poore jahan ke har dard ki akeli dawa nahi hai. Chalein ek bohot hi barik aur dilchasp misaal dekhte hain ke data corrupt kaise hota hai.
+
+---
+
+### Exactly-once execution of an operation
+
+Hum ne pehle parha tha ke message processing mein *exactly-once* (ya effectively-once) semantics ka maqsad kya hota hai. Asool yeh hai: agar kisi message ko process karte waqt beech mein koi computer fail ho jaye, aap ke paas do hi raaste hain:
+
+1. Aap haar maan lein (message drop kar dein, jis se **Data Loss** ho jayega).
+2. Ya aap dobara koshish karein (**Retry** karein).
+
+Agar aap retry karte hain, toh yahan ek bohot bara khatra paida ho jata hai. Ho sakta hai pichli dafa jab aap ne message bheja tha, toh server ne us par kaam kamyabi se poora kar diya tha, lekin network ka jhatka lagne ki wajah se aap tak uski kamyabi ka confirmation message (ACK) nahi pohanch saka. Ab retry karne se naya computer us message ko **doosri dafa process (Process Twice)** kar dega!
+
+* **Data Corruption Ki Misaal:** Ek hi message ka do dafa chalna data ka sab se bara qatal (corruption) hai. Kisi bache ke account se aik hi service ke liye do dafa paise kat jana (double billing) ya database ke counter ka galti se do dafa barh jana metrics ko poori tarah jhoot bana deta hai.
+* **Asli Maqsad:** Yahan exactly-once ka matlab yeh hai ke hum poore calculation ke system ko aisa design karein ke kharabiyon aur retries ke bawajood, final nateeja har haal mein wahi niklay jo sirf aik dafa perfectly chalne se nikalta hai.
+
+Iska sab se behtareen tareeqa operation ko **Idempotent** banana hai (yani aisi query jise 1 dafa chalayein ya 10 dafa, system par asar same paray). Lekin jo kaam kudrati tor par idempotent nahi hote (jaise counter barhana ya paise transfer karna), unhein idempotent banane ke liye metadata (jaise purane operation IDs ki list) rakhni parti hai aur failover ke waqt *fencing tokens* lagane parte hain.
+
+---
+
+### Duplicate suppression
+
+Duplicate requests ko rokna (**Duplicate Suppression**) sirf stream processing mein hi nahi, balkay computer networks mein har jagah use hota hai.
+
+* **TCP Ki Example:** Hamara internet jis TCP protocol par chalta hai, woh packets ke upar unique *Sequence Numbers* lagata hai. Is se receiver ko pata chal jata hai ke packets kis tarteeb mein jorrnay hain aur agar network par koi packet duplicate ho kar doosri dafa aaye, toh TCP stack us duplicate packet ko raste mein hi mita (suppress kar) deta hai aur application code tak sirf aik hi clean copy pohnchati hai.
+
+Lekin sab se zaroori baat yaad rakhein: **TCP ka naya duplicate suppression sirf aik single TCP connection ke andar hi kaam karta hai.**
+
+Sochein aik client computer database ke sath aik TCP connection bana kar **Example 13-1** wala lamba transaction chala raha hai. Zyadatar databases mein transaction client ke isi TCP connection ke sath bandhi hoti hai.
+
+---
+
+#### Example 13-1 Ka Breakdown: Non-Idempotent Money Transfer
+
+```sql
+BEGIN TRANSACTION;
+  UPDATE accounts SET balance = balance + 11.00 WHERE account_id = 1234;
+  UPDATE accounts SET balance = balance - 11.00 WHERE account_id = 4321;
+COMMIT;
+
+```
+
+**The Breakdown Scenario:**
+Client ne upar wala code database server ko bhej diya. Database ne account 4321 se **11$** nikale aur account 1234 mein **11$** daal diye, aur `COMMIT` ka button daba kar data paka save kar diya.
+
+Ab server client ko khush-khabri bhejney hi wala tha ke *"Bhai, paise transfer ho gaye hain"*, ke achanak beech mein internet ki tar kat gayi (**Network Interruption / Connection Timeout**).
+
+Client ka TCP connection toot gaya. Ab client bacha pareshan betha hai ke **mujhe confirmation nahi mili, toh kya paise sach mein transfer huay ya transaction abort ho gayi?** (Yeh bilkul **Figure 9-1** wala hadsa hai).
+
+**The Trap (Khatra):**
+Client ab naye TCP connection se database ke sath rabta karega aur isi transaction ko dobara **Retry** karega. Lekin ab hum TCP duplicate suppression ki sarhad se bahar nikal chuke hain kyu ke connection naya hai!
+
+Chunke Example 13-1 wala code **idempotent nahi hai** (woh har dafa chalne par balance mein mazeed $11$ plus minus karta hai), database dobara chalne par mazeed **11$** nikal dega. Kul mila kar bache ke account se **22$** kat jayenge, jabke bacha sirf **11$** bhejna chahta tha! Halanqe software engineering ki kitabon mein is code ko transaction atomicity ki sab se paki misaal bataya jata hai, lekin asli distributed systems mein yeh code **bilkul galat** hai, aur real-world ke banks kabhi bhi is tarah kaam nahi karte.
+
+#### Kya Two-Phase Commit (2PC) Isay Hal Karega?
+
+2PC protocols TCP connection aur transaction ka $1$-to-$1$ talooq zaroor tortay hain (taake coordinator coordinator crash ke baad naye connection se aakar in-doubt transaction ka faisla pooch sakay). Lekin kya yeh kafi hai? **Hargiz nahi!**
+
+Hamein sirf database aur server ke beech ke network ki chinta nahi hai, balkay **asli user ke mobile device aur application web server ke beech ka network** us se lakh guna zyada ganda aur unreliable hota hai.
+
+* **Web Browser Ka Hadsa:** User ne browser par form fill kiya aur "Pay 11$" ka button dabaya. Mobile se server tak **HTTP POST** request chali gayi. Web server ne database mein transaction paki commit bhi kar di. Lekin confirmation wapis aate waqt mobile ke signals gayab ho gaye!
+* Browser screen par error dikhaye ga. User pareshan ho kar dubara button dabayega. Browser warning dega: *"Are you sure you want to submit this form again?"*, user kahega "Haan bhai, paise bhejne hain!". Web server ke liye yeh aik bilkul **Nayi Request** hai, aur database ke liye yeh aik bilkul **Nayi Transaction** hai. Database ka apna koi bhi deduplication nizam is chori ko nahi pakar sakta.
+
+---
+
+### Uniquely identifying requests
+
+Is request ko poore network ke raste mein idempotent banane ke liye database ke transaction rules par bharosa karna kafi nahi hai. Aap ko request ka **End-to-End Flow** (shuruat se aakhir tak ka rasta) khud design karna parega.
+
+Iska sasta aur perfect hal yeh hai ke **Request paida hote hi frontend (client app) par usay ek unique ID (jaise random UUID) de di jaye.**
+
+* Aap browser ke form mein ek hidden field rakh sakte hain jiske andar yeh ID ho, ya user ke fields ka *Hash* nikal kar request ID bana sakte hain.
+* Agar browser network jhatkay se POST request do dafa bhi bheje, **dono requests ke paas bilkul same request ID hogi.**
+* Ab aap is ID ko web server se guzar kar direct database tak pohnchayein, aur database mein check lagayein jaisa **Example 13-2** mein dikhaya naya hai.
+
+---
+
+#### Example 13-2 Ka Breakdown: Suppressing Duplicates via Unique ID
+
+```sql
+-- 1. Requests ke table mein request_id column ko UNIQUE lock kar dein
+ALTER TABLE requests ADD UNIQUE (request_id);
+
+-- 2. Transaction ke andar pehle is request ID ko insert karein
+BEGIN TRANSACTION;
+  INSERT INTO requests (request_id, from_account, to_account, amount)
+  VALUES ('0286FDB8-D7E1-423F-B40B-792B3608036C', 4321, 1234, 11.00);
+
+  -- 3. Agar insert kamyab ho toh hi balance badlein
+  UPDATE accounts SET balance = balance + 11.00 WHERE account_id = 1234;
+  UPDATE accounts SET balance = balance - 11.00 WHERE account_id = 4321;
+COMMIT;
+
+```
+
+**Yeh Code Kaise Kaam Karta Hai? (Bacho ki tarah samajhein):**
+Yeh code database ke `UNIQUE Constraint` (anokha hone ki shart) par bharosa karta hai.
+
+* Jab pehli request aayegi, database check karega ke `0286FDB8...` naam ki request ID pehle se table mein nahi hai, toh woh usay line se save kar lega aur balance badal dega.
+* Jab user ka mobile signal katne par dubara **wahi same request dobara bhejega**, toh database transaction ke pehlay hi step (`INSERT INTO requests`) par cheekh parega ke *"Bhai! Yeh ID mere paas pehle se save hai!"*. Unique constraint tootne ki wajah se database **transaction ko foran abort (cancel) kar dega**. Duplicate processing ka khatra hamesha ke liye khatam! Relational databases low isolation levels par bhi unique constraint ka faisla bilkul perfect karte hain.
+* **Event Log Ka Faida:** Is table mein save hone wali rows aap ke liye aik automatic **Event Log** ban jati hain, jise aap Event Sourcing ya CDC pipelines ke liye use kar sakte hain. Balance update karne ka kaam aap transaction se nikal kar aage downstream consumers par bhi chor sakte hain kyu ke request ID se *exactly-once* ka pehra lag chuka hai.
+
+---
+
+### The end-to-end argument
+
+Duplicate transactions ko rokne ka yeh jo tareeqa hum ne parha, yeh computer science ke aik bohot hi baray aur mashhoor asool ki misaal hai, jisay **The End-to-End Argument** kehte hain. Saltzer, Reed, aur Clark ne 1984 mein isay in lafzon mein bayan kiya tha:
+
+> *"Koi bhi zaroori function (jaise duplicate suppression) tabhi poori tarah aur sahi tarah se implement kiya ja sakta hai jab communication system ke dono aakhri endpoints (Endpoints yani frontend client aur backend data store) khud us mein hissa lein aur apna dimaagh lagayein. Us function ko raste ke network ya darmiyanay system ka feature bana kar haasil karna namumkin hai."*
+
+Chalein is baray asool ko teen (3) alag alag scenarios se bacho ki tarah asaan karke breakdown karte hain:
+
+1. **Deduplication:** TCP connection packet level par duplicates mitaata hai, stream processor message level par mitaata hai, lekin un mein se koi bhi user ke browser se aane wali duplicate HTTP request ko nahi rok sakta kyu ke connection badal chuka hota hai. Sahi hal sirf **End-to-End Solution** hai—yani unique ID browser se shuru ho aur database ke table par ja kar khatam ho.
+2. **Data Integrity (Checksums):** Ethernet ki taron, TCP, aur TLS ke andar built-in checksums (data naapne ke nishan) hote hain jo raste ke network par data kharab hone ko pakar letay hain. Lekin agar sending computer ke software ke bug ki wajah se data raste mein nikalne se pehle hi kharab ho chuka ho, ya database ke disk bit-rot ki wajah se disk par kharab ho jaye, toh network ke checksums usay nahi pakar sakte. Poori safety ke liye aap ko **End-to-End Checksums** chahiye jo direct application level par check hon.
+3. **Security (Encryption):** Aap ke ghar ke Wi-Fi ka password local hawa mein traffic chori hone se bachata hai par internet par nahi. Server aur browser ke beech ka TLS/SSL network ke attackers se bachata hai par agar server khud hack ho jaye toh data secure nahi rehta. Poori suraksha sirf **End-to-End Encryption** (jaise WhatsApp messages, jahan sirf bents wale aur parhne wale ke paas key hoti hai) se milti hai.
+
+Halanqe niche wale low-level features (TCP suppression, Ethernet checksums) akele poora masla hal nahi karte, lekin yeh upper level ke kaamo ka bojh bohot kam kar dete hain. Agar TCP packets ko line se tarteeb na deta, toh HTTP chalana azab ban jata. Bas yaad rakhna zaroori hai ke niche wale mechanisms akele kafi nahi hain.
+
+---
+
+### Applying end-to-end thinking in data systems
+
+Hum wapis apne asli mawaqe par aate hain: sirf strong databases (serializable transactions) lagane se aap ka software bugs aur data corruption se azaad nahi ho jata. Application ko khud **End-to-End Measures** (jaise frontend request tracking) lagane parenge.
+
+Yeh thodi dukh ki baat hai, kyunke fault-tolerance ke mechanisms khud se likhna bohot hi mushkil kaam hai. TCP jaise low-level nizam itne perfectly kaam karte hain ke upper level par galtiyan bohot kam aati hain. Kitna acha hota agar hum high-level distributed fault-tolerance ko bhi aik asaan abstraction ke andar band kar dete taake application developers ko iski chinta na karni parti—lekin afsos ke hum ne abhi tak software engineering mein aisi koi single perfect abstraction dhoond nahi payi.
+
+Transactions ko sadiyon se aik behtareen abstraction samjha gaya hai. Yeh concurrent writes, crashes, network partitions, aur disk failures ke saare jhanjhat ko collapsed karke sirf do nateejon mein baant deti hain: **Commit ya Abort**. Is se programming model bohot simple ho jata hai, lekin yeh kafi nahi hai.
+
+Transactions bohot mehangay kharche par chalti hain, khass tor par jab cross-technology systems (2PC) shamil hon. Aur jab hum mehangay hone ki wajah se distributed transactions use karne se mana kar dete hain, toh hamein fault-tolerance ka poora complex logic **application code ke andar khud re-implement (likhna) parta hai**.
+
+Jaisa is kitaab ke har chapter ne sabit kiya hai, distributed systems mein concurrency aur partial failures ke baare mein dimaagh lagana hadd se zyada mushkil aur counter-intuitive hai. Nateeja yeh nikalta hai ke developers jo custom fault-tolerance ka code likhte hain, us mein barik bugs reh jaate hain, aur aakhir-kar company ka data zaya ya corrupt ho jata hai.
+
+Isi wajah se, distributed systems ke future mein hum aisi naye fault-tolerance abstractions ko explore kar rahe hain jo applications ko custom end-to-end correctness bhi safely faraham karein, aur sath hi sath distributed environment mein unki speed, low-latency, aur scalability bhi kamaal rahay.
+
+---
