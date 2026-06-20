@@ -1091,3 +1091,89 @@ Distributed storage aur tez networks ke badalte daur mein local versus remote st
 
 ---
 
+# Summary
+
+Is chapter mein hum ne **Event Streams** (lagatar behne wala data), unke maqsad, aur unhein process karne ke tareeqon ka poora nichor (summary) dekha hai.
+
+Stream processing kafi hadd tak Chapter 11 wali batch processing jaisi hi hai, bas sab se bara farq yeh hai ke yeh ruka hua data parhne ke bajaye **Unbounded (na-khatam hone wale)** data streams par har waqt lagatar (continuously) chalti rehti hai. Is distributed dhabbe mein Message Brokers aur Event Logs bilkul aik distributed filesystem ka kirdar ada karte hain.
+
+Hum ne is chapter mein message brokers ki do barri types ka deeply muqabla kiya hai:
+
+---
+
+### AMQP/JMS-style message broker
+
+Broker queue mein se aik aik single message uthata hai aur alag alag consumers ko unka bojh baantne ke liye assign karta hai. Jab consumer apna kaam safely mukammal kar leta hai, toh woh broker ko aik ishara (**Acknowledgment / ACK**) bhejta hai, aur broker us message ko queue se foran permanently **Delete (mita)** deta hai.
+
+* **Bacho ki Tarah Samajhein:** Yeh bilkul aisa hai jaise aap ne dukan se aik ice cream khareedi aur kha li. Ab woh ice cream khatam ho chuki hai, koi doosra bacha usay dobara nahi kha sakta.
+* **Use Case:** Yeh tareeqa as an asynchronous RPC (Task Queue) kaam karne ke liye behtareen hai, jahan messages ko process karne ki exact tarteeb (order) farz na ho aur kaam khatam hone ke baad purane messages ko dobara piche ja kar parhne ki koi zaroorat na ho.
+
+---
+
+### Log-Based Message Broker
+
+Broker aik pure shard (partition) ke saare ke saare messages ka poora zimma aik makhsoos consumer node ko de deta hai aur saare messages hamesha aik hi perfect aur strict tarteeb (order) mein deliver karta hai. Parallelism haasil karne ke liye data ko sharding ke zariye toda jata hai. Consumers apna hisab-kitab rakhne ke liye parhay gaye aakhri message ka **Offset Number (checkpoint)** save karte hain. Broker saara data disk par paka save rakhta hai aur parhne se delete nahi karta.
+
+* **Bacho ki Tarah Samajhein:** Yeh aisa hai jaise aap YouTube par koi video dekh rahe hon. Aap video ko jitni dafa chahein piche (**Rewind**) karke dobara dekh sakte hain, aap ke dekhne se video mitti nahi hai.
+* **Use Case:** Yeh log-based approach databases ke replication logs (Chapter 6) aur log-structured storage engines (Chapter 4) se bohot milti julti hai, aur yeh khud Consensus (Chapter 10) ka aik roop hai. Yeh un stream processing systems ke liye king hai jo input streams parh kar naya derived state ya derived output streams banate hain.
+
+---
+
+### Streams Kahan Se Aati Hain Aur Databases Ka Milan
+
+Hum ne dekha ke streams alag alag jagahong se aa sakti hain:
+
+* Users ke clicks (activity events / clickstream data)
+* Har thodi dair baad reading bhejne wale hardware sensors
+* Financial markets ka live price data feeds
+
+Is ke sath sath, distributed systems ka sab se naya jadu yeh hai ke database mein hone wale har write (badlao) ko bhi hum aik stream maante hain. Hum database ke badlao ki poori tareeq (**Changelog history**) ko ya toh CDC (Change Data Capture) ke zariye chupke se ya Event Sourcing ke zariye khulay aam capture kar sakte hain. **Log Compaction** ke feature se is stream ke andar har waqt database ka ek mukammal aur up-to-date copy bacha kar rakha ja sakta hai bina disk space zaya kiye.
+
+Database ko as a stream dekhne se pooray enterprise networks ko aprop mein jorrna (integrate karna) bacho ka khel ban jata hai. Aap database ka change log parh kar apne derived systems—jaise search indexes (Elasticsearch), caches (Redis), aur analytical warehouses—ko har microsecond mein live sync rakh sakte hain. Hatta ke agar aap ko aik naya bilkul fresh view banana ho, toh aap offset 0 se shuru karke shuruati din se lekar aaj tak ka saara change log replay karke naya database khara kar sakte hain.
+
+---
+
+### Time Aur Windowing Ka Azab
+
+Streams mein state maintain karne aur messages replay karne ki yahi takat hamare distributed stream joins aur fault tolerance ki buniyaad banti hai. Hum ne stream processing ke teen baray maqsad dekhe:
+
+1. Events ke patterns dhoondna (**Complex Event Processing - CEP**)
+2. Waqt ke dairo mein calculations karna (**Stream Analytics**)
+3. Databases ko up-to-date rakhna (**Materialized Views**)
+
+Hum ne yeh bhi samjha ke stream processor mein waqt (time) ka hisab rakhna kitna challenging ho sakta hai; khass tor par computer ki local ghari (**Processing Time**) aur event ke andar ke asli waqt (**Event Timestamp**) ka farq, aur un **Straggler Events** (bhatkay hue late messages) ka siyapa jo tab aate hain jab hum samajhte hain ke hamari window complete ho chuki hai.
+
+Hum ne distributed stream processes mein teen (3) tarah ke **Joins** ko alag alag breakdown kiya:
+
+---
+
+### Stream–stream joins
+
+Dono taraf se aane wali inputs live activity events (jaise search queries aur clicks) par mushtamil hoti hain. Join operator aik makhsoos time window (jaise 30 minutes) ke andar aprop mein jure hue events ko dhoondta hai. Misaal ke tor par, aik hi user ne 30 minute ke andar search bhi kiya aur result par click bhi kiya. Sometime yeh aik hi stream par khud ka join (**Self-Join**) bhi ho sakta hai agar aap aik hi stream ke andar jure hui harkatain dhoondna chahein.
+
+---
+
+### Stream–table joins
+
+Aik input toh live activity events ki fast stream hoti hai, jabke doosri input database ka **CDC Changelog** hoti hai. Yeh changelog stream processor ke andar database ki ek local copy (hash table) ko har waqt live sync (up-to-date) rakhti hai. Jab bhi koi naya activity event aata hai, operator network par jaye bina local copy se fast query chalaata hai aur data ko profile jankari se bhar poor (**Enriched activity event**) karke apage bhej deta hai.
+
+---
+
+### Table–table joins
+
+Dono taraf ki inputs databases ke **CDC Changelogs** hoti hain. Is case mein, aik taraf hone wala har chota sa badlao doosri taraf ki bilkul aakhri up-to-date state (latest state) ke sath jorra jata hai. Iska final nateeja un dono tables ke join se banne wale **Materialized View ke badlao (changes) ki aik nayi stream** hoti hai (Calculus ka product rule).
+
+---
+
+### Streaming Fault Tolerance
+
+Aakhir mein, hum ne stream processor mein **Fault Tolerance** aur **Exactly-Once Semantics** (nateeja aisa nikalna jaise galti ke bina kaam sirf aik dafa chala ho) haasil karne ke tareeqay dekhe.
+
+Batch processing ki tarah yahan bhi hamein fail hone wale tasks ka kharab aadha-adhura output delete karna parta hai. Lekin chunke stream infinite hai aur lagatar chalte hue bahar ki duniya ko output bhej rahi hai, hum poora data drop nahi kar sakte. Is liye hum micro-level par recovery ke liye fine-grained mechanisms use karte hain:
+
+* **Microbatching:** Stream ko chote 1-second ke batch chunks mein torna.
+* **Checkpointing:** Data ke beech mein barriers bhej kar state ka snapshot lena.
+* **Transactions:** Messaging aur state change ko aik atomic unit mein band karna.
+* **Idempotent Writes:** Idempotence aur offset numbers ka use karke duplicate writes se bachna.
+
+---
