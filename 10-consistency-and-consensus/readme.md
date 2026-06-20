@@ -911,3 +911,85 @@ Cloud environments mein virtual machines aati jati rehti hain, is liye IPs pehle
 
 
 ---
+
+## Summary
+
+Is chapter mein hum ne fault-tolerant systems (kharabiyon se bachne wale systems) mein **Strong Consistency** (paki aur majboot barabari) ke topic ka poora nichor (summary) dekha hai: ke yeh asal mein kya hoti hai aur isay kaise haasil kiya jata hai.
+
+Hum ne **Linearizability** ko bohot gehrai se samjha, jo ke strong consistency ko bayan karne ka sab se mashhoor tareeqa hai. Iska kaam yeh pakka karna hai ke pooray distributed system mein computers jitne marzi hon, bahar se dekhne wale ko aisa lage jaise data ki **sirf aik akeli copy (single copy)** maujood hai aur us par hone wale saare kaam atomic (aik hi jhatkay mein) ho rahe hain.
+
+* **Yeh Kahan Kaam Aati Hai?** Linearizability tab bohot zaroori ho jati hai jab aap ko parhte waqt (read karte waqt) bilkul taza aur naya data chahiye ho, ya jab aap ko kisi race condition ko hal karna ho (jaise agar do computers aik hi waqt mein aik hi naam ki file banane ki koshish karein, toh linearizability faisla karti hai ke kis ki file pehle banegi).
+
+Halanqe linearizability dekhne aur samajhne mein bohot pyari aur asaan lagti hai—kyunke yeh database ko bilkul waisa bana deti hai jaise kisi single-threaded program mein aik akela variable hota hai—lekin iska aik bohot bara nuksan yeh hai ke yeh **bohot slow (sust)** hoti hai, khass tor par wahan jahan network mein delays (deri) zyada hon. Bohot saari replication algorithms dekhne mein aisa jhoot-moot ka lallu banati hain ke woh strong consistency de rahi hain, lekin asliyat mein woh linearizable nahi hotin.
+
+---
+
+### ID Generators Aur Clocks Par Iska Asar
+
+Agay barhte hue, hum ne linearizability ke is asool ko ID generators par apply karke dekha:
+
+* **Single-Node Counter:** Agar aik hi computer par auto-incrementing counter laga diya jaye, toh woh linearizable toh hota hai (kyunke order perfect hota hai), lekin agar woh computer mar jaye toh poora system baith jata hai (fault-tolerant nahi hota).
+* **Distributed ID Schemes:** Distributed systems mein IDs banane wale aksar tareeqe is baat ki guarantee nahi de sakte ke IDs ki tarteeb bilkul waisi hi hogi jaise asli zindagi mein events (waqiyat) huay the.
+* **Logical Clocks:** Lamport clocks aur hybrid logical clocks (HLC) jaisi logical gariyan hamein **Causality** (wajah aur asar ke mutabaq tarteeb) toh de deti hain, lekin yeh bhi linearizability (bilkul naya data hone) ki guarantee nahi de saktin.
+
+---
+
+### Consensus Algorithms Ka Jadu
+
+Isi wajah se hum **Consensus Algorithms** ki taraf aaye, jo distributed systems mein fault-tolerant aur linearizable replication ko mumkin banate hain.
+
+Linearizability ka matlab hai ke system ko har haal mein aisa behave karna chahiye jaise data ki sirf aik copy hai aur saare kaam aik waqt mein aik hi karke aik saaf tarteeb mein ho rahe hain. Consensus yeh jadu aise karta hai ke woh bohot saare computers (nodes) ko is baat par raazi kar leta hai ke **operations (kaam) ki aik hi seedhi sequence (tarteeb) par chalna hai**, chahe network mein messages jitne marzi late ho rahe hon ya kuch computers crash hi kyun na ho jayein.
+
+Yeh operations ki sequence pooray distributed system ko aisa bana deti hai jaise koi aik akela super-computer saare kaam line se kar raha ho, halanqe piche computers ka aik poora tola (group) mil kar kaam kar raha hota hai.
+
+---
+
+### Consensus Ke Alag Alag Chehray (Equivalent Problems)
+
+Consensus ki purani aur classic tareef yeh hai ke sab nodes ko kisi aik single value par is tarah raazi karna ke sab ka faisla aik ho aur koi baad mein mukar na sakay. Lekin distributed systems ki duniya ka sab se gehra raaz yeh hai ke **bohot saare alag alag maslay asal mein ghoom phir kar consensus hi ban jate hain** (yani agar aap ke paas kisi aik ka hal hai, toh aap us se baki saare maslay hal kar sakte hain).
+
+In aapas mein barabar (equivalent) masail mein yeh shamil hain:
+
+* **Linearizable CAS operations:** Register ko atomically yeh faisla karna hota hai ke kya usay apni value badalni chahiye ya nahi, is shart par ke uski maujooda value user ki di gayi expected value ke barabar hai ya nahi.
+* **Locks and leases:** Jab bohot saare clients aik hi waqt mein kisi lock ya lease ko pakarne ke liye aapas mein larr rahe hon, toh lock yeh faisla karta ke kamyabi ka taaj kis ke sar sajega.
+* **Uniqueness constraints:** Jab aik hi waqt mein bohot saari transactions aik hi naam ka user ya record banane ki koshish karein, toh yeh constraint tai karti hai ke kis ko ijazat deni hai aur kis ko 'Constraint Violation' ka error de kar fail karna hai.
+* **Shared logs:** Jab bohot saare nodes aik hi waqt mein kisi log ke aage naya data jorna (append karna) chahein, toh log faisla karta hai ke kaun kis ke baad aayega. Is shared log ko chalane ke liye background mein *Total Order Broadcast* protocol use hota hai.
+* **Atomic transaction commit:** Ek distributed transaction mein shamil saare database nodes ko har haal mein aik hi faislay par raazi hona parta hai ke transaction ko paka save (**Commit**) karna hai ya bilkul khatam (**Abort**) karna hai.
+* **Linearizable fetch-and-add operations:** Is operation ko use karke hum ID generator bana sakte hain. Bohot saare nodes aik hi waqt mein isay chala sakte hain aur yeh tai karta hai ke counter kis tarteeb mein barhega. (Choti bariki: Yeh operation asal mein sirf **do (2) nodes** ke darmiyan consensus hal karta hai, jabke baqi upar wale saare maslay jitne marzi ($\infty$) nodes hon, sab ke liye kaam karte hain).
+
+---
+
+### Single Leader Se Lekin Consensus Tak
+
+Agar aap ke paas sirf aik akela node ho, ya aap poore cluster ka faisla karne ki takat kisi aik "Dictator" computer ko de dein, toh yeh upar wale saare kaam bacho ka khel ban jate hain. Single-leader databases mein bilkul yahi hota hai: saari takat leader ke paas hoti hai, isi liye woh asani se linearizable operations, uniqueness constraints, aur replication log chala leta hai.
+
+Lekin agar woh akela leader mar jaye, ya network ki tar katne se us tak pohanchana band ho jaye, toh aisa system aage barhna bilkul band kar deta hai jab tak koi insaan manually aa kar naya leader na chunay (**manual failover**).
+
+**Raft** aur **Paxos** jaise mashhoor consensus algorithms asal mein single-leader replication ka hi up-to-date version hain, jin ke andar **automatic leader election aur automatic failover** built-in hota hai.
+
+Yeh algorithms bohot bariki se design kiye jate hain taake yeh do baten pakki kar sakein:
+
+1. Failover ke dauran koi bhi confirm kiya hua data zaya na ho.
+2. System kabhi bhi **Split-Brain** (yani aik sath do leaders ka ban jana) ki bimari mein mubtala na ho.
+
+Is safety ko barkarar rakhne ke liye har ek write operation aur har ek linearizable read operation ko nodes ki majority (**Quorum**) se confirm karwana parta hai. Yeh voting ka chakkar mehanga zaroor parta hai (khass tor par jab computers alag alag mulkon mein hon), lekin agar aap ko strong consistency aur fault tolerance dono aik sath chahiye, toh is keemat se bachne ka koi rasta nahi hai.
+
+---
+
+### Coordination Services Ka Istemal
+
+**ZooKeeper** aur **etcd** jaise coordination services bhi inhi consensus algorithms ke upar bani hui hain. Yeh hamein distributed applications ka system chalane ke liye distributed locks, leases, failure detection (ephemeral nodes), aur change notifications (watches) jaise behtareen features bana kar deti hain.
+
+> **Ustadana Mashwara:** Agar aap apni application mein koi bhi aisa kaam karna chahte hain jo ghoom phir kar consensus banta ho (jaise locking ya leader election) aur aap chahte hain ke woh kharabiyon ke bawajood safely chalta rahe, toh khud se zero se code likhne ke bajaye kisi bani-banayi **Coordination Service** ka istemaal karein. Yeh is baat ka dawa toh nahi karega ke aap ka code $100\%$ bug-free hoga, lekin aap ki bohot barri bachat ho jayegi.
+
+Consensus algorithms bohot mushkil aur barik hote hain, lekin inke piche 1980s se chali aa rahi ek bohot majboot scientific theory maujood hai. Is theory ki wajah se hi aaj hum aise scalable systems bana paate hain jo har tarah ke network jhatkay aur node crashes jhelne ke bawajood data ko kabhi corrupt (kharab) nahi hone dete.
+
+---
+
+### Kab Consensus Sahi Tool Nahi Hai?
+
+Itni tareefon ke bawajood, consensus har jagah fit nahi bahta. Kuch systems mein itni sakht strong consistency ki zaroorat hi nahi hoti. Wahan behtar yeh hota hai ke consistency ko thoda dheela chor diya jaye taake system ki speed (performance) aur availability (bina ruke chalna) bohot lajawab ho sakay.
+
+Aise mawaqe par hum Chapter 6 wale **Leaderless** ya **Multi-Leader** replication tareeqe use karte hain, aur un halat mein is chapter mein parhi gayi **Logical Clocks** hamare bohot kaam aati hain.
+
+---
