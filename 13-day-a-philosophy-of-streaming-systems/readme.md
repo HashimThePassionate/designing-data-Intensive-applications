@@ -184,3 +184,103 @@ Batch aur Stream processing ko aik hi system mein mukammal tarah jorrne (unify k
 ---
 
 
+## Unbundling Databases
+
+Agar hum bilkul abstract level (baala-baala satah) par dekhein, toh databases, batch/stream processors, aur operating systems saare aik hi tarah ke kaam karte hain: **Yeh aap ka data save karte hain, aur aap us data par calculations (processing) aur queries chala sakte hain.** Ek database data ko records (tables ki rows, JSON documents, ya graph ke vertices) ki shakal mein save karta hai, jabke operating system ka filesystem usi data ko files ke roop mein save karta hai—lekin andar se dono hi "Information Management Systems" (maloomat ko sambhalne wale nizam) hain. Hum ne parha hai ke distributed batch processors asal mein Unix operating system ka hi ek distributed roop hain.
+
+Halanqe in mein bohot se practical farq bhi hain. Misaal ke tor par, agar aap operating system ke aik folder mein 10 million (1 crore) choti choti files daal dein, toh zyadatar filesystems ro parenge (slow ho jayenge). Lekin ek database ke andar 10 million rows daalna bilkul ek normal aur aam baat hai. Iske bawajood Unix aur databases ke aapas ke falsafay (philosophies) ko explore karna bohot dilchasp hai.
+
+Unix aur relational databases ne data management ke maslay ko do bilkul alag soch ke sath hal kiya hai:
+
+* **Unix Philosophy:** Unix ka maqsad developer ko hardware ki takat aik bohot hi logical lekin low-level abstraction (raw bytes aur pipes) ke zariye dena tha.
+* **Database Philosophy:** Relational database application developer ko ek high-level abstraction (SQL aur Transactions) dena chahte the, taake disk par data structures kaise ban rahe hain, concurrency kaise chal rahi hai, ya crash se recovery kaise ho rahi hai, developer ko is mushkil ki chinta hi na karni paray.
+
+**Kaun sa tareeqa behtar hai?** Yeh poori tarah aap ki zaroorat par depend karta hai. Unix is liye asaan hai kyunke yeh hardware ke upar aik bohot hi patli deewar (thin wrapper) hai. Relational database is liye asaan hai kyunke aap ki aik choti si declarative SQL query ke piche database ka poora takatwar nizam (query optimizer, indexes, joins, concurrency control) khud dimaagh lagata hai, aur aap ko andruni implementation seekhni nahi parti.
+
+Yeh larrnay wala faisla sadiyon se chala aa raha hai (kyunke Unix aur Relational model dono 1970s ke shuruat mein paida huay the) aur abhi tak hal nahi hua. Hatta ke modern **NoSQL movement** ko bhi aap isi tarah dekh sakte hain ke log distributed OLTP storage mein Unix jaisa low-level abstraction ka asool dubara lana chahte the.
+
+Is section mein hum in dono alag tareeqon dunyaon ko aprop mein jorrein ge taake dono ke behtareen faidong ka milap haasil kiya ja sakay.
+
+---
+
+### Composing Data Storage Technologies
+
+Kitaab ke is safar mein hum ne databases ke bohot saare built-in features par baat ki hai, jaise:
+
+* **Secondary Indexes:** Kisi makhsoos field ki value par tezi se search chalane ke liye.
+* **Materialized Views:** Queries ke nateejay ka pehle se tayaar shuda cache.
+* **Replication Logs:** Doosre computers (followers) tak data ki copies pohnchana.
+* **Full-Text Search Indexes:** Text ke andar lafzon ko dhoondna.
+
+Chapter 11 aur 12 mein bhi bilkul yahi kahani samhne aayi thi jab hum batch aur stream processors ke zariye search indexes bana rahe the, materialized views maintain kar rahe the, aur CDC ke zariye data replicate kar rahe the.
+
+Is se pata chalta hai ke jo features database ke andar built-in hote hain, aur jo derived data systems log bahar **Batch aur Stream Processors** ke zariye khud bana rahe hain, un dono mein ek bohot hi gehri shabahat (parallel) hai.
+
+---
+
+#### Creating an index
+
+Sochein jab aap database mein naya index banane ke liye `CREATE INDEX` ki command chalate hain, toh database ke andarooni roop mein kya hota hai?
+
+1. **Snapshot Scan:** Database pehle poore table ka ek saaf consistent snapshot parhta hai.
+2. **Sorting:** Un saari field values ko nikalta hai jin par index banana hai, aur unhein perfect sort (tarteeb) karta hai.
+3. **Write Index:** Us sorted data ko disk par as an index file write kar deta hai.
+4. **Catch Up Backlog:** Jab tak snapshot parha aur sort ho raha تھا, is dauran live users ne table par mazeed naye writes kiye honge (assuming table lock nahi tha). Database ab un naye writes ka backlog log parh kar index par apply karta hai.
+5. **Continuous Sync:** Ek dafa naya index jab live data ke barabar pohanch jata hai, toh aage aane wali har transaction jab main table par likhti hai, index sath sath automatic update hota rehta hai.
+
+Yeh poora process setting up a new follower replica (Chapter 6) aur streaming system mein bootstrapping CDC (Chapter 12) ke bilkul **$100\%$ same aur hum-shakal** hai!
+
+Jab bhi aap `CREATE INDEX` chalate hain, database asal mein aap ke maujooda data ko dobara reprocess karke us se ek naya view (index) derive kar raha hota hai.
+
+---
+
+#### The meta-database of everything
+
+Agar hum is satah se dekhein, toh poori company ya organization ke andar behnay wala dataflow asal mein **aik bohot bara single database (Meta-Database)** lagne lagta hai.
+
+Whenever a batch, stream, or ETL process transports data from one place and form to another place and form, it is acting like the database subsystem that keeps indexes or materialized views up-to-date.
+
+Is naye nazariye se, batch aur stream processors koi alag cheez nahi hain, balkay database ke andar chalne wale triggers, stored procedures, aur materialized view maintenance algorithms ka hi ek bohot bara distributed roop hain. Aur un se jo derived data systems (caches, search indexes) bante hain, woh is baray meta-database ke alag alag **Index Types** hain.
+
+Jaise ek akela database apne andar B-trees, Hash indexes, ya Spatial indexes support karta hai; modern distributed architecture mein hum in saare facilities ko kisi aik single software company ka product banane ke bajaye, alag alag machines par alag alag teams ke zariye chalate hain.
+
+Future mein yeh tarqi hamein kahan le kar jayegi? Agar hum is asool ko maanein ke duniya ka koi bhi aik single data model saare access patterns ke liye behtar nahi ho sakta, toh hamare paas alag alag tools ko aik sath jorr kar ek majboot system banane ke **do (2) baray raaste** hain:
+
+| Approach | Read / Write Handling | Yeh Kaise Kaam Karta Hai? | Philosophy / Tradition |
+| --- | --- | --- | --- |
+| **Federated Databases** | **Unifying Reads** (Parhne wale raaste ko aik karna) | Alag alag engines aur storage systems ke upar aik **Single Unified Query Interface** (jaise Postgres Foreign Data Wrapper, Trino, Xorq) laga diya jata hai. User aik hi jagah SQL query likhta hai aur data har jagah se khud ba khud khinch kar aa jata hai. | **Database Tradition:** Aik bara integrated system, high-level query language, aur pyari semantics, halanqe implementation complex hoti hai. |
+| **Unbundled Databases** | **Unifying Writes** (Likhne wale raaste ko aik karna) | Federation sirf data parhne ka masla hal karti hai, writes ko sync nahi karti. Unbundled approach mein hum databases ke andruni index maintenance features ko bahar nikal kar azaad kar dete hain. **CDC aur Event Logs** ke zariye naye writes safely saare alag alag systems tak pohnchaye jaate hain. | **Unix Tradition:** Chote chote tools jo aik kaam perfect karte hain, low-level uniform API (pipes/logs) se baat karte hain, aur unhein shell ke zariye jorra jata hai. |
+
+---
+
+#### Making unbundling work
+
+Federation aur Unbundling aik hi sikkay ke do rukh hain: yaani mukhtalif components se aik scalable aur reliable system khara karna. Federated reads ke liye sirf aik data model ko doosre mein map karna parta hai jo kafi hadd ka kabo mein aane wala masla hai. Lekin **hazaron storage systems ke writes ko aprop mein sync rakhna** data engineering ka sab se mushkil aur asli challenge hai, is liye hamari poori tawajah isi par rahegi.
+
+Writes ko sync rakhna ka purana tareeqa distributed transactions (2PC) tha, jo ke ghatiya fault tolerance aur slow karkardagi ki wajah se na-kaam ho gaya. Ek single system ke andar transactions theek hain, lekin jab data alag alag technologies ki sarhaden cross kare, toh **Idempotent writes ke sath aik Asynchronous Event Log (Kafka)** hi sab se majboot aur kamyab rasta hai.
+
+Stream processors ke andar transaction se *exactly-once* haasil ho jata hai kyu ke woh code aik hi group ne likha hota hai. Lekin jab transaction mein do bilkul alag dunyaon ke softwares ko jorrna paray (jaise stream processor se data nikal kar Elasticsearch search index mein insert karna), toh kisi standard transaction protocol na hone ki wajah se kaam ruk jata hai. Ek ordered event log aur uske aage baithay idempotent consumers is mushkil abstraction ko bohot simple aur practicable bana dete hain.
+
+Log-based integration ka sab se bara faida systems ke darmiyan **Loose Coupling** (azaadana talooq) paida karna hai, jo do tarah se samhne aata hai:
+
+* **System Level Par Robustness:** Asynchronous event streams ki wajah se agar cluster ka koi aik computer ya consumer slow chal raha ho ya down ho jaye, toh poora system jam nahi hota. Event log messages ko apne paas buffer (save) kar leta hai, jis se producer aur baqi saare consumers bina kisi rukawat ke chalte rehte hain. Jab kharab consumer theek hoga, woh apna lag offset parh kar data catch up kar lega. Iske baraks, distributed transactions mein agar aik chota sa component bhi down ho, toh poori dunya ka kaam ruk jata hai.
+* **Human Level Par Azaadi:** Data systems ko unbundle (azaad) karne se company ki alag alag software teams aik doosre se azad ho kar apne microservices ko improve aur maintain kar sakti hain. Har team ka focus sirf aik kaam perfectly karne par hota hai aur teams ke darmiyan raabta bilkul saaf interfaces se hota hai. Event logs aik aisa interface dete hain jo consistency (durability aur order) ke lihaz se bohot takatwar hai aur har tarah ke data format par easily apply ho sakta hai.
+
+---
+
+#### Unbundled versus integrated systems
+
+Agar future mein unbundling ka tareeqa poori duniya mein chha bhi jaye, tab bhi yeh databases ke maujooda roop ko hamesha ke liye khatam nahi karega. Databases ki zaroorat hamein hamesha rahegi—stream processors ke andruni state ko sambhalne ke liye bhi, aur batch/stream processes ke final output par queries chalanay ke liye bhi. Makhsoos workloads ke liye specialized query engines (jaise data warehouses) hamesha king rahein ge kyunke unhein exploratory analytical queries ke liye optimize kiya jata hai.
+
+Lekin yaad rahe, bohot saari alag alag infrastructures ko aik sath chalane se **Operational Complexity (system ko chalane ka azab)** barh jata hai. Har naye software ka apna aik learning curve hota hai, uski apni configuration ki settings hoti hain, aur apne naye naye operational nakhre (quirks) hote hain. Is liye asool yeh hai ke **system mein jitne kam moving parts hon, utna behtar hai.**
+
+> **Premature Optimization Ka Khatra:** Ek single integrated software product (jaise aik akela relational database) un workloads par bohot behtareen aur predictable performance de sakta hai jiske liye usay design kiya gaya ho, compared to check composite architecture jahan aap ne khud code likh kar 5 tools ko jorra ho. Agar aap ko itne bade scale ki zaroorat hi nahi hai aur aap khamkhah unbundled architecture banane baith gaye, toh yeh aap ki mehnat aur paise ka zaya hai, jis se aap aik inflexible (sakht) design mein phans jayenge.
+
+Unbundling ka maqsad individual databases ke sath un makhsoos workloads par speed ki larai larna nahi hai; iska asli maqsad aap ko **is kabil banana hai ke aap kai databases ko aprop mein safely jorr sakein** taake aap ki application aik sath bohot saari alag alag access patterns aur workloads par behtareen karkardagi de sakay jo kisi aik akele software ke bas ki baat nahi thi. **Yeh gehrai (depth) ke baare mein nahi hai, balkay chourayi (breadth) ke baare mein hai.**
+
+Agar aap ka saara kaam kisi aik akele database se safely ho raha hai, toh chup karke us aik product ko use karein, khud se lower-level components jorrne ki koshish mat karein. Unbundling aur composition ka faida sirf tab shuru hota hai jab duniya ka koi aik akela software aap ki saari requirements poori na kar pa raha ho.
+
+Aaj ke daur mein data systems ko compose karne ke tools bohot behtar ho chuke hain: Debezium har database se safely change streams nikal leta hai, Kafka ka protocol industry standard ban chuka hai, aur Incremental View Maintenance (IVM) engines complex queries ke caches ko har millisecond mein live update karne ki taqat dete hain.
+
+---
+
