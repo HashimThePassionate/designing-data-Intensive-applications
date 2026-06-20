@@ -376,3 +376,168 @@ Yahan join waqt par depend karta hai (**Time-Dependent Join**): agar aap 2 saal 
 Kisi cheez ka data badalne par central database se baar baar poochna (query/polling) chorr kar, agar hum badlao ki stream ko pehle se subscribe karlein, toh hum Excel spreadsheet wale computational model ke bohot kareeb pohanch jaate hain. Jaise hi data badla, derived data khud hi safayi se update ho gaya! Distributed jahan mein building applications around dataflow ki yeh soch systems ko super-fast aur scalable banane ka aik bohot hi roshan aur promising rasta hai.
 
 ---
+
+## Observing Derived State
+
+Abstract level par agar hum dekhein, toh ab tak hum ne dataflow systems mein jo parha hai, woh asal mein aik naya nizam hai jahan derived datasets (jaise search indexes, materialized views, aur predictive models) ko generate kiya jata hai aur unhein har lamha up-to-date rakha jata hai. Is poore nizam aur raste ko hum **Write Path** kehte hain.
+
+Jab bhi system mein koi bhi data likha (write kiya) jata hai, toh woh batch aur stream processing ke mukhtalif marhalon se guzarta hai, aur aakhir-kar har ek derived dataset ko naye data ke mutabaq update kar diya jata hai.
+
+Lekin hum yeh derived datasets banate hi kyun hain? Zahir hai, taake hum baad mein kisi bhi waqt un se data dobara parh (**Query**) sakein. Is raste ko hum **Read Path** kehte hain: jab koi user request aati hai, toh aap derived dataset se data parhte hain, us par thoda bohot mazeed process chalate hain, aur user ko final jawab (response) de dete hain.
+
+Agar hum in dono rasto ko aprop mein mila kar dekhein, toh **Write Path** aur **Read Path** mil kar data ka ek poora safar (journey) bante hain—data ke paas aane se lekar uske aakhri user tak pohnchane tak.
+
+* **Write Path (Eager Evaluation):** Yeh safar ka woh hissa hai jo pehle se tayaar (**Precomputed**) hota hai. Jaise ہی data aata hai, system bina kisi ke poochay foran dharak se kaam shuru kar deta hai. Functional programming mein isay *Eager Evaluation* (foran hisab nikalna) kehte hain.
+* **Read Path (Lazy Evaluation):** Yeh safar ka woh hissa hai jo sirf tabhi chalta hai jab koi user khud aakar maangay (**On-Demand**). Isay functional programming mein *Lazy Evaluation* (intezar karke aakhir mein hisab nikalna) kehte hain.
+
+---
+
+### Figure 13-1 Ka Breakdown: Jahan Read Aur Write Aprop Mein Miltay Hain
+
+Writer ne **Figure 13-1** mein aik search index ki example de kar samjhaya hai ke kaise derived dataset asal mein read path aur write path ka aik darmiyana milap hota hai.
+
+<div align="center">
+  <img src="./images/01.png" width="700"/>
+</div>
+
+**Step-by-Step System Flow Analysis:**
+
+1. **The Write Path (Top Side):** * User jab koi naya document database mein badalta hai (`Update document`), toh request **Application Server** par jati hai.
+* Server us naye document ka version aage **Linguistic Analysis** operator ko bhej deta hai.
+* Linguistic analysis ka code us text ke lafzon ko torta hai aur un saare terms ko nikal kar direct **Search Index** ke derived dataset mein write (append) kar deta hai. Yeh saara kaam eager tareeqay se background mein khud ba khud ho raha hai.
+
+
+2. **The Read Path (Bottom Side):**
+* Jab koi doosra user website par aakar kuch search karta hai (`Query`), toh request niche wale **Application Server** par jati hai.
+* Server us query ko **Search Query Executor** engine ke paas bhejta hai.
+* Query executor search index se makhsoos terms aur matching lists (`Posting lists`) parhta hai, un par calculation chalaata hai, aur final results application server ke zariye user tak pohncha deta hai.
+
+
+
+**The Balancing Trade-off (Mizan ka faisla):**
+Derived dataset (Search Index) asal mein write time aur read time ke darmiyan aik samjhauta (trade-off) hota hai ke aap ne kitna kaam pehle se karke rakhna hai aur kitna kaam baad ke liye chorna hai.
+
+---
+
+### Materialized views and caching
+
+Full-text search index iski aik behtareen misaal hai. Chalein bacho ki tarah samajhte hain ke agar hum is boundary (had) ko aage piche badlein toh kya farq parega:
+
+* **Extreme Case 1: No Index (Kaam sirf Read Path par):** Sochein agar hamare paas search index ho hi na. Jab bhi user koi lafz search karega, system ko Linux ke `grep` command ki tarah pooray database ki saari files shuru se aakhir tak scan karni parengi. Is design mein **Write Path par bilkul zero kaam** hai (koi index update nahi karna), lekin **Read Path had se zyada mehanga (slow)** ho jayega kyu ke har query par pora storage scan hoga.
+* **Extreme Case 2: Full Precomputation (Kaam sirf Write Path par):** Iske ulat sochein ke duniya mein jitni bhi queries puchi ja sakti hain, system un sab ka search result pehle se hi calculate karke rakh le. Is design mein **Read Path par bilkul zero kaam** hoga (bas pehle se tayaar nateeja utha kar dena hai), lekin **Write Path namumkin hadd tak mehanga** ho jayega kyu ke possible queries ka combination infinite (unlimited) hota hai. Hum saare nateejay pehle se nahi bana sakte.
+* **The Middle Ground: Caching Common Queries:** Iska darmiyana hal yeh hai ke hum sirf un queries ka result pehle se precompute (materialize) karke rakh lein jo log har waqt sab se zyada poochte hain (**Cache of common queries**). Jab bhi koi naya document aayega jo in common queries se match hota ho, hum cache ko refresh kar denge. Baki jo ajeeb-o-ghareeb queries aayengi, unhein normal search index se parh kar hal kiya jayega.
+
+Is se sabit hota hai ke caches, indexes, aur materialized views ka asli kirdar sirf aik hi hai: **Yeh read path aur write path ki sarhad (boundary) ko aage piche sarka (shift kar) dete hain.** Yeh hamein ijazat dete hain ke hum write path par thoda zyada kaam (precomputation) pehle se kar lein taake read path par user ka waqt aur computer ka bandwidth poori tarah bach sakay.
+
+*(Yad karein Chapter 1 ke shuru mein hum ne Twitter ki Home Timeline ke case study mein bilkul yahi seekha tha ke aam users ka data write time par copy hota tha aur baray celebrities ka data read time par join hota tha. Poore 500 pages parhne ke baad aaj hum ghoom kar wapis ussi markazi asool par aa gaye hain!)*
+
+---
+
+### Stateful, offline-capable clients
+
+Read aur write path ki is sarhad (boundary) ko badalne ka khyal is liye dilchasp hai kyu ke hum isay cloud architecture se nikal kar direct end-user ke devices (mobiles/laptops) par le ja sakte hain.
+
+* **Purana Daur (Stateless Web):** Purane zamane mein browsers bilkul thande (stateless) hote تھے. Internet katne ke baad aap page par sirf upar-niche scroll kar sakte the, baqi app chalna band ho jati thi.
+* **Naya Daur (Stateful Local-First):** Lekin ab single-page JavaScript apps (React/Vue) aur mobile apps ke paas browser ke andar hi apna ek paka local storage aur state hota hai. App ko har chote click par server tak bhagne ki zaroorat nahi parti.
+
+Jaisa hum ne Chapter 6 mein *Local-First Software* ke context mein parha tha, local state hone ki wajah se users internet ke bina bhi **Offline mode** mein apna poora kaam kar sakte hain, aur jab network wapis aata hai, toh app background mein server ke sath sync ho jati hai. Mobile networks cellular connections par slow hote hain, is liye UI ka network call ke liye wait na karna ek bohot bara operational faida hai.
+
+Is design ko agar hum dataflow ki nazar se dekhein, toh ek bohot hi pyari math samhne aati hai:
+
+* User ke mobile ki screen par dikhne wale **Pixels** asal mein client app ke andar chalne wale model objects ka ek **Materialized View** hain.
+* Aur mobile app ke andar chalne wale woh model objects asal mein door cloud datacenter mein pare main server state ki aik **Local Replica (Cache)** hain!
+
+---
+
+### Pushing state changes to clients
+
+Ek aam website par jab backend server par koi data badalta hai, toh browser ko tab tak pata nahi chalta jab tak user khud ja kar page refresh (reload) na kare. Browser data ko ruka hua (static) maanta hai, woh server ke naye badlao ko automatic subscribe nahi karta. Browser ka data ek baasi (stale) cache ban jata hai jab tak aap dobara polling na karein.
+
+Lekin ab naye protocols HTTP ke is thandey request/response pattern se aage nikal chuke hain:
+
+* **Server-Sent Events (SSE / EventSource API)**
+* **WebSockets**
+
+In channels ke zariye browser server ke sath aik lambi aur har waqt khuli hui TCP line (**Open TCP Connection**) bana kar rakhta hai. Ab jaise hi server par koi data badalta hai, server khud actively us badlao ka message browser ki taraf dharak se **Push** kar deta hai. Client-side ka data har lamha taza rehta hai.
+
+Architectural zuban mein iska matlab yeh hai ke **hum ne Write Path ko server se khainch kar direct end-user ke mobile device tak lamba (extend) kar diya hai!** Shuru mein jab app khulegi, toh woh initial data parhne ke liye `Read Path` use karega, lekin uske baad poori zindagi application server se aane wale state changes ke live stream par chalegi. Streaming aur messaging ka yeh jadu sirf bade datacenters tak mehood nahi hai, isay hum pooray end-to-end user network par phaila sakte hain.
+
+#### Offline Hone Ka Masla Kaise Hal Hota Vhai?
+
+Agar user tunnel se guzar raha hai aur network kat gaya, toh us dauran server se aane wali push notifications miss ho jayengi. Lekin iska ilaaj toh hum ne Chapter 12 mein log-based message brokers ke **Consumer Offsets** mein pehle se seekha hua hai!
+
+Naya computer jab disconnect hone ke baad dobara connect hota hai, toh woh apna offset number batata hai aur broker usay raste mein chhoot jaane wale saare messages dobara safely deliver kar deta hai. Bilkul yahi asool har single user ke mobile par apply hota hai, jahan har mobile device ek chote se event stream ka aik chota sa subscriber hota hai.
+
+---
+
+### End-to-end event streams
+
+Frontend development ke modern tools—jaise **React** ya Elm—pehle se hi is dhabbe par chalte hain ke jaise hi local state ka data badalta hai, screen ka UI khud-ba-khud automatic re-render (update) ho jata hai.
+
+Toh yeh bohot hi natural baat hai ke hum server se aane wali push stream ko direct frontend ke isi event pipeline ke sath jorr dein.
+
+```
+[User 1 Action] ──► [Event Log] ──► [Stream Processor] ──► [Server Push] ──► [User 2 React UI Auto-Update]
+
+```
+
+Is se aap ka badlao ek **End-to-End Write Path** par flow karega: Aik bache ne mobile 1 par click kiya $\to$ event log mein entry append hui $\to$ stream processors ne calculate kiya $\to$ WebSockets se push notification gayi $\to$ aur doosre bache ke mobile 2 ki screen par React UI bina refresh kiye **under 1 second** mein live update ho gaya! Instant messaging apps (WhatsApp) aur online multiplayer games isi real-time architecture par chalti hain.
+
+**Hum saari applications is behtareen tareeqay se kyun nahi banate?**
+Sab se bari rukawat yeh hai ke hamare zyadatar databases, libraries, frameworks, aur protocols pichlay 40 saaloon se sirf request/response aur stateless clients ke tarz par design kiye gaye hain. Ek aam datastore sirf parhne aur likhne ki single response queries ko support karta hai, aik aisi long-running query ko support karne wale databases bohot kam hain jo waqt ke sath responses ki lagatar stream (**Subscription to changes**) nikaalti rahein. Is raste par aage barhne ke liye hamein request/response chorr ka pub/sub dataflow ke mutabaq naye siray se sochna hoga.
+
+---
+
+### Reads are events too
+
+Hum ne parha ke stream processor jab derived data ko kisi database ya cache mein likhta hai, toh woh store read aur write path ke darmiyan ek deewar (boundary) ban jata hai, taake clients ko poora log scan na karna paray aur unhein random access read mil sakay.
+
+Aam tor par datastore streaming system se bilkul alag hota hai. Lekin yaad karein, stream processors ko aggregations aur joins karne ke liye apne andar state (memory) maintain karni parti hai. Halanqe yeh state andar chhupi hoti hai, lekin modern frameworks ab bahar ke clients ko ijazat dete hain ke woh direct stream processor ki is memory par queries chala sakein (**Interactive Queries**). Is se stream processor khud aik chota sa database ban jata hai.
+
+Chalein is soch ko ek bohot hi barik aur advanced level par le jaate hain:
+
+* Ab tak hamare design mein writes event log (stream) se ja rahe the aur reads direct network request se database par ja rahe the.
+* Lekin kya aisa mumkin hai ke hum **Read Requests ko bhi aik Event Stream maan lein?**
+
+Bilkul mumkin hai! Hum parhne wale kaamo (read events) aur likhne wale kaamo (write events) dono ko aik sath ek hi stream processor ke andar se guzarte hain. Stream processor jaise hi parhne ka event dekhta hai, us query ka nateeja nikal kar aik **Output Stream** mein phenk deta hai.
+
+```
+[ Read Events Stream  ] ──┐
+                          ├─► [ Stream-Table Join Operator ] ──► [ Output Stream (Read Results) ]
+[ Write Events Stream ] ──┘
+
+```
+
+जब parhne aur likhne dono ko events bana kar aik hi stream operator ke paas bheja jata hai, toh technical level par yeh database aur read queries ke darmiyan aik **Stream-Table Join** ban jata hai! Har read query ko ussi makhsoos database shard par route kiya jata hai jahan us key ka data para hota hai.
+
+Serving requests aur joins karne ke darmiyan ka yeh talooq distributed computing ke sab se bunyadi asoolon mein se aik hai:
+
+* **One-off Read Request:** Ek aam single read request join operator se guzarti hai, operator nateeja deta hai aur request ko hamesha ke liye bhool jata hai.
+* **Subscribe Request:** Ek continuous subscription request asal mein past (purane) aur future (aane wale) saare events ke sath aik **Persistent (hamesha chalne wala) Join** hoti hai.
+
+#### Read Requests Ka Log Save Karne Ka Bara Faida
+
+Agar aap parhne wali requests ka bhi ek paka durable log save kar lein, toh aap distributed system mein causality (wajah aur asar ka rishta) aur data ka poora pichla silsila (**Data Provenance**) $100\%$ sahi track kar sakte hain. Is se aap ko yeh sabit karne mein madad milti hai ke *user ne koi faisla karne se pehle apni screen par asli mein kya dekha tha*.
+
+* **Online Shop Ki Example:** E-commerce website par bacha jab koi khilone khareedta hai, toh uske khareedne ka faisla is baat par depend karta hai ke website ne usay delivery ki tareeq (shipping date) aur stock ka status kya dikhaya tha. Agar aap read requests ka log bacha kar rakhenge, toh analytics team sahi andaza laga sakegi ke kis jhoot ya sach ki wajah se user ne cheez khareedi.
+
+Lekin reads ka paka log disk par bacha kar rakhne se storage aur I/O ka kharcha (cost) barh jata hai. Is overhead ko kam karne ki research abhi chal rahi hai, lekin agar aap pehle se hi security aur audit logs ke liye reads bacha rahe hain, toh usay system ka source bana dena koi lamba badlao nahi hai.
+
+---
+
+### Multishard data processing
+
+Agar aap ki query bohot simple hai jo sirf aik single shard (computer) se data parh rahi hai, toh usay stream ke zariye bhej kar output stream ka wait karna zaroorat se zyada barra tamasha (**Overkill**) lag sakta hai.
+
+Lekin yeh stream-based query ka tareeqa tab aik maseeha ban kar samne aata hai jab aap ko **Distributed Complex Queries** chalani hon, jinhein aik sath bohot saare alag alag shards se data ikhta karke jorrna (join karna) parta hai. Is tarah aap stream processors ke pehle se bane banaye message routing, sharding, aur joining ke infrastructure ka poora faida utha lete hain.
+
+Apache Storm ka *Distributed RPC* feature isi tarz par kaam karta hai. Chalein iski do (2) barri real-world use cases dekhte hain:
+
+1. **Social Network Total Impressions Union:**
+Sochein aap ne pata lagana hai ke social network par kisi makhsoos URL link ko total kitne unique logon ne dekha hai? Iska formula hai: *jis jis user ne us link ko post kiya tha, un saare users ke followers ki lists ka ek bada distributed Union (jama) nikalna*. Chunke users ka data alag alag machines par sharded hota hai, is liye yeh query stream processor ke zariye bohot saare shards se parallel data khainch kar aprop mein jorrti hai.
+2. **Fraud Prevention Multi-Reputation Lookup:**
+Jab credit card se koi nayi purchase hoti hai, toh fraud detection system ko check karna parta hai ke user ka IP address, uska email address, billing address, aur shipping address kahin pehle se black-listed toh nahi hain? Ab masla yeh hai ke IP address ka database kisi alag shard par banta hua hai, email ka database alag shard par hai, aur addresses alag shards par hain. Is aik purchase event ka risk score nikalne ke liye stream processor parallel tareeqay se alag alag sharded datasets ke sath **Sequence of Joins** (ek ke baad aik joins) chalata hai aur millisecond mein fraud pakar leta hai.
+
+Data warehouses ke andruni query execution graphs ke andar bhi bilkul yahi khususiyaat hoti hain. Agar aap ki application aisi hai jahan standard database pehle se distributed joins ka feature built-in de raha hai, toh khud se stream processor par isay code karne ke bajaye database use karna zyada asaan hai. Lekin agar aap ka software scale ki us aakhri hadd par pohanch chuka hai jahan market ke aam solutions jawab de jaate hain, toh queries ko as a stream process karna hi aap ka aakhri aur sab se takatwar option banta hai.
+
+---
