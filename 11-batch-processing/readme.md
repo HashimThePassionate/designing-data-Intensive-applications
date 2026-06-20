@@ -668,3 +668,118 @@ Is zaroorat ko poora karne ke liye distributed data processing frameworks (**Spa
 Daft jaise modern frameworks ab client-side (laptop) aur server-side (cluster) dono par computation support karte hain. Chota data laptop par process hota hai aur bara data server par bhej diya jata hai. Is saare distributed aur local transfer ko asaan aur tez banane ke liye **Apache Arrow** jaisay columnar storage memory formats use kiye jate hain, jo bina data copy kiye client aur server dono execution engines ke darmiyan data share kar sakte hain.
 
 ---
+
+
+### Batch Use Cases
+
+Ab tak hum ne parha ke batch processing distributed systems mein kaam kaise karti hai. Ab hum dekhenge ke asli zindagi (real-world applications) mein iska istemaal kahan kahan hota hai.
+
+Batch jobs baray baray datasets ko bulk (aik sath bohot baray dher) mein process karne ke liye toh kamaal hain, lekin yeh low-latency (yani har kaam microsecond mein foran ho jaye) wale kaamo ke liye **hargiz achi nahi hain**. Is liye, batch jobs aap ko har us jagah milengi jahan **data bohot zyada ho aur data ka bilkul taza (fresh) hona zaroori na ho**.
+
+Sunne mein lagta hai ke is tarah toh iska istemaal bohot mehdood (limit) ho jayega, lekin aap ko hairat hogi ke software ki duniya ke bohot baray baray kaam isi model par chalte hain. Misaal ke tor par:
+
+* **Accounting Aur Inventory Reconciliation:** Companies jab har mahine ya hafte ke aakhir mein check karti hain ke bank accounts ka hisab aur godam (inventory) mein para maal aprop mein match ho raha hai ya nahi, toh us ke liye batch jobs chaliyi jati hain.
+* **Manufacturing (Karkhane):** Aglay mahine ya saal mein maal ki kitni maang (demand forecasting) hogi, iska andaza lagane ke liye periodic batch jobs chalti hain.
+* **E-commerce Aur Social Media:** Amazon, Netflix, ya Instagram jo aap ko naye products ya reels ki sifarish (**Recommendation Models**) dikhate hain, un AI models ko train karne ke liye background mein heavy batch jobs chal rahi hoti hain.
+* **Financial Systems:** America ka banking network (jaise ACH payments) aaj bhi lagbhag poora ka poora batch jobs par hi chalta hai, jahan din bhar ki saari transactions ko raat ko aik sath process kiya jata hai.
+
+Chalein ab un makhsoos use cases ka deeply breakdown karte hain jo lagbhag har industry mein paaye jaate hain.
+
+---
+
+### Extract–Transform–Load
+
+Chapter 1 mein hum ne **ETL** aur **ELT** ka zikr kiya tha. Iska kaam yeh hota hai ke yeh live chalne wale database (production database) se data ko nikalta hai (**Extract**), us par badlao ya safayi karta hai (**Transform**), aur final nateeja agay kisi baray warehouse mein save kar deta hai (**Load**). Jab downstream system koi data warehouse ho, toh wahan ETL chalane ke liye batch jobs sab se behtareen hathiyar hain.
+
+* **Embarrassingly Parallel (Had Se Zyada Asaan Parallelism):** Data transformation ka zyadatar kaam aisa hota hai jahan data ko filter karna ho ya makhsoos khanay (fields) alag karne hon. Is kaam ko software engineering mein *embarrassingly parallel* kehte hain.
+* *Bacho ki Tarah Samajhein:* Yeh bilkul aisa hai jaise aap ne 100 bachon ko 100 apple diye aur kaha ke inhein dho kar saaf kar do. Har bacha apna apple azaadana saaf karega, kisi ko doosre bache se poochne ya rukne ki zaroorat nahi hai. Is liye hazaron computers par yeh kaam aik sath parallel chalana bohot asaan hota hai.
+
+
+* **Schedulers Ka Kirdar (Airflow):** Batch environments ke paas bohot majboot workflow schedulers (jaise **Apache Airflow**) hote hain. Agar network ka koi jhatka lage ya koi computer temporary ruk jaye, toh scheduler khud hi us task ko **Retry** (dobara koshish) karwa deta hai. Agar koi kaam baar baar fail ho raha ho, toh scheduler us par khatray ka nishan laga deta hai taake developers ko saaf dikh jaye ke pipeline kahan ruki hai. Airflow ke andar pehle se hi MySQL, PostgreSQL, Snowflake, Spark, aur Flink ke sath jorhne ke liye operators built-in hote hain.
+* **Troubleshooting (Galti Dhoondna) Mein Asani:** Sochein agar aap ki pipeline mein koi galti aa gayi. Batch job mein input badalta nahi hai, is liye aap araam se kharab file ko khol kar check kar sakte hain ke kya masla hai. Agar koi field missing hai, toh data engineer code ka logic theek karega aur job ko dobara chala dega (rerun kar dega).
+* **Modern Practices (Data Mesh, Contract, Fabric):** Purane zamane mein poori company ki data pipelines sambhalne ka azab sirf aik akeli 'Data Engineering Team' par hota kyu ke product developers ke liye yeh seekhna mushkil tha. Lekin ab model itne asaan ho gaye hain ke company ki har team apni data pipeline khud manage karti hai. Is discipline ko safe rakhne ke liye **Data Mesh**, **Data Contract** (pehle se tay shuda rules), aur **Data Fabric** jaise naye tareeqay use kiye jaate hain taake har koi apna data safely publish kar sakay.
+* **Engines Ka Milan:** Aaj kal data pipeline chalane wale engines aur reports parhne wale engines aik ho chuke hain. Ab log transformations ke liye bhi wahi **SparkSQL**, **Trino**, ya **DuckDB** queries likhte hain jo business analysts use karte hain. Is se application engineering aur data science ke darmiyan ka farq bohot kam ho gaya hai.
+
+---
+
+### Analytics
+
+Analytical queries (**OLAP - Online Analytical Processing**) ka kaam hota hai aik sath lakhon-karoron records ko scan karna, unhein aprop mein jorrna (grouping) aur calculations (aggregations) karna. Hum yeh poora workload aik distributed batch processing system par baqi kaamo ke sath asani se chala sakte hain.
+
+Analysts terminal ya GUI par SQL query likhte hain, aur query engine background mein distributed filesystem (HDFS) ya cloud object store (S3) se data parh kar nateeja nikal deta hai.
+
+* **Data Lakehouse Architecture:** Is naye design mein data S3 ya HDFS par para hota hai, table ka metadata (jaise files ki locations, types, aur names) ka hisab **Apache Iceberg** jaise table formats aur **Unity Catalog** jaise tools rakhte hain. Is poore milap ko hum *Data Lakehouse* kehte hain.
+
+Spark jaise frameworks par chalne wali analytics do tarah ke styles mein hoti hai:
+
+1. **Pre-aggregation queries (Pehle se tayaar data):** Data ko hafte ya din ke scheduled interval par pehle se hi calculate karke baray baray **OLAP Cubes** ya data marts mein roll-up (jama) kar diya jata hai. Phir is pre-aggregated data ko specialized real-time systems jaise **Apache Druid** ya **Apache Pinot** mein push kar diya jata hai taake jab user click kare toh microsecond mein report samne aa jaye.
+2. **Ad hoc queries (Achanak poochay jane wale sawaal):** Yeh queries tab chalayi jati hain jab business ke andar achanak koi naya sawaal paida ho jaye (jaise: *"Chalein check karte hain ke pichlay do ghante mein Lahore se kitne logon ne click kiya?"*). Is mein response time bohot aham hota hai kyunke analyst baar baar query badal kar data ko explore kar raha hota hai. Fast batch execution engines analysts ka wait karne ka waqt bohot kam kar dete hain.
+
+SQL support hone ki wajah se yeh batch frameworks asani se duniya ke baray data visualization tools jaise **Tableau, Power BI, Looker, aur Apache Superset** ke sath jorr diye jaate hain, kyunke in tools ke paas SparkSQL aur Presto ke liye built-in connectors hote hain.
+
+---
+
+### Machine Learning
+
+Machine Learning (ML) aur AI ki poori dunya batch processing par hi khari hai. Data scientists aur AI engineers data ko kholne, saaf karne, aur models ko train karne ke liye batch frameworks use karte hain. Is ke chaar (4) baray use cases hain:
+
+* **Feature Engineering:** Raw data (kachay data) ko saaf karke us shakal mein lekar aana jisay AI model samajh sakay. Jaise agar text data ya categories hain, toh unhein numbers (numeric format) mein convert karna.
+* **Model Training:** Is batch process mein training data as an *Input* jata hai, computer hazaron chakkar (epochs) kaat kar seekhta hai, aur final trained model ke **Weights** (dimaagh ki settings) as an *Output* nikalte hain.
+* **Batch Inference (Bulk Predictions):** Agar aap ke paas karoron customers ka data hai aur aap ne sab ke liye predictions nikalni hain (aur real-time foran result zaroori nahi hai), toh aap trained model ko poore dataset par aik sath as a batch job chala dete hain. Is mein test dataset par model ki accuracy check karna bhi shamil hai.
+
+Spark ka **MLlib** aur Flink ka **FlinkML** pehle se hi feature engineering aur statistical classifiers ke tools bana kar dete hain.
+
+* **Graph Processing Aur BSP Model:** Recommendation engines aur ranking systems mein data aprop mein netowrk ki tarah jura hota hai (Graph model). Graph ke algorithms ko chalane ke liye aik aik edge ko parhna aur nodes tak jankari pohnchana parti hai jab tak answer nikal na aaye. Is ke liye **Bulk Synchronous Parallel (BSP)** computational model use hota hai (jisay Google ne **Pregel** paper ke zariye mashhoor kiya tha). Yeh Apache Giraph, Spark ke GraphX, aur Flink ke Gelly API mein implement kiya gaya hai.
+* **LLMs (Large Language Models) Aur AI Training:** ChatGPT jaise baray language models ki training ka pehla qadam hi batch processing hota hai. Internet ke websites ka raw text storage (S3) mein para hota hai. Batch frameworks (jaise **Kubeflow, Flyte, aur Ray**) is data par yeh teen transformations chalate hain:
+1. HTML tags ko saaf karke khalis plain text nikalna.
+2. Ghatiya quality ka kachra data aur duplicate documents ko dhoond kar delete karna.
+3. Text ko tukron mein torna (**Tokenization**) aur unhein numeric vectors (**Embeddings**) mein convert karna.
+
+
+
+OpenAI company apne **ChatGPT** ki training ke liye **Ray** framework ka bohot heavy use karti hai. In frameworks ke andar PyTorch aur TensorFlow ke liye built-in support hoti hai. Data scientists in saare experiments ko chalane ke liye interactive **Jupyter Notebooks** ya Hex use karte hain jo cells (python/SQL chunks) ke zariye line se chalte hain aur distributed DataFrame APIs se connect hote hain.
+
+---
+
+### Serving Derived Data
+
+Batch jobs ka sab se bara faida yeh hai ke yeh pre-computed ya **Derived Data** (jaise har user ke liye tayyar ki gayi 10 products ki sifarish/recommendations, ya barri reports) pehle se bana kar rakh deti hain. Ab is derived data ko live website par users ko dikhane ke liye kisi production database, key-value store, ya search engine tak pohnchana parta hai jo live traffic handle kar raha ho.
+
+Ab yahan naye developers ek bohot barri galti karte hain: Woh batch job ke andar hi database ki client library kholte hain aur **aik aik record karke direct production database par write (INSERT/UPDATE) karna shuru kar dete hain.** Halanqe yeh kaam chal jayega, lekin distributed architecture ke mutabaq yeh ek **bohot hi ghatiya aur khatarnak idea (bad idea) hai**. Kyun? Chalein iske teen baray nuksanat samajhte hain:
+
+1. **Sust Raftar (Network Bottleneck):** Batch task ka throughput (speed) bohot high hota hai, jabke network par ja kar database mein aik aik row insert karna orders of magnitude slow hota hai. System jam jayega.
+2. **Live Traffic Ka Qatal (Overwhelming production DB):** Batch frameworks hazaron tasks parallel chalate hain. Agar hazaron computers aik sath live production database par toot parenge, toh database ka CPU $100\%$ par chala jayega. Live website par jo aam users baithe hain, unki queries slow ho jayengi ya website down ho jayegi.
+3. **All-or-Nothing Guarantee Ka Tootna:** Batch jobs ka sab se pyara asool yeh hota hai ke ya toh poori job chalegi aur perfect output aayega, ya agar fail hui toh kuch bhi safe nahi hoga (No partial side effects). Lekin agar aap task ke darmiyan live DB mein write kar rahe hain, aur 50% kaam hone ke baad task fail ho kar dobara restart hua, toh database mein duplicate data chala jayega aur baqi systems ko aadh-adhura kharab data nazar aana shuru ho jayega.
+
+---
+
+#### Behtar Hal 1: Message Queue (Kafka Topic Buffer)
+
+Iska sab se behtareen aur industry-standard hal yeh hai ke batch job apna final data direct live database mein phekne ke bajaye **Apache Kafka** jaisay streaming system ke topics mein push kar de. Phir wahan se Elasticsearch, Apache Pinot, Apache Druid, Venice, ya ClickHouse khud ba khud data ingest (khainch) letay hain.
+
+Kafka ke zariye data bhejne se yeh maslay aise hal hote hain:
+
+* Streaming systems **Sequential Writes** ke liye optimize hote hain, is liye woh batch job ki heavy speed ko asani se jhel letay hain.
+* Kafka beech mein ek **Buffer (baandh)** ka kaam karta hai. Agar live database par bojh barh jaye, toh database data parhne ki raftar ko slow (**Throttle**) kar sakta hai taake live users par asar na paray.
+* Aik batch job ka banaya hua data aik sath teen alag systems (jaise search ke liye Elasticsearch aur analytics ke liye Pinot) parh sakte hain.
+* Yeh network ki suraksha (**Security Boundary**) ke tor par kaam aata hai. Aap Kafka ko aik darmiyanay network (**DMZ - Demilitarized Zone**) mein rakh sakte hain taake batch processing cluster ko direct production network mein ghusna na paray.
+
+> **Note:** Streaming bhi default tor par all-or-nothing hal nahi karti. Isay theek karne ke liye batch job jab poori khatam ho jaye, toh naye data ko tab tak live queries se chupa kar rakha jata hai (jaise SQL ka Read-Committed Isolation transaction hota hai) jab tak pooray cluster se *"Job Complete"* ka final notification message deliver na ho jaye.
+
+---
+
+#### Behtar Hal 2: Bulk Import (SST Files Direct Loading)
+
+Database ko naye siray se tayaar (bootstrap) karne ke liye ek aur bohot tez tareeqa use hota hai: **Poora database hi batch job ke andar file ki shakal mein bana liya jaye.**
+
+Batch job distributed filesystem ke andar hi database ki asli files (jaise RocksDB ki **SST - Sorted String Table files**) direct generate karti hai, aur phir un tayyar files ko direct database ke folders mein load (**Bulk Import**) kar diya jata hai.
+
+* TiDB database ka **TiDB Lightning** tool aur Apache Pinot ke Hadoop import jobs isi tarah kaam karte hain.
+* RocksDB ka apna aik API hota hai jo batch jobs se banyi gayi SST files ko direct import kar leta hai.
+
+**Iska Faida:** Yeh tareeqa had se zyada tez hota hai kyu ke is mein koi network query ya parsing nahi hoti, aur database aik jhatkay mein purani files hata kar nayi files par switch (**Atomic Switch**) ho jata hai.
+
+Lekin iska nuksan yeh hai ke agar aap ne data ko thoda thoda karke roz badalna (**Incremental Update**) ho, toh naye databases baar baar banana mushkil hota hai. Aise mawaqe par log hybrid tareeqay apnaate hain (jaise **Venice database** jo batch row updates aur full dataset swaps dono ko aik sath support karta hai).
+
+
+---
