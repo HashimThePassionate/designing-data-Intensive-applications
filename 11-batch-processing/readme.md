@@ -235,3 +235,197 @@ Linux ke GNU Coreutils mein jo `sort` utility aati hai, usay pehle se hi itna aq
 
 > **Sab Se Badi Limitation:** Unix tools ka sab se bara nuksan yeh hai ke yeh sirf **aik akeli machine (single machine)** par chalte hain. Agar data itna barh jaye ke woh aik computer ki memory aur disk dono se bahar nikal jaye, toh yahan par single machine Unix tools haar jaate hain—aur yahin se shuruat hoti hai **Distributed Batch Processing Frameworks** ki (jo data ko hazaron computers par baant kar process karte hain).
 
+---
+
+## Batch Processing in Distributed Systems
+
+Hum ne jo single-machine par Unix tools (cat, awk, sort wagera) ki misaal dekhi, us mein log data ko process karne ke liye computer ke yeh components aapas mein mil kar kaam kar rahe تھے:
+
+* **Storage Devices (Hard Drive/SSD):** Jinhein operating system ke filesystem interface ke zariye access kiya jata hai.
+* **A Scheduler:** Jo yeh tay karta hai ke kaun sa process kab chalega aur CPU ki takat kisko kitni milegi.
+* **Unix Programs:** Jo pipes (`|`) ke zariye aik doosre se jude hote hain (aik ka output doosre ka input banta hai).
+
+Bilkul yahi saare components **Distributed Data Processing Frameworks** (hazaron computers par chalne wale systems) mein bhi maujood hote hain. Asal mein, aap in frameworks ko **Distributed Operating Systems** maan sakte hain; inke paas bhi apna filesystem, apna job scheduler, aur aise programs hote hain jo filesystems ya doosre raabta raston ke zariye aik doosre ko data bhejte hain.
+
+---
+
+### Distributed Filesystems
+
+Aap ke computer ka operating system jo filesystem (jaise ext4 ya XFS) deta hai, woh andar se kayi parton (layers) se mil kar banta hai:
+
+* **Block Device Drivers:** Yeh sab se niflay level par direct disk se baat karte hain aur raw data blocks ko read/write karte hain.
+* **Page Cache:** Yeh block layer ke upar banti hai aur hal hi mein use huye data blocks ka hissa memory (RAM) mein rakhti hai taake speed tez rahay.
+* **Filesystem Layer:** Yeh block API ko lapet (wrap) kar ke barri files ko chote blocks mein torti hai aur files ka metadata (jaise inodes, directories, aur file names) ka hisab rakhti hai. Linux mein ext4 aur XFS iski aam misalein hain.
+* **Virtual Filesystem (VFS):** Yeh sab se upar hota hai jo applications ko aik jaisa common API deta hai. VFS ki wajah se application ko is baat ki fikar nahi hoti ke piche ext4 chal raha hai ya XFS, uske liye file parhna aur likhna aik jaisa hota hai.
+
+**Distributed Filesystems (DFS)** bhi bilkul isi tarah kaam karte hain. Files ko chote chunks ya **Blocks** mein tor diya jata hai aur unhein hazaron alag-alag machines par baant (distribute) diya jata ہے۔
+
+* **Blocks Ka Size:** Distributed filesystem ke blocks aam local filesystem se **bohot baray** होते hain. Jahan Linux ka ext4 filesystem sirf 4,096 bytes (4 KB) ka block use karta hai, wahan Hadoop ka HDFS by default **128 MB** ka block use karta hai, aur JuiceFS ya baqi object stores **4 MB** ke blocks use karte hain.
+* **Baray Blocks Ka Faida:** Jab data Petabytes (lakhoon GBs) ki tadad mein ho, toh agar blocks chote honge toh unka hisab kitab (metadata) rakhna azab ban jayega. Baray blocks hone se metadata bohot chota ho jata hai aur disk par data dhoondne ka kharcha (**seek overhead**) bhi parhne ke muqable mein bohot kam ho jata hai.
+* **Aadha Block Likhna (Partial Blocks):** Computer ki physical hard drives kabhi bhi aadha block nahi likh saktin, is liye operating system ko poora block use karna parta hai chahe data thoda hi kyun na ho. Lekin distributed filesystems operating system ke filesystems ke upar bante hain, is liye un par yeh pabandi nahi hoti. Misaal ke tor par, agar ek 900 MB ki file hai aur aap 128 MB ka block size use kar rahe hain, toh system 128 MB ke 7 pure blocks banayega aur aakhri block bilkul exact **4 MB** ka banayega (khamkhah space zaya nahi karega).
+
+#### Data Nodes Aur Unka Kaam
+
+DFS ke blocks ko parhne ke liye network ke zariye us makhsoos machine ko request bheji jati hai jahan woh block save hota hai. Cluster ka har computer background mein aik worker program chala raha hota hai (ek daemon process) jo remote requests ko qubool karta hai aur blocks ko apne local disk se utha kar de deta hai.
+
+* HDFS mein in worker programs ko **DataNodes** kaha jata hai.
+* GlusterFS mein inhein **glusterfsd** processes kehte hain.
+* Hum is book mein inhein aam zuban mein **Data Nodes** kahain ge.
+
+#### Distributed Page Cache
+
+Distributed filesystems mein bhi page cache ka distributed roop hota hai. Chunke DFS ke blocks data nodes par aam files ki shakal mein save hote hain, is liye jab bhi koi data parha ya likha jata hai, woh data node ke operating system ki **In-Memory Page Cache** se guzarata hai. Is se baar baar parha jane wala data data node ki RAM mein hi rehta hai aur speed fast milti hai. Kuch advance filesystems (jaise JuiceFS) mazeed caching tiers bhi dete hain, jaise client-side par ya local disk par cache banana.
+
+#### Metadata Management
+
+Jaise ext4 file ki locations aur directory structure ka hisab rakhta hai, waise hi distributed filesystems ko bhi yeh yaad rakhna parta hai ke kaun sa block kis machine par para hai.
+
+* Hadoop (HDFS) mein is kaam ke liye aik makhsoos service hoti hai jisay **NameNode** kehte hain.
+* DeepSeek ka **3FS** filesystem ek metadata service use karta hai jo apna saara data **FoundationDB** jaise key-value store mein paka save (persist) karti hai.
+
+#### Protocols Aur VFS Ka Jora
+
+Operating system mein jo kaam VFS karta hai, distributed processing mein wahi kaam DFS ka **Protocol ya Interface** karta hai. Yeh aik pluggable interface hota hai; jab tak koi distributed filesystem is protocol ke rules ko follow karega, batch processing systems usay asani se use kar sakenge.
+
+* Misaal ke tor par, **Amazon S3 ka API** aaj kal ek industry standard ban chuka hai. MinIO, Cloudflare R2, Tigris, aur Backblaze B2 saare isi S3 API ko implement karte hain. Iska faida yeh hai ke jo batch processing system S3 ko support karta hai, woh in mein se kisi bhi storage system par bina code badle chal sakta hai.
+
+NFS (Network File System) ya FUSE (Filesystem in Userspace) ke zariye in distributed filesystems ko operating system ke VFS ke sath aise jor diya jata hai ke user ko lagta hai ke woh apne hi computer ki koi local drive khol kar betha hai. Amazon ka **EFS (Elastic File System)** aur **Archil** isi NFS protocol ka use karte hain jo scale mein bohot baray distributed systems hote hain. Bahar se client sirf aik single endpoint par connect hota hai, lekin background mein yeh systems hazaron data nodes se data read/write kar rahe hote hain.
+
+---
+
+#### Distributed Filesystems and Network Storage
+
+Distributed filesystems poori tarah se **Shared-Nothing Principle** (yani har computer azad hai, koi memory ya disk aam tor par aapas mein share nahi hoti) par chalte hain. Yeh network storage ke purane tareeqon jaise **NAS** (Network Attached Storage) aur **SAN** (Storage Area Network) ke **Shared-Disk** approach se bilkul alag hain.
+
+* **Shared-Disk (NAS/SAN):** Is mein ek bohot barri central storage appliance (machinery) hoti hai, jis ke liye custom mehanga hardware aur special network infrastructure (jaise Fibre Channel) lagana parta hai.
+* **Shared-Nothing (DFS):** Is mein kisi khas ya mehangay hardware ki zaroorat nahi hoti. Bas aam computers (**Commodity Hardware**) ko aam datacenter network ke zariye aapas mein jor diya jata hai.
+
+Chunke distributed filesystems saste aur aam computers par bante hain, is liye in mein hardware kharab hone ka khatra (failure rate) enterprise hardware se zyada hota hai. Is musibat se bachne ke liye aur fault tolerance haasil karne ke liye blocks ko aik se zyada machines par copy (**Replicate**) kiya jata hai. Iska aik aur faida yeh hota ke scheduler ke paas choice hoti hai ke woh kaam ko us machine par chalaye jahan pehle se data ki copy pari ho, jis se workload barabar badhta hai.
+
+Replication do tarah se ho sakti hai:
+
+1. **Full Replication:** Ek hi data ki 3 ya 4 bilkul saaf copies alag machines par rakhna (Chapter 6).
+2. **Erasure Coding:** Jaise **Reed–Solomon codes**. Is mein data ko mathematical formulas ke zariye aise toda jata hai ke agar koi machine mar bhi jaye, toh bache hue data se gumshuda data wapis nikal aata hai. Is mein full replication ke muqable mein storage ka kharcha bohot kam hota hai. Yeh bilkul computer ke andar lagne wale **RAID** jaisa hai, bas farq yeh hai ke distributed filesystem mein yeh redundancy poore network par phaili hoti hai.
+
+---
+
+### Object Stores
+
+**Object Storage** services—jaise Amazon S3, Google Cloud Storage (GCS), Azure Blob Storage, aur OpenStack Swift—aaj kal batch processing ke liye distributed filesystems ka ek bohot hi popular maseeha ban chuki hain. Hatta ke distributed filesystem aur object store ke darmiyan ka farq ab bohot kam ho gaya hai. FUSE drivers ke zariye log S3 ko bhi local filesystem ki tarah mount kar lete hain, aur Ceph ya JuiceFS jaise systems filesystem aur object storage dono ke APIs aik sath dete hain. Lekin inke APIs, performance, aur consistency guarantees mein zameen-asman ka farq hota hai.
+
+Object store ke andar har file (object) ka ek unique URL hota hai, jaise:
+`s3://my-photo-bucket/2025/04/01/birthday.png`
+
+* **Bucket:** Host ka hissa (`my-photo-bucket`) bucket ka naam hota hai jo poori duniya mein unique hona chahiye.
+* **Object Key:** Uske baad ka saara hissa (`/2025/04/01/birthday.png`) us object ki unique key kehlata hai.
+
+#### Object Stores Ke Rules (Bacho ki tarah samajhein)
+
+* **Immutable (Na-badalne wale):** Object stores mein data ko **GET** call se parha jata hai aur **PUT** call se likha jata hai. Ek dafa jo object likh diya, aap uske andar ghuss kar badlao (update) nahi kar sakte. Agar aap ko file badalni hai, toh aap ko poori ki poori file dobara PUT call se naye siray se re-write karni paregi (halanqe Azure Blob aur S3 Express One Zone ab data aage jorna support karte hain, baki stores mein yeh facility nahi hai). Yahan traditional coding ke functions jaise `fopen` ya `fseek` (file ke beech mein jump karna) bilkul nahi hote.
+* **Directories Ka Dhoka:** Jab aap S3 kholte hain toh aap ko folders aur directories nazar aati hain, lekin **object stores mein directories ka koi concept hota hi nahi hai!** Yeh slashes (`/`) sirf ek string (text) ka hissa hote hain. Jab aap directory listing mangte hain, toh system asal mein makhsoos **Prefix** (shuruati lafz) match karke objects ki list dikha deta hai.
+
+Prefix listing aam filesystem se do tarah se alag hoti hai:
+
+1. **Recursive By Default:** Agar aap `s3://my-photo-bucket/2025/04` ki list mangenge, toh yeh Unix ke `ls -R` ki tarah uske andar ke sub-folders ke saare objects bhi nikal kar le aayega.
+2. **Khali Folder Mumkin Nahi:** Agar aap `s3://my-photo-bucket/2025/04/01` ke andar ke saare objects delete kar dein, toh `01` naam ka folder hi duniya se gayab ho jayega! Kyunke piche koi key bachi hi nahi jiske andar yeh text ho. Is se bachne ke liye log galti se wahan ek 0-byte ka khali object bana dete hain taake folder ka nishan bacha rahay.
+
+Distributed filesystems mein hard links, symbolic links, file locking, aur atomic renames (aik jhatkay mein folder ka naam badalna) jaise features hote hain, jabke **object stores mein yeh sab missing hota hai**. S3 mein folder rename karne ka matlab hai ke uske andar maujood hazaron files ko aik aik karke naye naam par copy karo aur phir purani files ko delete karo!
+
+#### Key-Value Stores Vs Object Stores
+
+Chapter 4 wale key-value stores chote data (Kilobytes) aur har waqt tez low-latency reads/writes ke liye design hote hain. Jabke Object stores baray data (Megabytes se Gigabytes) aur aaram se barri reads ke liye optimize hote hain. (Halanqe ab **S3 Express One Zone** ne single-digit millisecond latency dena shuru kar di hai jo key-value store ke kareeb tar hai).
+
+* **Data Locality Ka Farq:** HDFS ka sab se bara faida yeh tha ke woh computing task (code) ko us machine par chalata tha jahan file ka block pehle se para ho (**Data Locality**). Is se network ka bandwidth bachta hai kyunke code ka size file se chota hota hai.
+* Doosri taraf, Object stores storage aur computation (servers) ko bilkul alag alag (**decouple**) rakhte hain. Is mein data network par travel karta hai, lekin chunke modern datacenter networks had se zyada fast hain, is liye yeh nuksan ab bardasht kar liya jata hai. Iska faida yeh hai ke aap storage aur CPU/RAM ko aik doosre se azaad scale kar sakte hain.
+
+---
+
+### Distributed Job Orchestration
+
+Operating system ka jo asool hum ne parha, woh **Job Orchestration** (kaam ko tarteeb dena) par bhi apply hota hai. Jab aap single machine par Unix pipeline chalate hain, toh computer ka kernel piche `awk`, `sort`, `uniq` wagera ko chalane, memory baantne, aur CPU par schedule karne ka zimma uthata hai. Distributed system mein yahi kaam **Job Orchestrator** karta hai.
+
+Jab koi batch processing framework kisi orchestrator ke paas job chalane ki request bents hai, toh us request mein yeh metadata shamil hota hai:
+
+* Total kitne tasks chalane hain.
+* Har task ko kitni Memory, CPU, aur Disk chahiye.
+* Job ki unique ID aur credentials (ijazat nama).
+* Input aur output data kahan para hai.
+* Hardware ki requirements (jaise makhsoos GPUs ya SSDs).
+* Job ka executable code (executable binary ya Docker image) kahan para hai.
+
+**Kubernetes** aur **Hadoop YARN** (Yet Another Resource Negotiator) jaise orchestrators is jankari ko cluster ke metadata ke sath jor kar kaam chalate hain. Inke andar teen bunyadi components hote hain:
+
+1. **Task Executors (Worker Daemons):**
+Cluster ke har computer par ek worker program chal raha hota hai (jaise YARN ka **NodeManager** ya Kubernetes ka **kubelet**). Inki zimmedari hoti hai tasks ko chalana, central manager ko apni zinda hone ki dharkan (**Heartbeats**) bhejte rehna, aur resource utilization ka hisab rakhna. Jab inhein request milti hai, yeh code download karte hain aur task shuru kar dete hain. Yeh operating system ke sath mil kar **Linux cgroups** use karte hain taake aik task kisi doosre task ki memory mein ghuss na sakay aur na hi uske resources chura sakay (**Performance Isolation**).
+2. **Resource Manager:**
+Yeh pooray cluster ka main dimaagh hota hai jiske paas har node ki hardware capacity, khali jagah, chalte hue tasks, aur network locations ka poora global view hota hai. Chunke saari jankari is ke paas hoti hai, is liye yeh cluster ka bottleneck ya SPOF bhi ban sakta hai. YARN is state ko save karne ke liye **ZooKeeper** aur Kubernetes **etcd** ka istemaal karta hai.
+3. **Scheduler:**
+Yeh resource manager ke andar ka aik subsystem hota hai jo jobs ko start, stop ya check karne ki requests qubool karta hai. Sochein usay request mili ke *"10 tasks chalao jinhein makhsoos GPU chahiye"*. Scheduler global view check karega aur faisla karega ke yeh 10 tasks kis kis computer par chalenge, aur phir un computers ke Task Executors ko hukum bhej dega.
+
+> **Subschedulers:** Sometime kuch kaamo ke liye application-specific scheduling chahiye hoti hai (jaise jab queries barhein toh read replicas ko auto-scale karna). Central scheduler aur yeh subschedulers mil kar kaam karte hain. YARN mein in subschedulers ko **ApplicationMasters** kehte hain aur Kubernetes mein inhein **Operators** kaha jata hai.
+
+---
+
+#### Resource allocation
+
+Orchestration mein scheduler ka kaam sab se zyada challenging aur dimaagh ghumane wala hota hai. Usay cluster ke limited resources ko un saari jobs mein baantna parta hai jo aapas mein pehle chalne ki larai kar rahi hoti hain. Yahan do cheezon ka balance farz hai: **Fairness (Insaf)** aur **Efficiency (Karkardagi)**.
+
+Bacho ki tarah aik simple misaal se samajhein: Sochein hamare paas ek chota cluster hai jiske 5 nodes hain aur total **160 CPU cores** khali hain. Achanak do alag alag jobs ki requests aati hain, aur **dono ko apna kaam khatam karne ke liye 100 Cores chahiye**. Ab scheduler kya karega?
+
+* **Strategy 1 (Barabari):** Scheduler dono jobs ko 80-80 cores de deta hai. Aur bache hue 20-20 tasks tab shuru honge jab pehle wale tasks khatam honge.
+* **Strategy 2 (Gang Scheduling):** Scheduler pehle aik job ko pure 100 cores de deta hai aur poori task ek sath chalata hai. Doosri job ko tab tak wait karwaya jata hai jab tak pehle wali ke cores azaad na ho jayein.
+* **Strategy 3 (Incomplete Info):** Agar doosri job pehli job ke chalne ke kafi dair baad aaye, toh scheduler ko pehle se nahi pata tha. Woh pehli job ko saare cores de chuka hoga. Ab usay faisla karna hoga ke kya woh pehli job ke chalte hue tasks ko jaan se maar de (**Preemption**) taake naye ke liye jagah banay, ya naye wale ko bhookha (**Starvation**) rakhay.
+
+Is choti si misaal mein hi kitne baray trade-offs hain! Agar gang scheduling mein scheduler cores reserve karke baith jaye jab tak pure 100 khali na hon, toh servers khali bethe rahenge aur cluster ki utilization gir jayegi, ya systems aapas mein **Deadlock** ho jayenge. Agar woh wait karwaye, toh starvation ho sakti hai. Agar tasks ko kill kare (preempt kare), toh pehle ki hui mehnat zaya ho jayegi aur efficiency kharab hogi.
+
+Asal zindagi mein jab scheduler ke paas hazaron ya lakhon requests aa rahi hon, toh perfect math nikalna na-mumkin ho jata hai (Yeh ek **NP-hard problem** hai). Is liye practical schedulers perfect solution ke bajaye **Heuristics** (tajurbaati asoolon) ka sahara lete hain. Is ke liye mukhtalif algorithms use hote hain:
+
+* **FIFO** (First-In First-Out)
+* **DRF** (Dominant Resource Fairness)
+* **Priority Queues**
+* **Capacity / Quota-based scheduling**
+* **Bin-packing algorithms**
+
+---
+
+#### Scheduling workflows
+
+Unix tools ke example mein hum ne dekha ke kaise commands pipes ke zariye aik doosre se connect the. Distributed batch processing mein bhi bilkul yahi hota hai: aik job ka output doosri job ka input banta hai, aur aik job ke piche kayi inputs ho sakte hain jo alag alag jobs ne banaye hon. Is lambay silsilay ko hum **Workflow** ya **DAG (Directed Acyclic Graph)** kehte hain.
+
+> **Durable Execution Vs Batch Workflows:** Chapter 8 mein jo workflow engines hum ne parhay the, woh step-by-step RPC calls (web requests) ke zariye kaam karte hain aur chota data process karte hain. Jabke Batch Processing mein workflow ka matlab hota hai baray baray data processes ki ek sequence, jo files parhti hain aur nayi files banati hain, external APIs par RPC calls nahi kartin.
+
+Ek pipeline mein bohot saari jobs ka workflow banana kyun zaroori hota hai?
+
+1. **Multi-Team Sharing:** Agar aik job ka output 5 alag alag teams ki jobs ke liye input hai, toh behtar yeh hai ke pehli job apna output storage mein save kar de. Baqi teams ki jobs jab bhi data update ho, wahan se parh sakti hain.
+2. **Tools Ka Milan:** Aap alag alag tools ko jor sakte hain. Misaal ke tor par, aik **Spark** job ne data process karke HDFS par phenka, wahan se aik **Python** script ne trigger dabaya aur **Trino SQL** query chala kar us data ko mazeed makhsoos karke S3 par save kar diya.
+3. **Multi-Stage Resharding:** Agar aik stage mein data ko *User_ID* ke mutabaq shard karna hai, aur aglay stage mein *Region_ID* ke mutabaq, toh pehli stage data ko naye roop mein shard karke save karegi taake doosri stage apna kaam asani se shuru kar sakay.
+
+Unix pipeline mein do commands ke beech ka pipe memory ka aik chota sa buffer use karta hai aur disk par file nahi banata. Agar buffer bhar jaye, toh pehla process ruk jata hai jab tak doosra data parh na le (**Backpressure**). Spark aur Flink bhi aisa network-based streaming model support karte hain jahan data direct aik task se doosre task ko network par pass ho jata hai.
+
+Lekin aam distributed workflows mein zyadatar tareeqa yeh hota hai ke har job apna final output **Distributed Filesystem ya Object Store** par likhti hai. Is se jobs aapas mein azad (**decouple**) ho jati hain. Agar aik job chal rahi hai, toh agli job ke liye workflow scheduler tab tak wait karega jab tak pehli job safely $100\%$ khatam na ho jaye aur data disk par paka save na ho jaye.
+
+YARN ya Spark ka apna scheduler sirf aik individual job ke andar ke tasks ko sambhalta hai, pooray workflow ke dependency ko nahi jaanta. Is liye pooray workflows ko schedule aur manage karne ke liye alag se **Workflow Schedulers** use kiye jate hain, jaise **Airflow, Dagster, aur Prefect**. Barri companies mein 50 se 100 jobs ke workflows aam baat hain, is liye in tools ke bina data pipelines ka hisab rakhna namumkin hai.
+
+---
+
+#### Handling faults
+
+Batch jobs bohot lambay waqt tak chalti hain. Jab aik job hazaron computers par ghantong chali ho, toh beech mein kisi aik task ka fail ho jana bilkul aam baat hai (chahe hardware kharab ho ya network ka jhatka lage).
+
+Sometime scheduler khud bhi jaan-booch kar aap ke task ko kill (**preempt**) kar deta hai. Yeh tab hota hai jab aap saste virtual machines use kar rahe hon jinhein Amazon EC2 par **Spot Instances**, Azure par **Spot VMs**, aur Google Cloud par **Preemptible Instances** kehte hain.
+
+* Yeh machines cloud providers ke paas bachi hui faltu computing power hoti hain jo woh bohot sasti (70-80% discount par) de dete hain.
+* Batch processing jobs time-sensitive nahi hotin (yani agar thoda dair se bhi khatam hon toh chalta hai), is liye log kharcha bachane ke liye spot instances par batch jobs chalate hain. Lekin iska nateeja yeh hota hai ke jaise hi cloud provider ke paas koi mehanga regular customer aayega, scheduler aap ke chalte hue saste task ko foran kill kar dega. Hardware faults se zyada spot instances par preemption ki wajah se tasks fail hote hain.
+
+Batch jobs mein kharabiyon se nipatna online systems se lakh darja asaan hai. Chunke batch jobs input ko cherti nahi hain aur output shuru se naya banati hain, is liye agar koi task fail ho jaye, toh system us aadhay-adhuray kharab output ko delete karta hai aur us task ko kisi doosre computer par **dobara restart (retry)** kar deta hai.
+
+Aik task ke marne par poori 10 ghantay ki job ko shuru se chalana bohot barri bewakoofi hogi. Is liye MapReduce aur uske baqi naye bhai saare parallel tasks ko aik doosre se bilkul azad (independent) rakhte hain taake galti hone par sirf us aik chote task ko hi dobara chalaya jaye.
+
+Workflow ke andar jab aik task ka data doosre ke liye input ho, toh fault tolerance thodi barik ho jati hai:
+
+* **MapReduce Ka Tareeqa:** Yeh har stage ka beech ka data (**Intermediate Data**) har haal mein distributed filesystem (disk) par paka likhta hai aur aglay task ko tab tak touch nahi karne deta jab tak pehla paka complete na ho jaye. Yeh bohot safe hai lekin baar baar disk par likhne se slow ho jata hai.
+* **Spark Ka Tareeqa:** Spark is beech wale data ko disk par likhne ke bajaye **RAM (Memory)** mein hi rakhta hai (agar memory bhar jaye tab hi local disk par spill karta hai). Yeh poora rasta yaad rakhta hai (**Lineage Tracking**) ke data kis formula se bana tha. Agar koi beech ka data zaya ho jaye, toh Spark poori job chalane ke bajaye sirf us khoye hue hissay ko formula dekh kar dobara compute kar leta hai.
+* **Flink Ka Tareeqa:** Flink aik alag tareeqa apnaata hai jahan woh chalte hue tasks ka thodi thodi dair baad chupke se snapshot (**Checkpointing**) leta rehta hai taake galti hone par pichlay checkpoint se kaam shuru kiya ja sakay.
+
+---
+
