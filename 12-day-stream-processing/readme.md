@@ -373,3 +373,308 @@ Hum ne pehle parha ke traditional AMQP/JMS brokers mein message parhna aur ACK b
 Yeh khubiyat streaming ko bilkul pichlay chapter wale **Batch Processing jaisa safe aur repeatable** bana deti hai, jahan asal input data hamesha mehfooz rehta hai aur naya output bilkul fresh banta hai. Is se systems mein naye naye experiments karna aur galtiyon se recover karna bacho ka khel ban jata hai.
 
 ---
+
+## Databases and Streams
+
+Hum ne abhi tak message brokers aur databases ke darmiyan kaafi farq aur muqabla dekha hai. Halanqe inhein hamesha do alag alag categories ke tools samjha jata hai, lekin hum ne dekha ke log-based message brokers ne databases ke achay ideas (jaise append-only logs) ko utha kar messaging par apply kiya aur bohot kamyabi haasil ki. Hum iska bilkul ulat bhi kar sakte hain—yani messaging aur streams ke shandaar ideas ko utha kar databases par apply kar sakte hain.
+
+Iska aik tareeqa yeh hai ke hum event stream ko apna **System of Record** (asli paka data store) bana dein.
+
+* **Bacho ki Tarah Samajhein (Event Sourcing):** Aam tor par jab aap database mein koi data badalte hain, toh aap purani row ko mita kar naya data write kar dete hain (Mutation). Event Sourcing mein hum aisa hargiz nahi karte. Sochein aap ke paas ek diary hai. Agar aap ka balance 100 se 150 hua, toh aap 100 ko mita kar 150 nahi likhenge, balkay diary mein aglay paimane par likhenge: *"+50 rupees aaye"*. Har badlao ek **Immutable Event** (na-badalne wala waqia) ban kar append-only log mein likha jata hai. Baad mein parhne ke liye jo bhi databases ya views banaye jaate hain, woh inhi events ko line se parh kar tayaar kiye jaate hain.
+
+Lekin aap ko apni application mein poori tarah event sourcing lagane ki zaroorat nahi hai; aam badalney wale (mutable) databases mein bhi event streams bohot kaam aati hain. Sach toh yeh hai ke database mein hone wala har single write operation asal mein ek event hi hai jise capture, store, aur process kiya ja sakta hai. Databases aur streams ka rishta disk par files save karne se kahin zyada gehra hai.
+
+Misaal ke tor par:
+
+* **Replication Log:** Database ka leader jab transactions process karta hai, toh woh badlao ki aik lambi list (**Stream of write events**) banata hai. Followers is stream ko uthate hain aur bilkul isi order mein chalate hain, jis se unke paas leader jaisa naya data aa jata hai.
+* **State Machine Replication Principle:** Agar log ka har event database ka ek write operation hai, aur saare computers un events ko ek hi tarteeb (order) mein chalayenge, toh sab ka final nateeja (state) bilkul same hoga. Yeh bhi toh event streams ki hi aik shakal hai!
+
+---
+
+### Keeping Systems in Sync
+
+Duniya ka koi bhi ek akela system aap ki saari zarooriyat ko poora nahi kar sakta. Ek barri professional application ko satisfy karne ke liye hamein alag alag technologies ko aprop mein jorrna parta hai:
+
+* User requests handle karne ke liye ek tez **OLTP Database**.
+* Speed barhane ke liye aik **Cache** (jaise Redis).
+* Search queries ke liye aik **Full-Text Search Index** (jaise Elasticsearch).
+* Data analysis ke liye aik **Data Warehouse** (jaise BigQuery ya Snowflake).
+
+Chunke aik hi data in saari alag alag jagahong par para hota hai, is liye in saare systems ko aprop mein **Sync (aik sath up-to-date)** rakhna sab se bara azab ban jata hai.
+
+Agar user database mein apna naam badle, toh woh badlao cache, search index, aur data warehouse mein bhi foran jana chahiye. Data warehouses ke liye log aam tor par raat ko batch process chala kar poore database ka dump uthate hain aur warehouse mein load kar dete hain (ETL process).
+
+Lekin agar yeh periodic full dumps bohot slow hon, toh log aik doosra tareeqa apnaate hain jisay **Dual Writes** kehte hain. Dual writes mein application ka code khud hi aik sath dono systems mein data write karta hai—pehle database mein save kiya, phir search index mein update bhejii, aur phir cache khali ki.
+
+Dual writes ke andar bohot hi bhayanak maslay aate hain. Un mein se sab se bara masla **Race Condition** hai, jise **Figure 12-4** mein visually breakdown kiya gaya hai.
+
+---
+
+#### Figure 12-4 Ka Breakdown: Dual Writes Ki Tabahi (Race Condition)
+
+Sochein do alag alag clients (Client 1 aur Client 2) aik hi waqt mein database ke aik hi item $X$ ko badalna chahte hain. Client 1 value ko **A** karna chahta hai, aur Client 2 value ko **B** karna chahta hai. Dono clients dual write ka asool follow karte hue pehle database mein likhte hain aur phir search index mein.
+
+<div align="center">
+  <img src="./images/04.png" width="700"/>
+</div>
+
+**Step-by-Step Interleaving Flow:**
+
+1. **Step 1:** Client 1 ki request database tak pehle pohanchi aur database ne $X$ ki value ko badal kar **A** kar diya.
+2. **Step 2:** Uske foran baad Client 2 ki request database tak pohanchi aur database ne value ko badal kar **B** kar diya. Database mein aakhri kaam Client 2 ka hua, is liye database mein final nateeja save hua: **B**.
+3. **Step 3:** Ab network delay ki wajah se khel badal gaya. Search Index wale computer par Client 2 ki request pehle pohanch gayi aur index ne value ko **B** set kar diya.
+4. **Step 4:** Sab se aakhir mein Client 1 ki request search index tak pohanchi aur us ne value ko overwrite karke **A** kar diya. Search index mein final nateeja save hua: **A**.
+
+**Nateeja:**
+Bina kisi error ke, dono systems chalte hue aprop mein permanently out-of-sync (de-sync) ho gaye! Database keh raha hai value B hai, aur search index keh raha hai value A hai. Jab tak aap ke paas version vectors jaisa koi concurrency detection nizam na ho, aap ko pata bhi nahi chalega ke yeh gunah ho chuka hai.
+
+* **Doosra Masla (Fault Tolerance):** Dual write mein agar aik system mein write kamyabi se save ho jaye aur doosray system ka computer network jhatkay se fail ho jaye, tab bhi dono systems de-sync ho jayenge. In dono ko aik sath kamyab ya aik sath fail karne ke liye mehanga **Two-Phase Commit (2PC)** algorithm chalana parega, jo database ko slow kar deta hai.
+
+Agar hamare paas aik akela database leader ho, toh wahan order leader tai karta hai is liye masla nahi hota. Lekin Figure 12-4 mein koi aik single leader nahi tha; database ka apna leader tha aur index ka apna, dono azaad the isi liye takraat (conflict) ho gayi. Kya aisa mumkin hai ke hum search index ko database ka follower bana dein? Bilkul mumkin hai!
+
+---
+
+### Change Data Capture
+
+Isi maslay ka hal **Change Data Capture (CDC)** hai. Purane zamane mein databases ke replication logs ko unka andruni khufia mamla (internal detail) samjha jata hai, koi public API nahi diya jata tha. Clients se kaha jata tha ke tum bas SQL queries chalao, logs ko parhne ki koshish mat karo. databases ka change log nikalne ka koi documented tareeqa na hone ki wajah se data doosray systems (search index, cache) tak pohnchana azab tha.
+
+Lekin ab aisa nahi hai. CDC ek aisa process hai jo database mein hone wale har single badlao (insert, update, delete) par har waqt nazr rakhta hai aur un badlao ko aik **Real-Time Data Stream** ki shakal mein bahar nikal leta hai taake doosray systems us stream ko parh sakein. Search index aur baki saare derived systems ab database ke sath larrte nahi hain, balkay woh is change stream ke simple **Consumers (Followers)** ban jaate hain.
+
+---
+
+#### Figure 12-5 Ka Breakdown: CDC Se Race Condition Ka Khatma
+
+**Figure 12-5** mein samjhaya gaya hai ke kaise CDC upar wale dual write ke de-sync maslay ko jar se khatam kar deta hai.
+
+<div align="center">
+  <img src="./images/05.png" width="700"/>
+</div>
+
+**Step-by-Step Flow:**
+
+1. Client 1 (X=A) aur Client 2 (X=B) dono concurrent requests database leader ko bhejte hain.
+2. Database leader un dono mein se kisi aik request ko pehle execute karta hai (Misaal ke tor par pehle A ko chalaata hai, phir B ko). Database mein final value **B** ho jati hai.
+3. Ab database isi exact order (`First: Write A -> Second: Write B`) ko apne **Replication Log** mein save kar deta hai.
+4. Search Index computer dual write ke bajaye chup karke is CDC stream ko subscribe karke betha hota hai. Woh log se pehle uthata hai "Write A" (value A ho gayi), aur uske baad uthata hai "Write B" (value B ho gayi).
+
+**Nateeja:** Search index mein bhi final value **B** ho jati hai aur database mein bhi B thi. Dono systems perfect sync mein aa gaye! Agar company ko analytics ke liye data warehouse mein bhi data bhejna hai, toh usay bhi is stream ka aik naya consumer bana kar line mein khara kar diya jayega.
+
+---
+
+### Implementing CDC
+
+Architectural tareeqe se dekha jaye toh CDC main database ko **Leader** bana deta hai aur baki saare derived data systems ko uska **Follower** bana deta hai. Is change stream ko database se derived systems tak safely pohnchane ke liye ek **Log-Based Message Broker (Kafka)** sab se behtareen transport line hai kyu ke yeh messages ka order kabhi badalne nahi deta (pichlay section wala ordering issue nahi aata).
+
+CDC ko chalanay ke liye databases ke row-based logical logs use kiye jaate hain. Is kaam ke liye open-source duniya ka sab se mashhoor aur heros jaisa project **Debezium** hai.
+
+Debezium ke paas har baray database ke liye source connectors hote hain:
+
+* MySQL
+* PostgreSQL
+* Oracle
+* SQL Server
+* Db2
+* Cassandra
+
+Yeh connectors chupke se database ke replication logs ke sath attach ho jaate hain aur har badlao ko ek standard event JSON/Avro schema mein convert karke Kafka mein phenkte rehte hain. Is ke ilawa Kafka Connect framework, MySQL ke binlog ko parse karne wala **Maxwell** tool, Oracle ka **GoldenGate**, aur Postgres ka **pgcapture** bhi yahi kaam karte hain.
+
+> **Zaroori Trade-off (Asynchronous Susti):** Message brokers ki tarah CDC bhi poori tarah **Asynchronous** hota hai. Main database user ka write save (commit) karte waqt is baat ka wait nahi karta ke kab yeh data consumer tak pohnchega. Iska faida yeh hai ke agar koi consumer computer slow chal raha ho toh main database par bojh nahi parta, lekin nuksan yeh hai ke yahan par **Replication Lag** ke saare maslay (stale reads) paaye jaate hain.
+
+---
+
+#### Initial snapshot
+
+Sochein aap ne company mein ek naya search index lagaya aur aap chahte hain ke database ka saara data is search index mein chala jaye. Agar aap sirf aaj se shuru hone wale CDC change log ko parhenge, toh aap ko sirf wahi data milega jo aaj update hua hai, purana saara data (jo mahino pehle save hua tha aur dobara touch nahi hua) missing ho jayega!
+
+Is maslay se bachne ke liye aap ko poore database ka ek shuruati nishān (**Consistent Snapshot**) lena parta hai.
+
+* Snapshot lete waqt aap ko us exact lamhay ka **Log Offset Number** (position) yaad rakhna parta hai.
+* Pehle naya system us poore snapshot data ko hazam karta hai, aur uske baad us offset number se aage ke naye CDC change logs parhna shuru kar deta hai.
+
+Debezium is kaam ko asaan karne ke liye Netflix ka banaya hua **DBLog watermarking algorithm** use karta hai jo live database ko bina rokay (incrementally) chalte chalte snapshots tayaar kar leta hai.
+
+---
+
+#### Log compaction
+
+Agar aap database ke shuruati din se lekar aaj tak ke saare badlao ka log save karne baithenge, toh disk space full ho jayegi aur naye computer ke liye shuru se saara log replay karne mein mahino lag jayenge. Iska hal **Log Compaction** hai, jise hum ne Chapter 4 mein LSM-Tree ke context mein parha tha.
+
+---
+
+##### Figure 12-6 Ka Breakdown: Log Compaction Ka Jadu
+
+**Figure 12-6** mein dikhaya gaya hai ke background mein chalne wala compaction process kachra saaf kaise karta hai:
+
+<div align="center">
+  <img src="./images/06.png" width="700"/>
+</div>
+
+* **Asool:** Compaction process segment files ko check karta hai. Agar ek hi Primary Key par baar baar updates aayi hain, toh woh purani saari values ko kachre mein phenk deta hai aur **sirf sab se aakhri up-to-date value** ko bacha kar rakhta hai.
+* **Deletes (Tombstone):** if a key is deleted, a record with a special `null` value is appended (called a **Tombstone**). Compaction process jab is nishan ko dekhta hai, toh woh purane records aur is tombstone dono ko permanently mita deta hai.
+
+**Iska Sab Se Bara Fayda:** Compaction ke baad log file ka size is baat par depend nahi karta ke database mein zindagi bhar kitne lakh writes huay, balkay sirf is baat par depend karta hai ke **is waqt database ke andar total kitna data maujood hai**.
+
+Ab agar aap ko naya search index lagana hai, toh aap ko source database ka alag se manual snapshot lene ki zaroorat nahi hai! Aap bas naye consumer ko is Log-Compacted topic ke **Offset 0** se shuru karwa dein. Log sequentially scan hoga aur guarantees ke sath aap ko har key ki bilkul aakhri up-to-date value mil jayegi. **Apache Kafka** is feature ko poori tarah support karta hai.
+
+---
+
+#### API support for change streams
+
+Aaj kal ke modern databases change streams ko gair-kanooni ya reverse-engineer ke bajaye ek official **First-Class Interface (Public API)** ke tor par dete hain:
+
+* MySQL ka *binlog* aur PostgreSQL ka *logical replication* is ki nishaniyan hain.
+* Google Cloud ka **Datastream** solution cloud databases ke liye streaming access deta hai.
+
+Hatta ke distributed aur eventually consistent databases (jaise Apache Cassandra) bhi ab CDC support karte hain. Cassandra mein clients data ko majority nodes (quorum write) par likhte hain, wahan koi aik single machine leader nahi hoti jis se data khaincha ja sakay.
+
+Cassandra ne is maslay ko hal karne ke liye aik alag tareeqa nikala: **Yeh har node ke raw log segments ko direct expose kar deta hai**. Jo bhi system Cassandra ka CDC parhna chahta hai, woh saare nodes ke un raw segments ko khud parhta hai aur aik quorum reader ki tarah khud dimaagh laga kar unhein ek single stream mein jorrta (merge karta) hai.
+
+---
+
+#### CDC versus event sourcing
+
+Halanqe CDC aur Event Sourcing dono hi badlao ko as a stream bachaati hain, lekin in ke darmiyan abstraction level ka ek bohot bara farq hota hai:
+
+| Khasiyat (Feature) | Change Data Capture (CDC) | Event Sourcing |
+| --- | --- | --- |
+| **Database Ka Style** | Application database ko aam tarah purane mutable style mein use karti hai (updates/deletes khulay aam hote hain). | Application database poori tarah **Append-Only** hota hai. Data badalna ya row delete karna sakht mana hai. |
+| **Log Kahan Se Nikalta Hai?** | Database ke bohot low-level se (Replication log parse karke) nikaala jata hai. | Application ka code khud shuru se aik **Event Log** ki shakal mein data likhta hai. |
+| **Event Ka Matlab** | Low-level state change (jaise: *"Row 5 ke column status ki value Active ho gayi"*). | High-level Application action ka maqsad (jaise: *"User ne shopping cart mein falafel add kiya"*). |
+| **Evolve Karna** | Purani chalte hue databases mein bina kisi code changing ke asani se lagaya ja sakta hai. | Application ke poore dimaagh aur code architecture ko badalna parta hai. |
+
+---
+
+### Change Data Capture and Database Schemas
+
+Halanqe CDC lagana asaan lagta hai, lekin Microservices architecture mein yeh ek naya azab khara kar deta hai. Microservice ka asool hai ke uska database uska zaati mamla (internal detail) hai, koi doosri service usay direct touch nahi kar sakti. Service ka developer jab chahe database ka column delete kare ya badle, bahar kisi ko farq nahi parta jab tak public API same hai.
+
+Lekin jab aap CDC stream khol dete hain, toh **database ka andruni schema ab company ka Public API ban jata hai!**
+
+* Agar data engineering team ne database se koi column delete kiya, toh aage chalne wale saare consumers (search index, data warehouse pipelines) ka code foran crash ho jayega.
+* Chunke yeh streams production networks mein chal rahi hoti hain, is liye customer-facing outage (live website ka down hona) ho sakta hai. Is se bachne ke liye log **Data Contracts** sign karte hain.
+
+#### Decoupling Ka Solution: Outbox Pattern
+
+Internal aur external schemas ko aprop mein larrne se bachane ke liye distributed systems mein **Outbox Pattern** use kiya jata hai.
+
+```
+[ Application Code ] ───( Single SQL Transaction )───► [ DATABASE ]
+                                                            │
+                                             ┌──────────────┴──────────────┐
+                                             ▼                             ▼
+                                    [ Internal Tables ]           [ Outbox Table ]
+                                    (Domain Schema)               (Public API Schema)
+                                                                           │
+                                                                           v
+                                                                      ( Debezium )
+                                                                           │
+                                                                           v
+                                                                      [  KAFKA  ]
+
+```
+
+* **Yeh Kaise Kaam Karta Hai?** Application code jab apna asli kaam karta hai, toh woh database ke internal tables mein write karne ke sath sath, database ke andar hi aik alag table jisay **Outbox Table** kehte hain, us mein bhi aik row insert kar deta hai. Yeh outbox table khass tor par bahar ki duniya ke liye design ki jati hai.
+* **Fayda:** Chunke dono writes aik hi database ke andar ho rahe hain, is liye yeh **aik hi atomic SQL transaction** ke andar mehfooz ho jaate hain (Dual write wala de-sync ka khatra khatam). Debezium database ke main logs parh kar sirf is Outbox table ke badlao ko Kafka mein phenkta hai. Developers jab chahe apna internal table badlein, jab tak outbox table same hai, bahar kisi ka code crash nahi hoga.
+* **Trade-off:** Developer ko internal se outbox schema mein data convert karne ka extra code likhna parta hai aur database par double write hone ki wajah se disk ka bojh barh jata hai.
+
+#### Log Compaction Ka Farq
+
+* **CDC Events:** Is mein record ki poori nayi shakal (state) maujood hoti hai, is liye naye event ke aane par purane saare events ko log compaction se safely uraya ja sakta hai.
+* **Event Sourcing:** Is mein event sirf user ka maqsad (intent) batata hai (jaise $+50$ rupees balance). Is mein aap pichlay events ko delete nahi kar sakte, kyunke final balance nikalne ke liye shuru se lekar ab tak ki poori tareeq (history) ka hona farz hai. Is liye event sourcing mein normal log compaction mumkin nahi hoti, wahan speed barhane ke liye alag se snapshots ka sahara liya jata hai.
+
+---
+
+### Advantages of immutable events
+
+Database mein data ko kabhi na mitaana (**Immutability**) koi naya naya kal ka larka idea nahi hai, balkay accountant sadiyon se isi tarz par apni khata-bahi (bookkeeping ledger) chala rahe hain. Jab koi deal hoti hai, ledger mein entry append ho jati hai. Profit and loss ki report unhi entries ko jama karke nikali jati hai.
+
+* **Accountant Ka Asool:** Agar accountant se galti se koi galat entry ho jaye, toh woh thiner lagakar ya mita kar usay saaf nahi karta! Woh rules ke mutabaq us galti ko theek karne ke liye aik alag se **Compensation Transaction** (ulati entry, jaise paise refund karna) likhta hai. Purani galti ledger mein hamesha ke liye rehti hai taake audit (checking) ke waqt sach samne aa sakay.
+
+Distributed software mein iske teen (3) baray faide hain:
+
+1. **Insaani Galtiyon Se Shifa (Human Fault Tolerance):** Sochein aap ne live production par ek aisa buggy code deploy kar diya jo data ko kharab kar raha hai. Agar aap ka database mutable hai aur code ne rows overwrite kar dein, toh data hamesha ke liye zaya ho gaya. Lekin agar aap ke paas append-only immutable events ka log para hai, aap aaram se check kar sakte hain ke kis microsecond par galti hui, code ko theek karenge, aur logs dobara chala kar sahi nateeja nikal lenge. Customer service wale audit log dekh kar shikayaton ka hal nikal sakte hain.
+2. **Jankari Ka Tahafuz (Rich Analytics):** E-commerce website par jab ek bacha cart mein koi khilone add karta hai aur phir remove kar deta hai, aam database us row ko delete kar dega. Lekin event log mein dono baaten save rahengi: *Add bhi hua aur Remove bhi hua*. Analytics team is data se andaza laga sakti hai ke bacha khilone khareedna chahta toh tha par shayad keemat dekh kar us ne iraada badal liya. Yeh baqeemti jankari mutable database mein maut ke ghaat utar jati hai.
+
+---
+
+### Deriving several views from the same event log
+
+Jab aap data badalney ke gande tareeqay (mutable state) ko immutable event log se alag kar dete hain, toh aap aik hi single event log se **bohot saari alag alag read-optimized representations (materialized views)** tayaar kar sakte hain (**CQRS Architecture**).
+
+* **Aasan Application Evolution:** Sochein aap ki company mein marketing team aik naya feature lana chahti hai jiske liye data aik bilkul alag roop mein chahiye. Aap ko purane chalte hue databases ko cherne ya unka schema badalne (schema migration) ki koi zaroorat nahi hai!
+* Aap bas Kafka stream se ek naya consumer connect karenge, jo shuru se log parh kar marketing team ke liye aik alag database view bana dega. Jab naya system sahi chalne lage, toh purane system ke computer ko safely shut down karke uske resources free karwa lein.
+* **Denormalization Ki Ijazat:** Purani behas ke data ko normalize rakhna hai ya denormalize (Chapter 2), yahan khatam ho jati hai. Likhne wala log write-optimized hoga aur parhne wale views poori tarah denormalize aur read-optimized honge, kyunke stream unhein hamesha sync mein rakhegi. Social network ki home timeline iski behtareen misaal hai.
+
+---
+
+### Concurrency control
+
+CQRS design ka sab se bara nuksan (downside) yeh hai ke iske consumers **Asynchronous** hote hain. User jab log mein koi naye entry jorrta hai aur website refresh karta hai, toh replication lag ki wajah se ho sakta hai usay apna hi likha naya badlao abhi nazar na aaye (`stale read`).
+
+Lekin is ke badlay concurrency control mein ek bohot barri asani mil jati hai:
+
+* Aam databases mein jab ek action se teen alag rows badalni hon, toh hamein complex multi-object transactions chalani parti hain taake race conditions na hon.
+* Event sourcing mein user ka action aik single complete event ban kar log mein save hota hai. Log mein entry jorrna atomically bohot asaan hai.
+* **Single-Threaded Magic:** Agar aap ka event log aur database aprop mein ek hi key (jaise `user_id`) ke mutabaq sharded (partitioned) hain, toh partition ka data parhne wala consumer **Single-Threaded** chal sakta hai. Woh aik waqt mein sirf aik event process karega (Actual Serial Execution). Log saari concurrency ka khatma kar ke har cheez ko aik seedhi tarteeb (serial order) mein khara kar deta hai.
+
+---
+
+### Limitations of immutability
+
+Ab sawal yeh paida hota hai ke kya sach mein poori duniya ka saara data hamesha ke liye immutable save kiya ja sakta hai? **Is ki bhi kuch hudood (limits) hain:**
+
+* **Data Churn Ka Masla:** Agar aap ka dataset aisa hai jahan data sirf naya jora jata hai (jaise clicks ya logs), toh immutability king hai. Lekin agar aap ka dataset chota hai aur us mein updates aur deletes ki raftar had se zyada tez hai (high rate of churn), toh immutable history itni barri ho jayegi ke disk space kam par jayegi aur fragmentation se system baith jayega. Wahan garbage collection aur compaction bohot critical ho jati hai.
+* **Kanooni Musibat (The Legal Aspect - GDPR):** European laws ke mutabaq (GDPR - Right to be Forgotten), agar koi user aap se kahe ke *"Mera saara personal data apne system se delete karo"*, toh aap kanoon ke mutabaq usay mana nahi kar sakte. Aap wahan yeh bahana nahi bana sakte ke *"Sir, hamara system toh immutable hai, data mitya nahi ja sakta"*. Aap ko har haal mein **tareeq (history) ko badalna parega** aur aisa dikhana parega jaise woh user kabhi aaya hi nahi tha.
+* Datomic database mein is feature ko **Excision** kehte hain aur Fossil version control mein isay **Shunning** kaha jata hai (yani database ke andar ghuss kar purani streams ko rewrite karna).
+
+
+
+#### Asli Deletion Kyun Mushkil Hai?
+
+Asal zindagi mein data ko poori tarah mitaana had se zyada mushkil kaam hai. SSD hard drives pehle se hi data ko purani jagah par overwrite karne ke bajaye naye blocks par likhti hain, operating systems files ke nishan chorr dete hain, aur computer ke jo disaster recovery backups hote hain unhein jan-booch kar immutable banaya jata hai taake koi ransomware unhein delete na kar sakay.
+
+#### Aik Chalaki: Crypto-Shredding
+
+Is qanooni azab se bachne ke liye distributed systems mein ek bohot hi pyari chalaki use kiye jati hai jisay **Crypto-Shredding** kehte hain:
+
+```
+[ User Data ] ───( Encrypted with Key X )───► [ Immutable Log Storage ]
+                                                        │
+                                          ( To Delete: Just Burn Key X! )
+
+```
+
+* **Tariqa:** Jo bhi personal data aap ko lagta hai ke future mein delete karna parh sakta hai, aap usay database mein direct save karne ke bajaye ek **Encryption Key** se lock (encrypt) karke save karte hain.
+* Jab user kahe ke mera data delete karo, aap log ko touch nahi karte (woh waise hi encrypted para rehta hai), aap bas us user ki **Encryption Key ko memory se permanently mita (destroy kar) dete hain!**
+* Key khatam hone ke baad ab poore jahan mein koi bhi us encrypted data ko parh nahi sakta. Data ka hona na-hone ke barabar ho jata hai.
+
+**Iska Trade-off:** Yeh tareeqa maslay ko hal nahi karta balkay sirf maslay ki jagah badal deta hai. Data abhi bhi immutable para hai, bas keys ki storage ab mutable ban gayi hai. Aur aap ko shuru mein hi bohot soch samajh kar faisla karna parta hai ke kis kis data ko kis key se lock karna hai, kyunke baad mein aap poori key udayenge, aadha data decrypt nahi ho sakay ga. Ek ek row ke liye alag key rakhna key storage ko primary data jitna lamba aur mehanga kar deta hai.
+
+---
+
+### Application State As An Integration of Event Stream
+
+Agar hum mathematically sochein, toh database ki maujooda halat (Current Application State) aur event stream ka aprop mein ek calculus jaisa rishta hai, jaisa ke **Figure 12-7** mein dikhaya gaya hai:
+
+$$\text{state}(\text{now}) = \int_{t=0}^{\text{now}} \text{stream}(t) \, dt$$
+
+$$\text{stream}(t) = \frac{d \, \text{state}(t)}{dt}$$
+
+---
+
+#### Figure 12-7 Ka Breakdown: State Aur Stream Ka Calculus
+
+Chalein is math ko bilkul bacho ki tarah simple karte hain:
+
+<div align="center">
+  <img src="./images/07.png" width="700"/>
+</div>
+
+* **Integration ($\int$):** Agar aap aik khali database se shuru karein aur shuruati din se lekar aaj tak ke saare change events ko aprop mein jama karte jayein (**Integrate** karte jayein), toh aakhir mein aap ko jo nateeja milega, usay hum **Current Database State** kehte hain.
+* **Differentiation ($\frac{d}{dt}$):** Iske ulat, agar aap database ki halat ko waqt ke mutabaq check karein aur har second hone wale badlao ka farq nikalte jayein (**Differentiate** karte jayein), toh badlay mein aap ko jo cheez milega, usay hum **Change Event Stream** kehte hain.
+
+Jim Gray aur Andreas Reuter ne 1992 mein ek bohot barri baat kahi thi:
+
+> *"Duniya mein database rakhne ki koi bunyadi zaroorat nahi hai; log ke andar hi poore jahan ka saara data maujood hota hai. Database save karne ki akeli wajah sirf yeh hai ke jab user data maangay, toh hum poora log replay karne mein waqt zaya na karein aur jaldi se parh kar de sakein (Performance of retrieval)."*
+
+---
