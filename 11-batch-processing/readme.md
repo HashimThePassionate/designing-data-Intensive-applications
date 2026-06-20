@@ -429,3 +429,103 @@ Workflow ke andar jab aik task ka data doosre ke liye input ho, toh fault tolera
 
 ---
 
+## Batch Processing Models
+
+Distributed environment mein batch jobs ko schedule karne ke tareeqay dekhne ke baad, ab hum yeh samjhenge ke batch processing frameworks asal mein data ko andarooni tor par kaise hazam (process) karte hain. Is kaam ke liye do sab se mashhoor aur bunyadi models istemaal hote hain: **MapReduce** aur **Dataflow Engines**.
+
+Halanqe aaj kal practical karkardagi mein dataflow engines ne MapReduce ki jagah le li hai, lekin MapReduce ko deeply samajhna bohot zaroori hai kyunke modern frameworks ke bohot se concepts isi ki buniyaad par kharay hain.
+
+Yeh dono frameworks agay chal kar software engineers, business analysts, aur technical teams ki aasan-fahm ke liye teen tarah ke programming models support karte hain:
+
+* Low-level programmatic APIs (Sakhth coding waala tareeqa)
+* Relational query languages (Jaise SQL queries)
+* DataFrame APIs (Jaise Spark/Pandas DataFrames)
+
+---
+
+### MapReduce
+
+MapReduce ka data process karne ka poora dhabba (pattern) bilkul hamare pichlay Unix log analysis (`cat | awk | sort | uniq`) wale pipeline jaisa hai. Is ke poore execution flow mein chaar (4) baray steps hote hain:
+
+1. **Input Files Ko Parhna Aur Records Mein Torna:** Sab se pehle HDFS ya Amazon S3 jaisay stores se read-only input files uthayi jati hain aur unhein records mein tora jata hai. Log analysis mein har line aik record thi kyunke beech mein `\n` (newline separator) tha. Yeh data kisi bhi modern file format jaise **Apache Parquet** (columnar format) ya **Apache Avro** (row-based format) mein ho sakta hai.
+2. **Mapper Function Ko Call Karna:** Har record par Mapper function chala kar ek **Key aur Value** nikaali jati hai. Unix tools mein yeh kaam `awk '{print $7}'` kar raha tha jo saatwan field (URL) nikal kar key bana raha bha aur value khali chorr raha tha.
+3. **Key-Value Pairs Ko Sort Karna:** Saare keys ko database background mein automatically sort (tarteeb) kar deta hai taake aik jaisi keys aik doosre ke upar-niche tarteeb mein aa jayein. Yeh Unix ke pehlay `sort` jaisa kaam hai.
+4. **Reducer Function Ko Call Karna:** Reducer function sorted keys par ghoomta (iterate karta) hai. Chunke sorting ki wajah se aik jaisi keys aapas mein jorr chuki hain, is liye un saari values ko aapas mein jama ya aggregate karna memory par bohot sasta parta hai. Unix pipeline mein yeh kaam `uniq -c` kar raha tha.
+
+Ek single MapReduce job inhi chaar steps ko chalaati hai. Step 2 (Map) aur Step 4 (Reduce) woh jagah hain jahan aap apna **custom data processing code** likhte hain. Step 1 parser khud sambhalta hai aur Step 3 (Sorting) MapReduce ke andar built-in chupti hui taqat hai, usay aap ko khud code nahi karna parta.
+
+Chalein in dono callback functions ke kirdar ko bariki se samajhte hain:
+
+* **Mapper:** Yeh har input record ke liye aik dafa call hota hai. Iska kam sirf key-value extract karna hai. Yeh aik record se bohot saari keys bhi nikaal sakta hai aur ho sakta hai aik bhi na nikale. Yeh aik record se doosre record ke beech koi purani yaad (**State**) baqi nahi rakhta (Stateless hota hai), is liye hazaron mappers parallel computers par chalaye ja sakte hain.
+* **Reducer:** MapReduce framework mappers ke banaye hue kachray (pairs) ko ikhta karta hai, aik jaisi keys ki values ki aik tolian (collections) banata hai, aur un values par ghoomne ke liye reducer ko ek iterator de deta hai. Alag alag keys ke reducers alag computers par parallel chal sakte hain.
+
+> **Barik Architectural Nukta:** Unix tools wale example mein hamare paas aik doosra `sort -r -n` bhi tha jo top pages ki ranking nikal raha tha. MapReduce mein agar aap ko aisa doosra sorting stage chahiye ho, toh aap ko **aik doosri alag MapReduce job** likhni paregi, jahan pehli job ka output doosri job ka input ban kar chalega. Is liye mapper ka asli kaam data ko sort hone ke kabil banana hai, aur reducer ka kaam us sorted data ko final shape dena hai.
+
+---
+
+#### MapReduce and Network Storage (Functional Programming Connection)
+
+Halanqe MapReduce batch processing ke liye use hota hai, lekin iska programming model **Functional Programming** se liya gaya hai. Lisp language ne pehli dafa `map` aur `reduce` (ya fold) ko introduce kiya tha.
+
+Functional programming ka sab se bara asool hai **Mutable State se bachna** (yani data ko chalte hue badalna nahi). Chunke har mapper aur reducer call sirf aur sirf us data par depend karti hai jo framework usay pass karta hai, is liye bina kisi darr ke independent calls ko alag alag computers par parallel chalaya ja sakta hai. Agar koi computer beech mein mar (fail ho) jaye, toh framework safely us input record ko kisi doosre computer par dobara chala deta hai.
+
+**MapReduce Ke Do Baray Maslay (Limitations):**
+
+* **Laborious APIs (Thakane wala kam):** Raw MapReduce APIs mein complex algorithms (jaise do datasets ka **Join** lagana) bilkul zero se khud code karna parta hai, framework bana-banaya join operator nahi deta.
+* **Slow File-Based I/O:** Yeh bohot slow hota hai kyunke har stage ka data pehle disk/filesystem par write hota hai, jis se **Job Pipelining** (yani aage chalne wali job ka kaam pehle shuru ho jana bina pichli job ke $100\%$ khatam hone ka wait kiye) bilkul na-mumkin ho jata hai.
+
+---
+
+### Dataflow Engines
+
+MapReduce ke inhi rona-dhona aur file-based susti ko hal karne ke liye **Spark** aur **Flink** jaise distributed engines paida hue, jinhein hum **Dataflow Engines** kehte hain. In dono mein aik cheez common hai: **Yeh pooray workflow (DAG) ko alag alag sub-jobs mein torhne ke bajaye aik hi single job ke tor par chalate hain.**
+
+Chunke yeh systems data ke bahao (flow) ko pehle se hi achi tarah model kar lete hain, is liye in mein sirf map aur reduce ke strict chakkar mein nahi ghoomna parta, balkay aap operators ko apni marzi se lachkay daar (flexible) tareeqay se jorr sakte hain. Yeh `join`, `group by`, `filter`, aur aggregates ke high-level operators pehle se bana kar dete hain.
+
+This architecture offers several massive advantages over MapReduce:
+
+* **Sorting Sirf Zaroorat Ki Jagah:** MapReduce ki tarah har stage ke beech zabardasti sorting nahi hoti, balkay sorting sirf aur sirf wahan chalayi jati hai jahan aap ne khud code mein manga ho.
+* **Operator Fusing (Tukron ko jorrna):** Agar aap ne aik ke baad aik aise operators lagaye hain jo data ki sharding/partitioning ko change nahi karte (jaise map ke baad foran filter lagana), toh dataflow engine un saare operators ko milakar **aik hi task** bana deta hai, jis se data ko baar baar copy karne ka kharcha bach jata hai.
+* **Global Layout Optimization:** Scheduler ke paas pooray data pipeline ka ek overview hota hai, is liye woh **Data Locality** ka behtareen use karta hai. Woh data parhne wale task ko usi computer par chalane ki koshish karta hai jahan data banane wala task chal raha tha, taake data network ke bajaye **Shared Memory Buffer** ke zariye pass ho jaye. Network ka bandwidth poori tarah bach jata hai.
+* **In-Memory Intermediate State:** Har operator ke beech ka jo temporary data hota hai, usay distributed filesystem (HDFS/S3) par likhne aur replicate karne ke bajaye **RAM (Memory)** mein ya local disk par rakha jata hai, jo ke bohot zyada tez hai.
+* **Pipelined Execution:** Agli stage ka operator pichli stage ke poori tarah khatam hone ka wait nahi karta; jaise ہی pichli stage se thoda sa data nikalta hai, agli stage us par kaam shuru kar deti hai.
+* **Process Reusability:** MapReduce ki tarah har task ke liye naya JVM (Java Virtual Machine) process shuru karne ka tamasha nahi hota, balkay purane chalte hue processes ko hi naye operators chalane ke liye reuse kiya jata hai.
+
+Isi wajah se dataflow engines MapReduce ke muqable mein **kai guna zyada tez** chalte hain.
+
+---
+
+### Shuffling Data
+
+Hum ne dekha ke Unix tools aur MapReduce dono distributed sorting par depend karte hain. Jab data Petabytes (lakhoon GBs) ki tadad mein ho jo aik machine par fit na ho sakay, toh hamein aik distributed sorting algorithm chahiye hota hai jahan input aur output dono sharded hon. Is poore data ko tarteeb se bantaane wale algorithm ko distributed systems mein **Shuffle** kehte hain.
+
+> **Shuffle Ka Matlab Random Nahi Hai:** Taash ke patton (cards) ko shuffle karne ka matlab unhein random (aage-piche) karna hota hai, lekin distributed computing mein shuffle ka matlab data ko bina kisi randomness ke ek **Perfect Sorted Order** mein lekar aana hai.
+
+MapReduce, Spark, Flink, aur BigQuery saare scalability ke liye behtareen shuffle algorithms implement karte hain. Chalein hum Hadoop MapReduce ke architecture ka hawala dete hue **Figure 11-1** ke poore dataflow ko step-by-step breakdown karke bacho ki tarah asaan karte hain:
+
+<div align="center">
+  <img src="./images/01.png" width="700"/>
+</div>
+
+##### Figure 11-1 Ka Step-by-Step Breakdown
+
+* **Step 1: Input Sharding ($m_1, m_2, m_3$):**
+Hamara input data pehle se hi sharded (tukron mein) banta hua hai. Figure 11-1 mein yeh shards $m_1, m_2$, aur $m_3$ hain. Yeh HDFS ki alag files ya S3 bucket ki alag objects ho sakti hain jo aik hi directory ya prefix ke andar pari hain.
+* **Step 2: Map Tasks Ka Shuru Hona:**
+Framework har input shard ke liye aik alag **Map Task** parallel shuru karta hai. Task file se aik aik record uthata hai aur Mapper callback code ko deta jata hai.
+* **Step 3: Local Disk Par Partitioning Aur Sorting:**
+Mapper ka output key-value pairs par mushtamil hota hai. Framework ne ab yeh pakka karna hai ke **agar do alag mappers ne same key generate ki hai, toh woh har haal mein aik hi Reducer ke paas jaye**. Is ke liye har mapper apne local disk par **har ek reducer ke liye aik alag file** banata hai.
+* Misaal ke tor par, Figure 11-1 mein `m1, r2` ka matlab hai: *Mapper 1 ke local disk par pari woh file jo Reducer 2 ke liye banyi gayi hai*. Key ka **Hash** nikal kar (`hash(key) % total_reducers`) yeh tai kiya jata hai ke data kis reducer file mein jayega.
+* File mein data likhte waqt mapper un pairs ko memory ke andar hi sort karta jata hai (LSM-Tree segment style) aur un sorted chote chunks ko local disk par bara karke save karta jata hai.
+
+
+* **Step 4: Reducers Ka Network Par Data Khainchna (The Fetch Phase):**
+Jab saare mappers apna kaam khatam kar lete hain, toh **Reduce Tasks** (jin ki ginti job ka author khud tai karta hai) active hoti hain. Har reducer saare mappers ke paas network ke zariye connect hota hai aur apne naam ki file (jaise Reducer 2 saare mappers se `, r2` wali files) khainch kar apne local disk par le aata hai.
+* **Step 5: Mergesort At Reducer Side:**
+Jab Reducer ke paas saare mappers se uske hissay ka sorted data aa jata hai, toh woh un saari files ko aapas mein jorrne ke liye **Merge Sort** chalaata hai. Is se fayda yeh hota hai ke saari same keys (chahe woh alag mappers se hi kyun na aayi hon) aik doosre ke bilkul aage-piche (consecutive) tarteeb mein aa jati hain.
+* **Step 6: Final Output Shards ($r_1, r_2, r_3$):**
+Ab Reducer function ko har unique key ke liye aik dafa call kiya jata hai aur output records ko line se aik file mein write kar diya jata hai. Har reduce task ki aik alag file banti hai (Figure 11-1 mein $r_1, r_2, r_3$), jo ke job ka final output shards ban kar wapis HDFS ya cloud object store mein paki save ho jati hain.
+
+Modern dataflow engines aur cloud warehouses (jaise Google BigQuery) ne is shuffle algorithm ko mazeed advance kar diya hai. Yeh data ko baar baar local disk par patakhne ke bajaye poora **RAM (Memory)** mein rakhte hain aur external specialized sorting services ka use karte hain jo speed ko rocket bana deti hain.
+
+
