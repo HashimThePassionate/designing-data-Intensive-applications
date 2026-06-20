@@ -404,3 +404,208 @@ In do scientists ne mathematically sabit kiya hai ke agar aap ko linearizability
 Is se tez koi algorithm duniya mein banana mumkin hi nahi hai. Is liye agar aap ka system aisa hai jahan speed (low latency) bohot zaroori hai, toh aap ko weaker consistency models ki taraf jana parega. Chapter 13 mein hum dekhenge ke bina linearizability ke bhi kaise system ko sahi chalaya ja sakta hai.
 
 ---
+
+## ID Generators and Logical Clocks
+
+Bohot saari applications mein jab database mein koi naya record banta hai, toh hamein usay aik unique ID (shanaas) deni parti hai taake hum us record ko as a **Primary Key** use kar sakein.
+
+Agar database sirf **aik single computer (single-node)** par chal raha ho, toh wahan aik **Autoincrementing Integer** (yani aik aisa number jo har naye record par 1, 2, 3 karke khud ba khud barhta jaye) istemaal karna bohot aam aur asaan hai. Iska faida yeh hai ke yeh memory mein bohot kam jagah leta hai—sirf 64 bits (ya agar aap ko pakka yakeen ho ke aap ke records 4 billion se zyada nahi honge, toh 32 bits, lekin aam tor par aisa sochna khatarnak hota hai).
+
+Autoincrementing IDs ka aik aur sab se bara faida yeh hai ke **IDs ki tarteeb (order) se aap ko yeh pata chal jata hai ke kaun sa record pehle bana tha.**
+
+---
+
+#### Figure 10-8 Ka Breakdown: Chat Application Mein Autoincrementing IDs
+
+Writer ne **Figure 10-8** mein aik chat app ki example di hai jahan ek single-node ID generator messages ko auto-incrementing numbers assign kar raha hai taake chat ki baatein tarteeb mein rahein.
+
+<div align="center">
+  <img src="./images/08.png" width="700"/>
+</div>
+
+**Step-by-Step Breakdown:**
+
+1. **Aaliyah Ka Message:** Aaliyah sab se pehle aik sawaal poochti hai: *"Where shall we go for lunch today?"*. Yeh request ID Generator node ke paas jati hai. Node counter ko barha kar **ID: 1** karta hai aur message ko save karke Aaliyah ko wapis bhej deta hai.
+2. **Caleb Ka Message (Concurrent):** Bilkul isi dauran Caleb bhi aik message bhejta hai: *"Hi everybody"*. Chunke yeh Aaliyah ke message ke sath hi chal raha hai (concurrent hai), ID generator counter ko mazeed barha kar isay **ID: 2** de deta hai. Linearizability yahan yeh kehti hai ke jab tak dono messages unique hain, inki aapas ki tarteeb kuch bhi ho, farq nahi parta.
+3. **Bryce Ka Jawab:** Bryce Aaliyah ka sawaal parhta hai aur uske BAAD jawab likhta hai: *"@Aaliyah I vote falafel shop"*. Chunke Bryce ka action Aaliyah ke message ke mukammal hone ke strictly baad hua hai, is liye database counter ko barha kar isay **ID: 3** deta hai.
+
+Jab app in messages ko screen par dikhaye gi, toh woh IDs ki tarteeb (1, 2, 3) ke mutabaq dikhaye gi, jis se poori chat ki kahani bilkul sahi samajh aayegi.
+
+**Single-Node Generator Kaise Kaam Karta Hai?**
+Aik computer ke andar isay banana bohot asaan hai. Aap CPU ki **Atomic Increment Instruction** (jaise fetch-and-add) use karte hain, jis se agar aik se zyada threads bhi counter ko barhana chahein toh woh safely aik doosre ko kharab kiye bina counter barha deti hain. Agar computer crash ho jaye, toh counter zero na ho (duplicate IDs se bachne ke liye), is liye is counter ko disk par save (persist) karna parta hai.
+
+Lekin asli distributed systems mein is single-node design ke teen baray maslay hain:
+
+* **Single Point of Failure (SPOF):** Agar yeh akela computer kharab ya down ho gaya, toh poora system ruk jayega kyunke kisi ko ID nahi milegi (Fault-tolerant nahi hai).
+* **Sust Speed (Network Latency):** Agar aap duniya ke doosre kone (region) mein baithe hain aur aap ko aik record banane ke liye har dafa duniya ke is kone wale single node se ID mangni paray, toh poori duniya ka chakkar (round-trip) lagane mein bohot waqt zaya hoga.
+* **Bottleneck (Rukawat):** Agar aap ki website par aik hi second mein lakhoon log writes kar rahe hain, toh yeh akela node saari requests ka bojh nahi sambhal sakay ga.
+
+In masail se nipatne ke liye log alternative tareeqe use karte hain, jin ke design decisions aur trade-offs niche table mein samjhaye gaye hain:
+
+| ID Generator Approach | Yeh Kaise Kaam Karta Hai? | Iska Bara Nuksan (Trade-off) |
+| --- | --- | --- |
+| **Sharded ID assignment** | Database ko chunks (shards) mein baant diya jata hai. Misaal ke tor par Node 1 sirf Even numbers (2, 4, 6) dega aur Node 2 sirf Odd numbers (1, 3, 5) dega. Ya ID ke kuch bits shard number ke liye rakh diye jate hain. | **Ordering khatam ho jati hai.** Agar do messages ki IDs 16 aur 17 hain, toh aap daaway se nahi keh sakte ke 16 pehle aaya tha, kyunke dono alag nodes ne diye hain aur ho sakta hai aik node ka time aage ho. |
+| **Preallocated blocks of IDs** | Main node se har computer blocks utha leta hai. Jaise Node A ne 1 se 1000 tak numbers rakh liye, aur Node B ne 1001 se 2000 tak. Jab numbers khatam hone lagein, toh naya block mang liya jata hai. | **Is mein bhi tarteeb kharab hoti hai.** Ho sakta hai aik naya message Node B se ID 1005 utha le aur uske baad aane wala message Node A se ID 5 utha le, jo ke dekhne mein purani lagegi. |
+| **Random UUIDs (v4)** | Universally Unique Identifiers (128-bit lamba random number) jo har computer local level par bina kisi se pooche khud generate kar leta hai. | **Order bilkul random hota hai.** Do UUIDs ko compare karke aap kabhi nahi jaan sakte ke kaun si naye waqt mein bani hai. Space bhi zyada (128 bits) leti hai. |
+| **Wall-Clock Timestamps (Unique banaya hua)** | Computer ki aam gari (Physical Clock) ka time sab se upar (most significant bits) rakha jata hai, aur baki bache bits mein shard ID ya random number dal diya jata hai taake ID unique rahe. (Jaise UUID v7, Twitter Snowflake, ULID, MongoDB ObjectID). | **Linearizable nahi hote.** Agar aik computer ki clock thodi fast chal rahi ho aur doosre ki slow (Clock Skew), toh baad mein aane wale event ko purana timestamp mil sakta hai. Non-monotonic jumps ki wajah se aik hi node par bhi order ulta ho sakta hai. |
+
+---
+
+### Logical Clocks
+
+Upar hum ne dekha ke physical clocks (jo aam zindagi ke ghantay, seconds, ya microseconds naapti hain) distributed systems mein order ke liye dhoka de sakti hain. Is liye distributed systems mein aik aur tarah ki clock use hoti hai jisay **Logical Clock** kehte hain.
+
+Physical clock ke baraks, logical clock koi samandar ya suraj ka waqt nahi batati, balkay yeh **sirf events (kaam hone ke numbers) ko ginti hai.** Is ka timestamp aap ko yeh nahi batayega ke abhi dopehr ke 3 bajay hain ya shaam ke 5, lekin agar aap do logical timestamps ko aapas mein compare karenge, toh aap $100\%$ sahi bata sakenge ke kaun sa kaam pehle hua aur kaun sa baad mein.
+
+Logical Clock ki teen bunyadi shartain hoti hain:
+
+1. Timestamps size mein chote (compact) aur bilkul unique hon.
+2. Aap kisi bhi do timestamps ko compare karke unki aik pakki tarteeb (**Total Ordering**) nikal sakein.
+3. Unka order **Causality (Wajah aur Asar)** ke mutabaq ho. Yani agar Operation A pehle hua tha aur uski wajah se Operation B hua ($\text{A} \to \text{B}$), toh A ka timestamp har haal mein B se chota hona chahiye.
+
+Distributed ID generators (jaise Snowflake) uniqueness toh dete hain lekin causal ordering ki teesri shart poori nahi karte.
+
+---
+
+#### Lamport timestamps
+
+Leslie Lamport ne 1978 mein aik bohot hi sasta aur simple tareeqa diya jo causal ordering ki shart ko poora karta hai aur isay distributed ID generator ke tor par use kiya jata hai. Isay **Lamport Clock** kehte hain.
+
+> **Zaroori Bareeki (Caveat):** Lamport clocks total ordering toh deti hain lekin yeh **Linearizability faraham nahi karti n**. Yani yeh aap ko yeh guarantee nahi de sakti ke data bilkul fresh ya up-to-date hai ya nahi. Yeh sirf aur sirf events ko aisi IDs deti hain ke agar Event A pehle hua tha Event B se, toh A ki ID hamesha B se choti hogi.
+
+---
+
+#### Figure 10-9 Ka Breakdown: Lamport Clocks In Action
+
+**Figure 10-9** mein dikhaya gaya hai ke Lamport clock isi chat wali example mein kaise chalegi.
+
+<div align="center">
+  <img src="./images/09.png" width="700"/>
+</div>
+
+* **Timestamp Ki Shakal:** Lamport timestamp do cheezon ka jora (pair) hota hai: `(counter, node ID)`. Misaal ke tor par `(1, "Aaliyah")`. Agar do alag computers ka counter same ho bhi jaye, toh unke naam (node ID) alag hone ki wajah se poora timestamp unique ho jata hai.
+* **Algorithm Ke Do Rules (Bacho ki tarah samajhein):**
+1. Jab bhi koi node apna koi kaam karega ya message bhejega, woh apne local counter mein $+1$ karega aur naya number attach karega.
+2. Jab bhi koi node kisi doosre node ka message receive karega, woh us message ke andar ka counter dekhega. **Agar samne wale ka counter mere local counter se bara hai, toh main apna counter jump karwa kar uske barabar kar loonga** aur phir apna counter $+1$ kar loonga.
+
+
+
+**Diagram Ke Steps Ka Breakdown:**
+
+1. Shuru mein Aaliyah aur Caleb dono ka counter $0$ hai. Dono aik doosre se be-khabar (concurrently) messages bhejte hain.
+* Aaliyah apna counter 1 karti hai. Message banta hai: `id: (1, "Aaliyah")`
+* Caleb apna counter 1 karta hai. Message banta hai: `id: (1, "Caleb")`
+
+
+2. Bryce ke paas jab yeh dono messages pohanchte hain, toh Bryce dekhta hai ke dono ka counter 1 hai, jo ke uske apne local counter (0) se bara hai. Bryce apna counter badha kar 1 kar leta hai.
+3. Ab Bryce Aaliyah ke sawaal ka jawab bhejta hai. Rule 1 ke mutabaq, Bryce apne counter ko $+1$ karke 2 karta hai. Jawab ka message banta hai: `id: (2, "Bryce")`.
+
+**Timestamps Ko Compare Karne Ka Rule:**
+Jab do Lamport timestamps ko compare karna ho, toh pehle unke **Counter** ko dekha jata hai. Jis ka counter bara, woh naya. Agar counter barabar ho jayein (jaise Aaliyah aur Caleb ka counter 1 hai), toh unke **Node ID** (strings) ko ABC ke mutabaq (lexicographically) compare kiya jata hai. Chunke "Aaliyah" alphabet mein "Caleb" se pehle aati hai, is liye:
+
+
+$$\text{(1, "Aaliyah")} < \text{(1, "Caleb")} < \text{(2, "Bryce")}$$
+
+
+Is tarah system ko aik mukammal aur saaf tarteeb (Total Ordering) mil jati hai.
+
+---
+
+#### Hybrid logical clocks (HLC)
+
+Lamport timestamps bohot acche hain, lekin un mein do baray maslay hain:
+
+* Inka asli physical time (ghari ke waqt) se koi lena dena nahi hota. Aap database mein yeh query nahi chala sakte ke *"Mujhe 20 June ko aane wale saare messages dikhao"*. Uske liye physical time alag se save karna parta hai.
+* Agar do nodes aapas mein kabhi baat hi na karein, toh aik ka counter bohot aage nikal sakta hai aur doosre ka piche reh sakta hai, halanqe dono aik hi waqt par kaam kar rahe hon.
+
+Is maslay ka hal **Hybrid Logical Clock (HLC)** hai. Yeh physical clock (seconds/microseconds) aur Lamport clock ke counters ko aapas mein jor deti hai.
+
+* Yeh physical clock ki tarah seconds ginti hai, lekin jab aik node kisi doosre node se aisa timestamp dekhta hai jo uske apne time se aage hai, toh yeh apni clock ko **aage khainch (jump) leti hai**.
+* Agar physical clock galti se piche chali jaye (NTP adjustment ki wajah se), tab bhi HLC ka counter hamesha aage hi barhta hai (monotonically forward), jis se time kabhi piche nahi murta.
+* Is wajah se HLC ke timestamp ko aap aam ghari ka waqt bhi maan sakte hain aur is mein causality ($\text{happens-before}$) ki guarantee bhi mil jati hai. Is ke liye kisi expensive hardware (jaise GPS) ki zaroorat nahi hoti. **CockroachDB** is ki zinda misaal hai.
+
+---
+
+#### Lamport/hybrid logical clocks versus vector clocks
+
+Snapshot Isolation (Chapter 2) implement karne ke liye transactions ko unique IDs deni parti hain taake har transaction sirf apne se choti ID wale writes dekh sakay. Lamport aur Hybrid clocks yeh IDs banane ke liye bohot behtareen hain kyunke yeh causality barkarar rakhti hain.
+
+Lekin in dono mein aik cheez yaad rakhna zaroori hai: **Jab do concurrent events hote hain, toh yeh algorithms unki tarteeb ka faisla tuke (arbitrary order, jaise string comparison) se karte hain.** Aap do timestamps ko dekh kar yeh nahi bata sakte ke yeh dono sach mein aik hi waqt chal rahe the ya aik pehle hua tha. (Figure 10-9 mein Aaliyah aur Caleb ka counter same tha toh pata chal gaya, par agar counter alag ho toh guessing mumkin nahi).
+
+* **Vector Clocks:** Agar aap ko har haal mein yeh pata karna ho ke **kaun se records concurrent hain**, toh aap ko **Vector Clock** use karni paregi. Vector clock mein har node ka alag counter hota hai aur har write ke sath saare nodes ke counters ki poori list (vector) save karni parti hai.
+* **Trade-off:** Vector clock ka sab se bara nuksan yeh hai ke yeh memory mein bohot zyada jagah leti hai—jitne system mein nodes honge, utne integers har ID ke sath save karne parenge ($O(N)$ space complexity).
+
+---
+
+### Linearizable ID Generators
+
+Hamein lagta hai ke Lamport ya Hybrid clocks kaafi hain, lekin inki ordering **Linearizability se kamzor hoti hai.** Linearizability ki shart yeh hai ke agar Request A duniya ke kisi bhi kone mein Request B ke shuru hone se pehle khatam ho chuki thi, toh B ki ID har haal mein A se bari honi chahiye, chahe un dono ne aapas mein kabhi communication na bhi ki ho. Lamport clock sirf un nodes ka order sahi karti hai jo aapas mein data share kar chuke hon.
+
+Agar generator linearizable na ho, toh kitna bara hadsa ho sakta hai, yeh **Figure 10-10** mein dikhaya gaya hai.
+
+---
+
+#### Figure 10-10 Ka Breakdown: Privacy Ka Qatal (Non-linearizable ID Generator)
+
+Sochein aik social media website (jaise Facebook ya Instagram) hai jahan ek User A apni aik embarrassment (sharminda karne wali) photo sirf apne doston ke sath share karna chahta hai.
+
+<div align="center">
+  <img src="./images/10.png" width="700"/>
+</div>
+
+**Step-by-Step Scenario:**
+
+1. **Step 1 (Account setting change):** User A ka account pehle public tha. Woh apne laptop se setting badal kar **"Private"** karta hai. Yeh request **Accounts DB** par jati hai, jahan counter 14 hota hai aur is write ko timestamp milta hai: **write ts = 15**.
+2. **Step 2 (Photo upload):** Account private karne ke FORAN BAAD, User A apne mobile phone se woh photo upload kar deta hai. Yeh request **Photos DB** ke paas jati hai.
+3. **The Flaw (Masla):** Chunke dono databases alag hain aur un mein Lamport/Hybrid clock chal rahi hai, aur Photos DB ka counter thoda piche chal raha tha (counter = 11), toh photo upload ko naya timestamp mila: **write ts = 12**.
+4. **Step 3 (The Unauthorized Viewer):** Ab aik bacha (Viewer) jo User A ka dost nahi hai, thodi der baad profile kholta hai. Uska parhna (Read) MVCC snapshot isolation use kar raha hai aur usay timestamp milta hai: **read at ts = 13**.
+5. **Nateeja:** System jab check karega ke kya viewer ko photo dikhani hai, toh woh Accounts DB mein dekhega ke *ts = 13* par account ka kya status tha. Chunke account private *ts = 15* par hua tha, toh database kahega ke *ts = 13* par account **"Public"** tha! Aur doosri taraf photo *ts = 12* par upload ho chuki thi (13 > 12), is liye system viewer ko woh khufia photo dikha dega! User ki privacy leak ho gayi!
+
+**Ilaaj:** Is maslay ka sab se asaan hal yeh hai ke aik **Linearizable ID Generator** use kiya jaye, jo har haal mein photo upload ko account setting se bari ID (ts) assign karega, chahe dono databases alag hi kyun na hon.
+
+---
+
+#### Implementing a linearizable ID generator
+
+Isay implement karne ka sab se seedha tareeqa yeh hai ke sach mein **aik single node** ko pooray cluster ke liye ID generator bana diya jaye. Us node ke paas sirf teen zimmedariyan hoti hain:
+
+1. Counter ko atomically barhana aur return karna.
+2. Crash se bachne ke liye counter ko disk par save (persist) karna.
+3. Fault tolerance ke liye data ko **Single-Leader Replication** ke zariye doosre nodes par copy karna.
+
+Distributed systems mein is design ko **Timestamp Oracle** kehte hain (jaise TiDB/TiKV mein use hota hai, jo Google ke Percolator se inspired hai).
+
+**Optimization (Speed barhane ka tareeqa):**
+Har aik ID request par disk par likhna aur replicate karna system ko bohot slow kar dega. Is liye naye design mein ID generator aik sath **IDs ka pura batch (jaise 1 se 1000 tak)** disk par aur replicas par save kar leta hai. Phir local memory se clients ko jaldi jaldi IDs deta rehta hai. Agar computer crash ho jaye, toh agla computer bacha hua batch chor kar naye batch (1001) se shuru karega. Kuch IDs zaya zaroor hongi, lekin kabhi duplicate ya out-of-order IDs nahi nikalengi.
+
+> **Limitations (Hudood):** Aap is ID generator ko sharding (tukron mein) nahi baant sakte kyunke alag-alag shards linearizable order barkarar nahi rakh sakte. Aap isay alag regions mein bhi nahi phailaye sakte, is liye geographic distributed databases mein bhi saari duniya se requests ko aik hi main region ke node par ana parta hai.
+
+---
+
+#### Spanner Ka Alag Tareeqa: TrueTime
+
+Agar aap single node par depend nahi karna chahte, toh Google Spanner wala tareeqa apna sakte hain. Spanner kisi single node se ID nahi mangta, balkay hardware support (**Atomic Clocks** aur **GPS receivers**) par bharosa karta hai.
+
+* Spanner ki clock sirf aik naya time nahi batati, balkay aik **Uncertainty Interval (shak ka waqt)** batati hai: $[t_{\text{earliest}}, t_{\text{latest}}]$. System ko pata hota hai ke asal time is range ke andar hi kahin hai.
+* Spanner ka rule yeh hai ke jab bhi koi naya write hota hai, database tab tak rukta hai (**Wait** karta hai) jab tak us uncertainty ka poora waqt guzar na jaye.
+* Is wait karne ka faida yeh hota hai ke agar Request B, Request A ke mukammal hone ke baad shuru hui hai, toh B ka timestamp har haal mein A se bara hi hoga. Is tarah bina kisi cross-region communication ke pooray globe mein linearizable IDs mil jati hain. Lekin iske liye bohot mehangay hardware aur software ki zaroorat hoti hai.
+
+---
+
+### Enforcing constraints using logical clocks
+
+Hum ne pehle parha tha ke linearizable CAS (Compare-and-Set) operation ke zariye hum locks aur uniqueness constraints (jaise unique username) safely implement kar sakte hain. Toh kya hum yahi kaam kisi logical clock ya linearizable ID generator se nahi kar sakte?
+
+**Jawab hai: Poori tarah nahi!**
+
+Sochein do log aik hi username "Ali" register karna chahte hain. Hum dono requests ko logical clock ke zariye timestamps de dete hain. Phir hum kehte hain ke jis ka timestamp chota hoga, wahi winner hoga. Chunke clock linearizable hai, hamein pata hai ke future mein aane wali requests ka timestamp hamesha bada hoga, toh winner badal nahi sakta.
+
+Lekin asli masla abhi bhi bacha hua hai: **Kisi aik node ko yeh kaise pata chalega ke uska timestamp hi poori duniya mein sab se chota (lowest) hai?**
+
+* Yeh pakka karne ke liye us node ko poore cluster ke **har aik node se baat karni paregi** taake woh confirm kar sakay ke kisi aur ke paas is se chota timestamp toh nahi para.
+* Agar un nodes mein se aik computer bhi mar gaya (fail ho gaya) ya network partition ki wajah se us se rabta toot gaya, toh poora system wahin ruk (freeze) jayega, kyunke hum baki nodes ke timestamps ke bina faisla nahi kar sakte.
+
+Aisa system fault-tolerant nahi kehla sakta. Is liye distributed systems mein locks, leases, aur unique constraints ko kharabiyon ke bawajood safely chalane ke liye sirf logical clocks ya IDs kaafi nahi hain. Hamein is se zyada takatwar cheez chahiye, aur us ka naam hai: **Consensus (Ikhtilaf-e-rai ko khatam karna)**, jisay hum agay mazeed gehrai se parhenge.
+
+---
+
