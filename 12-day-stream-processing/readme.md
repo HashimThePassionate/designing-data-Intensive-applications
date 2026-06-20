@@ -678,3 +678,134 @@ Jim Gray aur Andreas Reuter ne 1992 mein ek bohot barri baat kahi thi:
 > *"Duniya mein database rakhne ki koi bunyadi zaroorat nahi hai; log ke andar hi poore jahan ka saara data maujood hota hai. Database save karne ki akeli wajah sirf yeh hai ke jab user data maangay, toh hum poora log replay karne mein waqt zaya na karein aur jaldi se parh kar de sakein (Performance of retrieval)."*
 
 ---
+
+
+## Processing Streams
+
+Hum ne ab tak is chapter mein yeh dekh liya hai ke streams (lagatar behne wala data) kahan se aati hain (users ke clicks, sensors ka data, aur databases ke writes) aur inhein network par kaise transmit ya transport kiya jata hai (direct messaging, message brokers, aur event logs ke zariye).
+
+Ab aakhri aur sab se aham baat yeh seekhni hai ke **jab hamare paas stream aa jaye, toh hum uske sath kya kya kar sakte hain?** Asal mein hum usay process karte hain, aur hamare paas broad level par teen (3) baray options hote hain:
+
+1. **Storage Mein Likhna:** Aap events ke andar ka data utha kar kisi database, cache, ya search index mein paka save (write) kar sakte hain, taake kal ko doosray clients wahan se queries chala kar data parh sakein. Jaisa hum ne Figure 12-5 mein dekha tha, yeh doosray systems ko sync rakhne ka bohot behtareen tareeqa hai. Yeh batch processing ke use cases ka streaming badal (equivalent) hai.
+2. **Users Ko Push Notification Bhejna:** Aap events ko direct insaano tak pohncha sakte hain—jaise kisi bache ko email alert bhejna, push notification bhejna, ya kisi real-time live dashboard par graphs ki shakal mein live score dikhana. Yahan aakhri consumer ek **Insaan** hota hai.
+3. **Stream Se Nayi Stream Banana (Pipeline):** Aap ek ya aik se zyada input streams ko parh kar process karte hain aur badlay mein aik ya aik se zyada **Output Streams** generate karte hain. Data is tarah ke kayi processing stages se guzar kar ek lambi pipeline banata hai aur aakhir mein ja kar Option 1 ya Option 2 par khatam hota hai.
+
+Is section mein hum isi **Option 3** (stream se nayi stream banana) par deeply baat karenge. Code ka woh tukra jo is tarah streams ko process karta hai, usay hum **Operator** ya **Job** kehte hain.
+
+* **Unix Se Connection:** Yeh bilkul pichlay chapter ke Unix processes aur MapReduce jobs jaisa hi kaam hai. Data ka bahao (dataflow pattern) bhi bilkul same hai: stream processor input streams ko sirf parhta hai (**Read-Only**) aur apne output ko ek alag jagah par hamesha agay jorrta jata hai (**Append-Only**).
+* **Parallelism:** Data ko partitioning (tukron) mein baantna aur parallel chalane ke asool bhi bilkul MapReduce jaise hain, is liye unhein dobara dohrane ki zaroorat nahi hai. Filters aur basic transformations bhi bilkul same kaam karti hain.
+
+> **Sab Se Bada Jhatka (The Crucial Difference):** Batch jobs aur stream jobs mein ek sab se bara aur zameen-asman ka farq yeh hai ke **Stream kabhi khatam nahi hoti (Never Ends!)**. Is aik farq ki wajah se distributed architecture ke bohot se asool badal jaate hain. Jaisa hum ne shuru mein parha tha, na-khatam hone wale data par aap **Sorting (tarteeb) nahi chala sakte**, is liye hum yahan `Sort-Merge Join` algorithm hamesha ke liye chorr dete hain.
+> Is ke ilawa kharabiyon se nipatne ka tareeqa (**Fault-Tolerance**) bhi badal jata hai. Ek batch job jo 5 minute se chal rahi ho, agar fail ho jaye toh hum usay shuru se dobara chala sakte hain; lekin ek stream job jo **pichlay 5 saal se lagatar chal rahi ho**, usay crash hone par offset 0 (shuruat) se chalanay ka option hamare paas bilkul nahi hota!
+
+---
+
+### Uses of Stream Processing
+
+Stream processing ka istemaal bohot purane zamane se **Monitoring (nazar rakhne aur alerts bajane)** ke liye hota aa raha hai, jahan company chahti hai ke agar system mein kuch bhi ajeeb ho, toh foran alarm baj jaye. Is ki behtareen real-world examples yeh hain:
+
+* **Credit Card Fraud Detection:** System har waqt aap ke card ke istemaal ke patterns par nazar rakhta hai. Agar achanak aap ke card se kisi doosre mulk mein ajeeb transactions shuru ho jayein, toh system shaq hone par card ko foran block kar deta hai.
+* **Financial Trading Systems:** Stock market mein badalti hui keemton ke events ko dekha jata hai aur pehle se tay shuda trading rules ke mutabaq automatically shares khareede aur beche jaate hain.
+* **Manufacturing (Karkhane):** Factory ke andar chalne wali machino ke sensors par nazar rakhi jati hai taake agar koi purza kharab ho, toh buraqt pata chal sakay.
+* **Military & Intelligence:** Kisi dushman ki harkat-o-saknat ko track kiya jata hai taake hamlay ki surat mein foran alarm bajaya ja sakay.
+
+In kaamo ke liye bohot hi sophisticated pattern matching aur data ko aprop mein jorrna (correlation) parta hai. Waqt ke sath stream processing ke kuch naye use cases bhi samne aaye hain, chalein unhein aik aik karke breakdowns ke sath samajhte hain:
+
+---
+
+#### Complex event processing
+
+**Complex Event Processing (CEP)** ek aisa tareeqa (approach) hai jo 1990s mein event streams ka analysis karne ke liye banaya gaya hai. Iska asli maqsad data ke andar **Events Ke Makhsoos Patterns** ko dhoondna hota hai.
+
+* **Bacho ki Tarah Samajhein (Regex For Events):** Jaise aap programming mein *Regular Expressions* (Regex) use karte hain kisi lambay text ke andar makhsoos alphabets ka pattern (jaise email format) dhoondne ke liye, bilkul waise hi CEP aap ko ijazat deta hai ke aap pure stream ke andar events ka makhsoos pattern dhoond sakein (Misaal ke tor par: *"Agar Pehla Event: Password Galat Laga, aur uske baad 5 second ke andar doosra event aaya: dobara password galat laga, toh naya Complex Event nikalo: Security Threat!"*).
+
+CEP systems mein code likhne ke liye high-level declarative query languages (jaise SQL) ya GUI dashboards use kiye jaate hain. Yeh queries jab processing engine ko di jati hain, toh engine andarooni tor par aik **State Machine** bana leta hai jo aane wale har event ko check karti hai. Jaise hi matching complete hoti hai, engine aik naya complex event emit (babar nikal) deta hai.
+
+> **Ulati Duniya (The Reversed Relationship):** CEP engines mein aam database ke muqable mein duniya bilkul ulati ho jati hai. Ek aam database mein data paka save rehta hai aur query aati hai, data dhoondti hai, aur query khatam ho jati (transient query). CEP engines mein **Queries hamesha ke liye paki save ho jati hain (Standing Queries)**, aur data (events) raste se guzarta jata hai. Engine har aane wale event ko pakar kar check karta hai ke kya yeh meri kisi purani query se match ho raha hai ya nahi.
+
+Esper, Apama, aur TIBCO StreamBase iski purani implementations hain. Aaj kal distributed frameworks jaise **Apache Flink aur Spark Streaming** mein bhi streams par declarative queries chalane ke liye SQL ka behtareen support maujood hai.
+
+---
+
+#### Stream analytics
+
+Stream processing ka doosra bara use case **Stream Analytics** hai. CEP aur Stream Analytics ke darmiyan ka farq thoda mubham (blurry) hai, lekin aam asool yeh hai ke stream analytics makhsoos events ke sequences dhoondne par focus nahi karti, balkay bohot baray volume ke data par **Aggregations aur Statistical Metrics (ginti aur calculations)** nikalne ke liye use hoti hai.
+
+Misaal ke tor par:
+
+* Kishi makhsoos event ki raftar (rate) naapna ke woh ek minute mein kitni dafa ho raha hai.
+* Waqt ke sath badalti hui value ka rolling average (chalta hua average) nikalna.
+* Abhi ke stats ko pichlay hafte ke isi din ke stats se compare karna taake trends ka pata chal sakay ya alert bajaya ja sakay ke traffic achanak bohot kam ya zyada ho gayi hai.
+
+Aise statistics hamesha makhsoos waqt ke dairon ke andar calculate kiye jaate hain jinhein distributed theory mein **Window** (khidki) kehte hain (Misaal ke tor par: *"Pichlay 5 minute ke andar hamari service par per-second kitni queries aa rahi hain aur unka 99th percentile response time kya hai?"*). Windowing ke is pure mechanism ko hum agay deeply explore karenge.
+
+##### Probabilistic Algorithms Ka Sasta Jadu
+
+Stream processors memory (RAM) ka kharcha bachane ke liye aksar **Approximate (andaza lagane wale) / Probabilistic Algorithms** use karte hain:
+
+* **Bloom Filters:** Yeh check karne ke liye ke kya koi element pehle se list mein maujood hai ya nahi.
+* **HyperLogLog (HLL):** Karoron records mein se exact unique values ki ginti (**Cardinality Estimation**) bohot kam RAM mein nikalne ke liye.
+* **Percentile Estimators:** 99th percentile response time andazan nikalne ke liye.
+
+Yeh algorithms bilkul exact result nahi dete balkay $99\%$ tak ka sahi andaza de dete hain, lekin inka sab se bara faida yeh hai ke yeh RAM bohot kam consume karte hain. *Yahan log ek galti karte hain:* Log samajhte hain ke stream processing hamesha lossy ya andaza lagane wali hi hoti hai. **Yeh bilkul galat soch hai.** Stream processing bilkul exact calculations bhi kar sakti hai; approximate algorithms use karna sirf aik optimization (RAM aur paisa bachane ka tareeqa) hai.
+
+Apache Storm, Spark Streaming, Flink, Samza, Apache Beam, aur **Kafka Streams** khass tor par isi analytics ko zehan mein rakh kar banaye gaye hain. Cloud par Google Cloud Dataflow aur Azure Stream Analytics is ki cloud-hosted examples hain.
+
+---
+
+#### Maintaining materialized views
+
+Hum ne pehle parha ke database ke change logs (CDC streams) ka use karke hum cache, search index, aur data warehouses ko live sync (up-to-date) rakh sakte hain. Distributed computing mein is kaam ko **Materialized View ko Maintain karna** kehte hain—yani data ka ek aisa roop (view) pehle se tayaar rakhna jahan se parhna bohot fast ho, aur jab asli data badle toh is view ko bhi sath sath badal diya jaye.
+
+Event Sourcing mein bhi jab hum logs ko parh kar application ki maujooda halat (state) banate hain, toh woh state bhi asal mein ek materialized view hi hoti hai.
+
+* **The Infinite Window Shart:** Stream analytics mein hum sirf 5 minute ya 1 ghante ki choti window par focus karte hain, lekin materialized view banane ke liye aap ko **shuruati din se lekar aaj tak ke saare events** ka pata hona chahiye (bina kisi time limit ke). Aap ko aik aisi window chahiye jo waqt ke shuruat tak piche jati ho (**window that stretches all the way back to the beginning of time**). Purane data ko delete hone se bachane ke liye hum Kafka ka *Log Compaction* use karte hain.
+* **Tools:** Kafka Streams aur Confluent ka **ksqlDB** is kaam ko safely support karte hain.
+
+---
+
+#### Incremental View Maintenance (IVM)
+
+Databases dekhne mein materialized views ko maintain karne ke liye sab se best lagte hain kyunke data save karna unka zaati kaam hai. Bohot saari relational databases materialized views support bhi karti hain (jaise data warehouses mein OLAP cubes banana).
+
+Lekin aam databases ke andar ek bohot bara nuksan hota hai: Woh views ko har waqt live update nahi kartin, balkay unhein periodic batch jobs ke zariye ya user ke kehnay par (jaise PostgreSQL mein `REFRESH MATERIALIZED VIEW` command chala kar) naye siray se refresh karti hain. Stream processing ke liye yeh purana tareeqa do baray maslo (drawbacks) ki wajah se nakaam ho jata hai:
+
+1. **Poor Efficiency (Susti aur kharcha):** Jab bhi aap view refresh karenge, database **poore ke poore data ko shuru se dobara reprocess karega**, chahe $99\%$ data pichlay chakkar jaisa same hi kyun na ho! Is se resources bohot zaya hote hain.
+2. **Stale Data (Purana data):** Jab tak agli scheduled batch job nahi chalegi, user ko view mein purana data hi dikhta rahega, data fresh nahi hoga.
+
+Halanqe database triggers ke zariye thoda bohot incremental kaam (jaise rozana ki sale mein $+1$ karna) kiya ja sakta hai, lekin har complex SQL query ko trigger mein convert karna namumkin hai.
+
+Iska pakka aur modern hal **Incremental View Maintenance (IVM)** hai. IVM techniques SQL queries ko aise andruni operators mein convert kar deti hain jo poora dataset reprocess karne ke bajaye **sirf aur sirf badalney wale data (changes) ko calculate kartay hain!**
+
+Is se view ki calculation had se zyada sasti aur efficient ho jati hai, updates har millisecond mein live chal sakti hain, aur data ka freshness her lamha $100\%$ rehta hai.
+
+**Materialize**, **RisingWave**, ClickHouse, aur **Feldera** saare isi IVM technology par chalne wale modern databases hain. Yeh live event streams ko ingest karte hain aur un par real-time mein materialized views bana kar expose karte hain. Naye events pehle RAM mein buffer hote hain, phir disk wale views ko update karte hain. Parhte waqt RAM aur disk dono ka data mil kar user ko bilkul real-time perfect view dikhata hai. Chunke in mein queries SQL mein likhi jati hain aur data OLAP style formats mein save hota hai, is liye aap in par data warehouse jaisi barri queries bhi safely chala sakte hain.
+
+---
+
+#### Search on streams
+
+CEP ke andar hum bohot saare events ka milap (pattern) dhoondte hain, lekin kabhi kabhi hamein sirf aik single event ke andar complex criteria ya **Full-Text Search queries** match karni parti hain.
+
+* **Real-World Example (Media Monitoring):** Sochein aik media agency hai jo duniya bhar ke live akhbarat aur news channels ke feeds ko subscribe karke bethi hai. Unho ne pehle se queries save ki hui hain ke *"Jab bhi kisi news mein 'Apple' ya 'Google' ka naam aaye, hamein alert bhej do"*. Jaise hi koi naya article stream mein aata hai, usay foran un standing queries ke sath match kiya jata hai.
+* **Real Estate Websites:** User website par setting laga deta hai ke *"Jab bhi Kohat mein 5 marla ka koi naya ghar bikne aaye, mujhe mobile par notification bhej do"*. Website ka backend live stream par search query chala raha hota hai.
+
+Aam search engines (jaise normal Google search) mein pehle documents ka index banta hai, phir user query bhejta hai aur documents dhoondte hain. Stream search mein kaam bilkul ulta ho jata hai: **Queries pehle se store hoti hain, aur naya aane wala document (event) un queries ke upar se guzarta hai.** Elasticsearch ka **Percolator feature** isi stream search ko implement karne ke liye use hota hai. Agar queries lakhon mein hon, toh speed barhane ke liye documents ke sath sath queries ka bhi index bana liya jata hai.
+
+---
+
+#### Event-driven architectures and RPC
+
+Chapter 7 mein hum ne parha tha ke microservices ke aprop mein baat karne ke liye message-passing (jaise Actor Model) ek behtareen alternative hai remote web requests (RPC/REST) ka.
+
+Halanqe actor frameworks bhi messages aur events par chalte hain, lekin distributed computing ki theory mein hum inhein **Stream Processors hargiz nahi maante!** Kyun? Inki teen (3) barri wajah hain:
+
+* Actor frameworks ka asli maqsad computer ke cores mein concurrency (larai se bachna) aur modules ka raabta sambhalna hota hai, jabke Stream Processing poori tarah **Data Management Technique** (data ko tarteeb dena aur save karna) hai.
+* Actors ke darmiyan hone wali baatein temporary (**Ephemeral**) aur aik se aik computer ke beech ($1$-to-$1$) hoti hain, jabke streaming ke event logs durable (pake) hote hain aur unhein aik sath bohot saare subscribers (**Multi-subscriber**) parh sakte hain.
+* Actors aprop mein gol-gol jhatkay wale tareeqon (cyclic request/response patterns) se bhi baat kar sakte hain, jabke stream processors hamesha aik seedhi aur azaad pipeline (**Acyclic Pipelines**) mein chalte hain, jahan har stream kisi pichli makhsoos job ka output hoti hai.
+
+Lekin in dono dunyaon mein thoda bohot cross-over bhi paaya jata hai. Apache Storm ke paas ek feature hai jisay **Distributed RPC (DRPC)** kehte hain, jo user ki query ko un nodes par bhej deta hai jo live streams process kar rahe hote hain, data aprop mein jorha jata hai aur nateeja user ko wapis mil jata hai. Aap actor frameworks ke zariye bhi streams process kar sakte hain, lekin yaad rahe ke zyadatar actor frameworks crash hone par message delivery ki koi paki guarantee nahi dete, is liye jab tak aap khud retry ka lamba code nahi likhenge, aap ka system fault-tolerant nahi banayega.
+
+---
+
+
