@@ -920,3 +920,99 @@ Synchronous coordination hum sirf un ginti ke makhsoos kaamo par lagayenge jahan
 * **Coordination-Avoiding Core:** Synchronous cross-region coordination chhorr dene se multi-region multi-leader setups super-fast aur highly available ho jaate hain bina data corrupt kiye.
 
 ---
+
+## Trust, but Verify
+
+Distributed systems mein jab bhi hum correctness, integrity, aur fault tolerance ki baat karte hain, toh hamari poori buniyaad aik makhsoos shart par khari hoti hai: *"Hum maante hain ke system mein kuch cheezein kharab ho sakti hain, lekin baqi sab theek chalega."* Inhi sharton ko hum distributed theory mein **System Model** kehte hain.
+
+Misaal ke tor par, hum yeh maan kar chalte hain ke processes crash ho sakte hain, servers ki bijli (power) achanak ja sakti hai, aur network messages ko ghalti se parhney mein late ya drop kar sakta hai. Lekin sath hi hum yeh saste asool bhi maan lete hain ke:
+
+* `fsync` chalane ke baad disk par likha data kabhi zaya nahi hoga.
+* Computer ki RAM (memory) ke andar para data kabhi khud-ba-khud kharab nahi hoga.
+* CPU ki multiplication ($2 \times 2$) wali instruction hamesha bilkul sahi nateeja nikalay gi.
+
+Yeh shartain aam zindagi mein bilkul theek lagti hain kyunke $99.9\%$ waqt computer aisi ghaltiyan nahi karte. Agar hum har waqt CPU ke mathematical calculations par shaq karne baith gaye, toh hum koi bhi software code safely chala hi nahi sakenge. Traditional system models binary approach apnaate hain—yani ya toh ghalti ho sakti hai ya bilkul nahi ho sakti.
+
+Lekin asliyat mein, yeh **Probabilities (imkanat)** ka khel hai. Jab aap bohot baray paimane (**Large Scale Clusters**) par kaam kar rahe hote hain, jahan Terabytes nahi balkay Petabytes data har second hazaron machines se guzar raha ho, toh **woh hadsa jo saal mein aik dafa hona chahiye, aap ke cluster mein har ghante ho raha hota hai!** Data chupke se RAM mein bhi badal jata hai, disk par bhi bit-rot se kharab hota hai, aur network cards ki kharabi se raste mein bhi badal jata hai. Hamein is par bohot zyada tawajah dene ki zaroorat hai.
+
+---
+
+### Maintaining integrity in the face of software bugs
+
+Hardware ke in jhatkon ke ilawa, ek aur sab se bara khatra **Software Bugs** ka hota hai. Yeh aise bugs hote hain jinhein network ke checksums ya memory ke hardware checks kabhi pakar hi nahi sakte.
+
+Aap ko jaan kar hairat hogi ke duniya ke sab se robust aur battle-tested open-source databases mein bhi bugs paaye gaye hain:
+
+* **MySQL** ke pichlay versions mein aise bugs samhne aaye the jahan system `UNIQUE Constraint` (anokha hone ki shart) ko maintain karne mein nakaam ho gaya tha.
+* **PostgreSQL** ke serializable isolation level ke andar bhi pichlay zamane mein `Write Skew` ki anomalies pakri gayi thin.
+
+Halanqe MySQL aur Postgres ko hazaron behtareen developers ne sadiyon se review aur test kiya hai, tab bhi un mein bugs ghuss jaate hain. Jo softwares abhi naye hain (less mature softwares), un ka haal toh is se bhi bura hoga. Jab tak koi bug pakra aur fix nahi jata, us dauran woh database ke andarooni data ko poori tarah corrupt (kharab) kar chuka hota hai.
+
+Aur jab baat aati hai aap ke khud ke **Application Code** ki, toh wahan bugs ka khatra databases se 100 guna zyada hota hai. Zyadatar applications databases ke built-in features (jaise foreign keys ya uniqueness constraints) ko safely aur sahi tareeqay se use hi nahi kartin.
+
+ACID transactions ka poora dhabba is asool par khara tha ke database shuru mein aik sahi halat (consistent state) mein hoga, aur transaction usay badal kar doosri sahi halat mein le jayegi. **Lekin yeh asool sirf tabhi sach hai agar aap ka transaction code poori tarah se Bug-Free ho!** if the application uses a weak isolation level unsafely, database ki integrity ka qatal hona pakka hai.
+
+---
+
+### Don’t just blindly trust what they promise
+
+Jab hardware aur software dono hi hamare idealy asoolon par poore nahi utarte, toh data corruption ka aana aik na aik din na-guzeer (inevitable) ho jata hai. Is liye hamare paas kam az kam aik aisa rasta hona chahiye jis se hamein pata chal sakay ke data kharab ho chuka hai, taake hum usay theek kar sakein aur galti ki jarr tak pohanch sakein. Data ki is safayi aur checking ke nizam ko distributed engineering mein **Auditing (jaiza lena)** kehte hain.
+
+Auditing sirf banks ya financial applications ke liye zaroori nahi hai. Banks mein iska use is liye hota hai kyunke unhein pata hai ke insaano aur machines se galti hona aam baat hai, is liye har lamha checking ka system hona chahiye.
+
+Duniya ke bade aur mature cloud systems hamesha is "Trust, but Verify" (bharosa karo par checking lazmi rakho) ke asool par chalte hain. Misaal ke tor par, **HDFS (Hadoop Filesystem)** aur **Amazon S3** storage kabhi bhi computer ki hard disk par blindly trust nahi karte.
+
+* **Data Scrubbing (Safayi Ka Background Process):** Yeh systems background mein har waqt azaadana processes chala rahe hote hain jo chupke se disk par pari files ko read karte hain, unke checksums nikalte hain, aur doosray computers par pari unki replica copies ke sath match karke check karte hain ke kahin data chupke se kharab (**Silent Data Corruption**) toh nahi ho gaya! Agar koi file kharab milti hai, toh system automatic doosri sahi copy se usay overwrite (repair) kar deta hai.
+
+> **Zaroori System Tool Rule:** Agar aap sach mein dekhna chahte hain ke aap ka data mehfooz hai, toh aap ko khud usay parh kar verify karna parega. Bilkul isi tarz par, data engineering mein **Backups ko hafte-do-hafte baad Restore karke test karna farz hai**. Warna jab asli emergency aayegi aur aap backup kholenge, pata chalega ke backup file toh pichlay 6 mahine se corrupt thi, aur aap ka sara production data hamesha ke liye dafan ho chuka hoga. blind trust hamesha tabahi lata hai.
+
+---
+
+### Designing for auditability
+
+Agar aap ka application code database ke andar aik sath 5 alag alag tables ke records ko badal (**Mutate**) raha hai, toh 6 mahine baad transaction logs dekh kar dimaagh ghum jayega ke *"Yaar, is code ne yeh row delete kyun ki thi?"*. Tables ke nishan (inserts/updates/deletes) parhne se asli wajah (**The Why**) kabhi saaf samajh nahi aati, kyu ke application logic ka chalna temporary (transient) tha aur us waqt computer ki memory mein kya chal raha tha, woh dobara re-create nahi kiya ja sakta.
+
+Is ke baraks, **Event-Based Systems (Event Sourcing)** aap ko kamaal ki auditability (checking ki power) dete hain:
+
+* **The Reason:** User ka har input database mein direct updates karne ke bajaye aik single **Immutable Event** ban kar log mein save hota hai.
+* **Deterministic Derivation:** Us event se baqi saare database views deterministic functions ke zariye derive hote hain. Iska matlab hai ke agar aap pichlay 5 saal ka event log utha kar dobara naye code engine se guzarain ge, aap ko guarantees ke sath **wahi exact up-to-date state** dobara mil jayegi.
+
+Jab dataflow bilkul saaf aur declared hota hai, toh data ka poora pichla silsila (**Data Provenance**) bilkul crystal clear pani ki tarah nazar aata hai.
+
+* Event log ki safety ke liye hum **Hashes** ka chain use karte hain taake koi log ko tamper (badal) na sakay.
+* Derived state check karne ke liye hum background mein aik parallel stream processor chala kar nateejay match kar sakte hain.
+
+Is deterministic nizam ka sab se bada faida **Time-Travel Debugging** hai. Eğer production par koi ajeeb hadsa ya unexpected state paida ho jaye, toh data engineer pichlay saare events ko exact ussi environment mein dobara chala kar live dekh sakta hai ke kis microsecond par kis event ki wajah se system pagal hua tha. Galti pakarna bacho ka khel ban jata hai.
+
+---
+
+### The end-to-end argument again
+
+Jab hum network, hardware, aur software ke kisi aik component par $100\%$ trust nahi kar sakte, toh poore system ka **End-to-End Integrity Check** karna hi hamari aakhri umeed banta hai. Agar hum regular checking nahi karenge, toh corruption chupke se phailti jayegi aur jab tak downstream users tak nuksan pohanchega, tab tak masla itna complex ho chuka hoga ke bug dhoondna hadd se zyada mehanga parta hai.
+
+End-to-end check ka faida yeh hota hai ke is pipeline ke beech mein aane wali saari disks, networks, services, aur algorithms **automatically is check ke andar shamil ho jaate hain**.
+
+Jaise continuous automated testing se developer bina darr ke naya code deploy karta hai, bilkul waise hi **Continuous End-to-End Auditing** se data engineering team bina kisi darr ke poore system ka architecture aur schemas badal sakti hai kyu ke unhein pata hai agar data mein $1.2\%$ bhi farq aaya, audit system foran alert baja dega. Software tezi se evolve karta hai.
+
+---
+
+### Tools for auditable data systems
+
+Afsos ke aaj ke daur ke zyadatar aam databases auditability ko ek top-level concern (pehli tarjeeh) ke tor par support nahi karte. Log khud se aik alag `audit_tables` bana kar kaam chalane ki koshish karte hain, lekin main table aur audit table dono ki integrity aik sath safely bachana mushkil hota hai.
+
+* **Blockchains (Bitcoin/Ethereum):** Yeh asal mein distributed shakal ke append-only logs hi hain jin ke andar cryptographic consistency checks built-in hote hain. Inke andar chalne wale smart contracts asal mein stream processors hain. Yeh systems **Byzantine Fault-Tolerant** hote hain—yani agar cluster ke kuch computers ghalti se ya jaan-booch kar jhoot bolen ya data corrupt kar dein, tab bhi baqi replicas aprop mein checking karke sach ka faisla nikal lete hain.
+* **Merkle Trees (Lightweight Cryptographic Auditing):** Aam business applications ke liye blockchains ka kharcha aur overhead bohot zyada hai. Lekin unke cryptographic tools ko hum saste tareeqay se use kar sakte hain. **Merkle Tree** hashes ka ek aisa tree hota hai jise pure Petabytes data ke andar se kisi aik single record ka nishan (**Cryptographic Proof**) bina poora database parhne ke microsecond mein nikala ja sakta hai.
+
+Duniya mein TLS/SSL certificates ki validity check karne ke liye **Certificate Transparency** ka nizam use hota hai jo isi Merkle Tree aur cryptographic append-only logs par chalta hai. Yeh bina kisi consensus protocol ke, ek single leader per log rakh kar bohot fast scale par chalte hain. Future mein aise self-validating aur self-auditing algorithms aam data systems ka ek lazmi built-in feature ban jayenge, jahan blind trust ki jagah har waqt cryptographic verification chal rahi hogi.
+
+---
+
+### Revision Hints (Fast Recall Rules)
+
+* **System Models Aren't Absolute:** Binary asoolon (fault hoga ya nahi hoga) ke bajaye scale par hamesha probabilities ka khel hota hai. Petabytes scale par silent data corruption (bit-rot) hona pakka hai.
+* **ACID vs Application Bugs:** ACID tabhi consistent state deta hai agar transaction ka code bug-free ho. Application bugs se database ko transactional isolation levels nahi bacha saktin.
+* **The "Trust, but Verify" Core:** Blind trust chorr kar HDFS/S3 ki tarah background data scrubbing chalana aur backups ko periodically restore karke check karna integrity ke liye farz hai.
+* **Auditability via Event Sourcing:** Mutable updates ka "Why" temporary hota hai. Event sourcing mein immutable inputs bacha kar rakhne se deterministic replication aur *Time-Travel Debugging* muft mil jati hai.
+* **Merkle Trees for Light Auditing:** Blockchain mehanga hai par uske *Merkle Trees* aur *Certificate Transparency* jaisay algorithms lightweight cryptographic checks ke liye distributed systems ka future hain.
+
+---
