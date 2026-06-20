@@ -609,3 +609,305 @@ Aisa system fault-tolerant nahi kehla sakta. Is liye distributed systems mein lo
 
 ---
 
+## Consensus
+
+Hum ne is chapter mein aisi bohot si cheezon ki misalein dekhi hain jo tab toh bohot asaan hoti hain jab aap ke paas sirf **aik single node** (aik akela computer) ho, lekin jaise hi aap **fault tolerance** (kharabi se bachne ki salahiyat) chahte hain, toh wahi cheezein bohot zyada mushkil ho jati hain:
+
+* **Leader Election Ka Masla:** Agar database mein sirf aik hi leader ho aur saare parhne aur likhne ke kaam ussi par hon, toh system linearizable ho sakta hai. Lekin agar woh main leader crash ho jaye, toh naya leader kaise chunna hai (**failover**) taake system mein **Split Brain** (do leaders ka aapas mein takraat) na ho? Aap yeh kaise pakka karenge ke jo node khud ko leader samajh raha hai, usay baqi nodes ne achanak kisi lambay pause (jaise stop-the-world GC pause) ki wajah se nikaal toh nahi diya?
+* **ID Generator Ka Crash:** Ek single node par linearizable ID generator banana sirf aik counter hota hai jahan CPU ki atomic `fetch-and-add` instruction chal rahi hoti hai. Lekin agar woh akela computer hi crash ho jaye toh kya hoga?
+* **Atomic CAS Ka Masla:** Ek atomic CAS (Compare-and-Set) operation tab kaam aata hai jab bohot saare processes aik hi waqt mein kisi lock ya lease ko pakarne ki race laga rahe hon, ya jab kisi file ya username ka unique hona pakka karna ho. Aik single node par yeh kaam CPU ki aik choti si instruction se ho jata hai, lekin isay pooray distributed system mein fault-tolerant kaise banayein?
+
+Yeh saare maslay asal mein distributed systems ke aik hi sab se bunyadi aur markazi maslay ki alag alag shaklein hain, jisay hum **Consensus** (sab computers ka aapas mein aik baat par raazi hona) kehte hain.
+
+Consensus ki aam tareef yeh hai ke **bohot saare nodes ko mil kar kisi aik single value par raazi karna**. Yeh distributed computing ka sab se aham aur mashhoor masla hai, aur isay theek tarah se implement karna had se zyada mushkil samjha jata hai. Purane waqtong mein bohot se baray baray systems ne is mein galtiyan ki hain.
+
+Ab jab hum Replication (Chapter 6), Transactions (Chapter 8), System Models (Chapter 9), aur Linearizability parh chuke hain, toh hum is consensus ke bhoot se nipatne ke liye bilkul tayyar hain.
+
+Duniya ke sab se mashhoor aur kamyab consensus algorithms yeh hain:
+
+* **Viewstamped Replication (VR)**
+* **Paxos**
+* **Raft**
+* **Zab** (Jo Apache ZooKeeper mein use hota hai)
+
+In algorithms mein bohot si cheezein aapas mein milti julti hain, lekin yeh bilkul same nahi hain. Yeh saare algorithms aik **Non-Byzantine system model** mein kaam karte hain—yani network mein messages late ho sakte hain ya drop ho sakte hain, computers crash ho kar dobara restart ho sakte hain ya network se kat sakte hain, lekin koi bhi computer **jhoot nahi bolega ya badmashi (malicious behavior) nahi karega**. Sab computers rules ko theek tarah se follow karenge.
+
+Kuch aise consensus algorithms bhi hote hain jo **Byzantine faults** (yani aise nodes jo jan booch kar galat ya aapas mein ulat messages bhej kar dhoka dete hain) ko jhel sakte hain. In mein aam tor par yeh maana jata hai ke system ke **one-third ($< 1/3$) se kam nodes** badmash hain. Aise algorithms aam tor par **Blockchains** mein use hote hain. Lekin Byzantine fault-tolerant algorithms is book ke scope se bahar hain.
+
+---
+
+### The Impossibility of Consensus
+
+Aap ne distributed systems ki duniya mein **FLP result** ka naam zaroor suna hoga (yeh naam iske authors: Fischer, Lynch, aur Paterson ke naamo par rakha gaya hai). Yeh theorem mathematically yeh sabit karta hai ke **duniya ka koi bhi algorithm hamesha consensus par nahi pohanch sakta agar system mein kisi aik node ke bhi crash hone ka khatra maujood ho.** Ab yahan ek bohot bara jhatka lagta hai: distributed system mein computers ka crash hona toh aam baat hai, toh iska matlab hai ke sahi consensus haasil karna na-mumkin (impossible) hai! Lekin phir bhi hum yahan algorithms ki baatein kar rahe hain, aisa kyun? Is ke piche ek barik technical raaz hai:
+
+1. **Hamesha Khatam Hone Ki Guarantee Nahi (Termination):** FLP result yeh nahi kehta ke consensus kabhi ho hi nahi sakta. Woh sirf yeh kehta hai ke aap mathematically yeh guarantee nahi de sakte ke algorithm hamesha **terminate** hoga (yani kisi na kisi faislay par lazmi khatam hoga). Ho sakta hai koi aisi buri surat-e-haal aa jaye jahan algorithm hamesha ke liye gol gol ghoomta rahe.
+2. **Asynchronous Model Ki Shart:** FLP result ne yeh na-mumkin hone ki baat aik **Asynchronous system model** ko zehan mein rakh kar sabit ki thi, jahan algorithm kisi bhi kism ki gari (clock) ya **Timeouts** ka istemaal nahi kar sakta. Asal zindagi mein agar hum sirf timeouts ka use karlein (yeh shak karne ke liye ke koi node crash ho gaya hai, chahe hamara shak galti se hi kyun na ho), toh consensus ka masla hal kiya ja sakta hai. Hatta ke algorithm mein random numbers (pasa phenkne) ki ijazat dena bhi is maslay ko hal karne ke liye kaafi hai.
+
+Is liye, halanqe FLP result theory ki duniya mein bohot baray jhatkay jaisa hai, lekin practical distributed systems mein hum aaram se aur kamyabi se consensus haasil kar lete hain.
+
+---
+
+### The Many Faces of Consensus
+
+Consensus ki bohot si alag alag shaklein (shabahat) ho sakti hain, jo dekhne mein bilkul alag lagti hain lekin andar se aik hi hain:
+
+* **Single-value consensus:** Yeh bilkul aik atomic CAS operation jaisa hota hai, jo locks, leases, aur uniqueness constraints lagane ke kaam aata hai.
+* **Shared Logs / Append-only log:** Aik aisa log banana jis mein sirf naya data agay jora ja sakay. Isay theory mein **Total Order Broadcast** kehte hain. Is ki madad se State Machine Replication, leader-based replication, aur event sourcing jpatterns banaye jate hain.
+* **Atomic fetch-and-add:** Counter ko atomically barhane ka kaam bhi consensus ke barabar hai.
+* **Atomic Commitment:** Kisi multi-database ya multishard transaction mein saare participants ka is baat par raazi hona ke transaction ko **Commit** (pka save) karna hai ya **Abort** (khatam) karna hai.
+
+Yeh distributed systems ki ek bohot hi gehri aur hairan kun jankari (insight) hai ke **yeh saare maslay aapas mein mathematically ek doosre ke barabar (equivalent) hain.** Agar aap ke paas in mein se kisi aik bhi maslay ka hal maujood hai, toh aap usay convert kar ke baki saare maslay hal kar sakte hain. Chalein aik aik karke in sab ka deeply breakdown karte hain.
+
+---
+
+#### Single-value consensus
+
+Bohot saare computers ko kisi aik single value par raazi karna bohot useful hota hai, jaise:
+
+* Jab single-leader database shuru hota hai ya purana leader mar jata hai, toh bohot saare nodes aik hi waqt mein leader banne ki koshish karte hain. Consensus tay karta hai ke winner kaun hai.
+* Agar do log aik hi waqt mein jahaz ki aakhri seat ya theater ki aik hi seat book karne ki koshish karein, ya aik hi username se account banana chahein, toh consensus algorithm faisla karta hai ke kis ko kamyabi milni chahiye.
+
+Formal tareeqe se dekha jaye toh aik consensus algorithm ko har haal mein in **chaar (4) sharton (properties)** ko poora karna parta hai:
+
+1. **Uniform agreement (Sab ka aik faisla):** Koi se do nodes alag alag faisla nahi kar sakte. Agar aik node ne keh diya ke winner Node A hai, toh baqi sab ko bhi Node A ko hi winner maanna hoga.
+2. **Integrity (Faisla badalna mana hai):** Agar kisi node ne aik dafa aik value ka faisla kar liya, toh woh baad mein apna dimaagh badal kar mukar nahi sakta ya naya faisla nahi badal sakta.
+3. **Validity (Faisla hawa se nahi aayega):** Agar system kisi value $v$ ka faisla karta hai, toh woh value lazmi kisi na kisi node ne pehle **propose** (pesh) ki ho. Aisa nahi ho sakta ke sab ne alag baatein kahin aur system ne khud se koi teesri hi cheez decide kar li (jaise hamesha `null` decide kar lena).
+4. **Termination (Kaam agay barhna chahiye):** Har woh node jo crash nahi hua, usay aakhir-kar kisi na kisi faislay par lazmi pohanchana hoga. System hamesha ke liye latak nahi sakta.
+
+Agar aap ko fault tolerance ki chinta na ho, toh pehli teen shartain poora karna bacho ka khel hai. Aap kisi aik node ko "Dictator" (amriat wala boss) bana dein aur saare faislay us par chor dein. Lekin agar woh dictator mar gaya, toh poora system jam jayega. Asli mushkil tab shuru hoti hai jab hamein **Fault Tolerance** chahiye hoti hai.
+
+Chauthi shart—**Termination**—asal mein fault tolerance ka hi doosra naam hai. Yeh aik **Liveness Property** hai (yani kaam rukna nahi chahiye, agay barhna chahiye), jabke pehli teen shartain **Safety Properties** hain (yani kuch galat nahi hona chahiye).
+
+Consensus algorithm ko aisa hona chahiye ke agar koi node achanak kisi zalzale ki wajah se mitti ke niche 30 feet dab jaye aur kabhi wapis na aaye, tab bhi baqi zinda nodes rukne ke bajaye aapas mein mil kar faisla mukammal karein.
+
+> **The Majority Limit:** Koi bhi algorithm tab tak termination ki guarantee nahi de sakta jab tak system ke **kam az kam aadhi se zyada nodes (Majority Quorum)** theek tarah se kaam na kar rahe hon. Agar adhi se zyada nodes mar jayein, toh termination ruk jayegi. Lekin achi baat yeh hai ke aksar consensus algorithms safety properties (Agreement, Integrity, Validity) ko tab bhi bacha kar rakhte hain jab majority fail ho jaye. Yani system chalna band zaroor ho jayega, lekin kabhi galat ya ulat-pulat faisla nahi karega.
+
+---
+
+#### Compare-and-set as consensus
+
+Hum ne pehle parha ke CAS operation pehle maujooda value check karta hai, agar woh expected value ke barabar ho toh nayi value write kar deta hai, warna error de deta hai.
+
+* **CAS $\implies$ Consensus:** Agar aap ke paas ek fault-tolerant aur linearizable CAS operation maujood hai, toh consensus ka masla hal karna bohot hi simple hai. Aap shuru mein register ki value ko `null` rakh dein. Jo bhi node apni value decide karwana chahta hai, woh aik CAS operation chalaye jahan expected value `null` ho aur new value uski apni proposed value ho. Jis node ka CAS pehle kamyab ho gaya, database mein wahi value fix ho jayegi aur wahi pooray system ka consensus decision maana jayega.
+* **Consensus $\implies$ CAS:** Is ke ulat, agar aap ke paas consensus ka algorithm pehle se hai, toh aap CAS operation bana sakte hain. Jab bhi nodes aik hi expected value par CAS chalana chahein, aap consensus protocol ke zariye un naye values ko propose karte hain. Jo value consensus se pass ho jaye, woh register mein save ho jati hai aur baki sab ko error mil jata hai.
+
+Is se sabit hota hai ke CAS aur Consensus functional level par bilkul ek doosre ke barabar hain.
+
+---
+
+#### Shared logs as consensus
+
+Ek shared log (ya replication log) mein entries ka aik seedha silsila (sequence) hota hai aur jo bhi usay parhta hai, usay bilkul wahi entries aik hi tarteeb mein nazar aati hain. Is ko implement karne ke tareeqe ko hum **Total Order Broadcast** ya **Atomic Broadcast** kehte hain.
+
+Ek Shared Log ke paas yeh paanch (5) shartain hoti hain:
+
+1. **Eventual append:** Agar koi zinda node log mein koi value add karne ki request bhejta hai, toh aakhir-kar woh value log ke andar jor di jayegi aur node usay parh sakay ga.
+2. **Reliable delivery:** Koi entry zaya nahi hogi. Agar kisi aik node ne log ki koi entry parh li, toh baqi saare zinda nodes bhi us entry ko aakhir-kar lazmi parhenge.
+3. **Append-only:** Aik dafa jo entry parhi gayi, woh hamesha ke liye paki (immutable) ho jati hai. Nayi entries hamesha uske aage hi jorhi ja sakti hain, piche nahi. Agar computer crash ho kar restart bhi ho jaye, tab bhi order nahi badlega.
+4. **Agreement:** Agar do nodes aik hi log entry $e$ tak pohanchte hain, toh us entry $e$ se pehle dono ne bilkul ek jaisa data aur ek hi tarteeb mein parha hoga.
+5. **Validity:** Log mein aane wali har value lazmi pehle kisi na kisi node ne request ki hogi.
+
+* **Shared Log $\implies$ Consensus:** Agar aap ke paas shared log chal raha hai, toh consensus haasil karna bacho ka khel hai. Jo bhi nodes apni value decide karwana chahti hain, woh log mein entry add karne ki request bhejti hain. Log ke **sab se pehle slot (Entry 1)** mein jis ki bhi request pehle deliver ho gayi, wahi pooray system ka aakhri faisla (decision) ban jata hai. Chunke sab nodes entries ko aik hi tarteeb mein parhti hain, sab ka agreement pakka ho jata hai.
+* **Consensus $\implies$ Shared Log:** Agar is ke ulat chalna ho, toh hum log ke har naye slot (Slot 1, Slot 2, Slot 3...) ke liye **Consensus ka aik alag aur azaad instance (run)** chalate hain.
+1. Node naye slot ke liye apni value propose karta hai.
+2. Consensus faisla karta hai ke is slot mein kya aayega.
+3. Agar node ki value is slot mein select nahi hui, toh woh aglay slot (Slot 4) ke liye dobara koshish (retry) karta hai.
+
+
+
+Is tarah Consensus aur Total Order Broadcast bhi aapas mein bilkul ek doosre ke barabar sabit hote hain. Single-leader replication bina automatic failover ke is liveness (termination) ki shart par poora nahi utarti kyunke leader marne par kaam ruk jata hai.
+
+---
+
+#### Fetch-and-add as consensus
+
+Hum ne pehle jo linearizable ID generator dekha tha, jo counter ko atomically $+1$ karta hai aur purani value return karta hai (`fetch-and-add`), kya woh consensus ke barabar hai? **Yeh thoda sa piche reh jata hai.**
+
+* **CAS $\implies$ Fetch-and-add:** Agar aap ke paas CAS hai, toh `fetch-and-add` banana bohot asaan hai. Aap counter ko read karein, phir CAS chalayein jahan expected value wahi ho jo aap ne read ki thi, aur new value mein $+1$ kar dein. Agar CAS fail ho jaye (kisi aur ne pehle barha diya), toh loop chala kar dobara retry karein jab tak kamyabi na milay.
+* **Fetch-and-add $\implies$ Consensus Ka Masla:** Agar counter shuru mein $0$ hai aur saare nodes consensus ke liye is counter par `fetch-and-add` chalate hain, toh jis node ko sab se pehle **0** milega, woh khud ko winner maan sakta hai. Winner ka faisla toh ho gaya, lekin baqi nodes (jinhein 1, 2, 3 mila hai) unhein sirf yeh pata chala ke woh khud **nahi jeete**, lekin unhein yeh nahi pata ke **asli winner kaun hai!** * Agar winner computer baqi sab ko batane se pehle hi crash ho jaye, toh baqi saare nodes hamesha ke liye latak jayenge aur termination toot jayegi.
+* Is liye distributed systems ki theory mein kehte hain ke `fetch-and-add` ka **Consensus Number sirf 2 hota hai** (yani yeh sirf do nodes ke darmiyan consensus hal kar sakta hai). Is ke baraks, CAS aur Shared Logs ka **Consensus Number $\infty$ (infinity)** hota hai, kyunke yeh jitne marzi nodes hon, sab ka consensus safely hal kar sakte hain.
+
+
+
+---
+
+#### Atomic commitment as consensus
+
+Distributed transactions (Chapter 7) mein hum ne **Atomic Commitment** ka masla parha tha, jahan saare database shards ka is baat par raazi hona zaroori hota hai ke transaction ko save (commit) karna hai ya khatam (abort) karna hai (jaise Two-Phase Commit - 2PC algorithm).
+
+Consensus aur Atomic Commitment dekhne mein bilkul same lagte hain, lekin in mein aik bohot hi barik aur gehra farq hai:
+
+> **The Golden Difference:** Consensus algorithm mein agar bohot saare nodes alag alag values propose karein, toh system un mein se **kisi bhi aik value** ko chun kar faisla kar sakta hai (sab sahi hain). Lekin Atomic Commitment mein agar aik bhi node ne keh diya ke **"Main abort (cancel) karna chahta hoon"**, toh pooray system ko har haal mein faisla **Abort** hi karna parta hai. Wahan kisi aik ki bhi 'no' sab par bhaari hoti hai.
+
+Atomic Commitment ki paanch (5) formal shartain hoti hain:
+
+1. **Uniform agreement:** Aisa nahi ho sakta ke aik node transaction commit kar de aur doosra abort kar de.
+2. **Integrity:** Ek dafa faisla ho gaya toh koi node apna dimaagh badal nahi sakta.
+3. **Validity:** Agar koi node commit karta hai, toh iska matlab hai ke pehle **saare nodes ne commit ke liye haan (vote) bola tha**. Agar kisi aik ne bhi abort bola, toh sab ko abort hi karna hoga.
+4. **Nontriviality:** Agar sab ne commit ke liye haan bola aur network mein koi timeout nahi hua, toh sab ko laazmi commit hi karna hoga (yani system khamkhah abort nahi kar sakta).
+5. **Termination:** Har woh node jo crash nahi hua, woh aakhir-kar kisi na kisi final nateeje (commit ya abort) par pohanch jaye ga.
+
+**Consensus Se Atomic Commitment Kaise Banayein?**
+Agar aap ke paas consensus algorithm pehle se hai, toh aap atomic commitment asani se implement kar sakte hain:
+
+1. Har node apna vote (commit ya abort) baqi saare nodes ko bhejta hai.
+2. Agar kisi node ko apna aur baqi sab ka vote "commit" mil jata hai, toh woh consensus algorithm mein **"Commit"** propose karta hai.
+3. Agar kisi ko aik bhi "abort" vote milta hai ya timeout hota hai, toh woh consensus mein **"Abort"** propose karta hai.
+4. Consensus algorithm jo bhi final decision nikalega (chahe commit ya abort), sab nodes uske mutabaq transaction ko save ya cancel kar dain ge. Chunke consensus sab ko aik hi page par rakhta hai, safety hamesha mehfooz rahegi.
+
+Is ke ulat, agar aap ke paas fault-tolerant atomic commitment protocol ho, toh aap us se consensus bhi hal kar sakte hain (har node registers par single-node CAS chala kar vote karta hai aur transaction chalata hai). Is tarah yeh dono bhi aapas mein barabar (equivalent) hain.
+
+### Consensus in Practice
+
+Hum ne yeh jaan liya hai ke single-value consensus, CAS, shared logs, aur atomic commitment andar se bilkul ek hi cheez hain—aap aik ka hal nikal kar baqi sab ko hal kar sakte hain. Yeh theory ki duniya mein toh bohot khoobsurat baat hai, lekin asal zindagi (practice) mein sawal yeh aata hai ke **in sab mein se kaun sa tareeqa sab se zyada kaam aata hai?**
+
+Iska jawab yeh hai ke practical life mein aksar consensus systems **Shared Logs** (jo ke Total Order Broadcast ke barabar hai) faraham karte hain. Raft, Viewstamped Replication, aur Zab algorithms aap ko pehle din se hi shared log bana kar dete hain. Paxos shuru mein sirf single-value consensus deta hai, lekin jab log asani ke liye isay barhate hain (**Multi-Paxos** banate hain), toh woh bhi aakhir-kar ek shared log hi ban jata hai.
+
+---
+
+### Using shared logs
+
+Ek shared log database replication ke liye sab se behtareen fit hai. Agar log ki har entry database mein hone wale aik badlao (write) ko dikhaye, aur saare computers (replicas) aik hi tarteeb (order) mein un writes ko apne paas chalayein, toh saare computers ka nateeja bilkul same aayega.
+
+* **State Machine Replication (SMR):** Is asool ko hum state machine replication kehte hain. Yeh bilkul **Event Sourcing** ke piche chhupa hua jadu hai jo hum ne pehle parha tha. Shared logs stream processing mein bhi bohot kaam aate hain.
+* **Serializable Transactions:** Agar log ki har entry aik transaction ko dikhaye jo ek fixed tarteeb mein chalni hai, aur har node usay isi order mein chalaye, toh transactions safely serializable ho jati hain.
+
+> **Sharded Databases Ka Masla:** Jo databases scaling ke liye data ko tukron mein baantti hain (**Sharding** karti hain), woh har shard ka alag log rakhti hain. Is se speed toh barh jati hai, lekin alag alag shards ke darmiyan paki consistency (jaise pooray database ka ek sath snapshot lena ya foreign-key check karna) mushkil ho jata hai. Is ke liye alag se coordination karni parti hai.
+
+Shared log ki sab se bari takat yeh hai ke isay doosri tarah ke consensus masail hal karne ke liye asani se use kiya ja sakta hai:
+
+* **Single-value / CAS:** Agar aap ko sirf aik value chunni hai, toh log mein jo entry **sab se pehle** likhi nazar aaye, usay winner maan lein.
+* **Theater Seats Booking (Multiple Instances):** Agar aik cinema mein bohot si seats hain aur log unhein book kar rahe hain, toh log entry mein seat number bhi likh dein. Jo seat number log mein sab se pehle deliver hoga, seat uski ho gayi!
+* **Atomic Fetch-and-Add:** Agar aap ko counter barhana hai, toh har dafa log mein woh number dalte jayein jo add karna hai. Counter ki maujooda value maaloom karne ke liye ab tak ke saare log entries ka jor (sum) nikal lein.
+* **Fencing Tokens:** Log entries par chalne wala counter aap ko fencing tokens (zombie requests se bachne ke liye nishan) bana kar de sakta hai. ZooKeeper mein is sequence number ko **zxid** kehte hain.
+
+---
+
+### From single-leader replication to consensus
+
+Hum ne pehle parha ke agar system mein sirf aik "Dictator" computer ho toh faisla karna asaan hai, aur agar aik hi leader ho toh shared log banana bhi bacho ka khel hai. Lekin asli sawal yeh hai ke **agar woh dictator ya leader computer mar (crash ho) jaye, toh fault tolerance kaise aayegi?**
+
+Purane zamane ke databases is mushkil maslay ko hal nahi karte the. Jab leader fail hota tha, toh ek insani administrator ko manually ja kar naya leader chunna parta تھا. Is mein bohot zyada downtime aata tha kyunke insaan itni jaldi faisla nahi kar sakte, aur yeh consensus ki termination property (kaam lazmi khatam hona) ke khilaf hai. Consensus ke liye zaroori hai ke **system khud-ba-khud (automatically) naya leader chun sakay.**
+
+Yeh kaam itna seedha nahi hai. Hum ne **Split Brain** ka khatra parha hai ke do nodes khud ko leader samajh kar ulat faislay kar sakte hain. Ab yahan ek ajeeb pech (conundrum/uljhan) paida ho jati hai:
+
+> *"Naya leader chunne ke liye hamein sab computers ka consensus (itfaq) chahiye, aur consensus haasil karne ke liye hamein ek leader chahiye! Yeh toh murgi pehle aayi ya anda jaisa chakkar ho gaya."*
+
+Consensus algorithms is uljhan se nikalne ke liye aik kamzor guarantee ka sahara lete hain: **Epoch Numbers**. Raft mein isay *Term*, Paxos mein *Ballot*, aur VR mein *View* number kehte hain. Yeh asal mein **hukumat ka daur** hota hai. Algorithm yeh guarantee deta hai ke **aik daur (epoch) ke andar sirf aik hi leader ho sakta hai.**
+
+**Naya Leader Chunne Ka Step-by-Step Tariqa:**
+
+1. **Timeout (Shak):** Jab kisi computer ko kafi dair tak leader se koi message nahi milta, toh woh samajhta hai ke leader mar chuka hai. Woh naya election shuru kar deta hai.
+2. **Epoch Barhana:** Yeh naya election purane epoch se bara number le kar shuru hota hai (jaise Epoch 1 khatam, ab Epoch 2 shuru).
+3. **Leader Ki Larai:** Agar do leaders aapas mein takra jayein (ho sakta hai purana leader mara na ho balkay thoda slow ho gaya ho), toh **jis leader ka Epoch number bara hoga, jeet uski hogi.**
+4. **Proposal Check:** Naya leader log mein koi bhi naye entry jorne se pehle yeh pakka karta hai ke kahin koi is se baray epoch wala leader toh nahi aa gaya. Is ke liye woh nodes ki majority (**Quorum**) se votes ikhtay karta hai. Node sirf tab "Haan" bolta hai agar usay kisi baray epoch wale leader ka pata na ho.
+
+**Voting Ke Do Rounds:**
+
+* **Round 1:** Leader chunne ke liye vote dalna.
+* **Round 2:** Leader ke naye log entry ke proposal par vote dalna.
+
+In dono votes ke quorums ka aapas mein takrana (**Overlap** hona) zaroori hai. Agar naye entry ka vote bina kisi baray epoch ke warning ke pass ho jaye, toh maujooda leader samajh jata hai ke abhi tak koi naya leader nahi chuna gaya, aur woh safely data log mein append kar deta hai.
+
+> **2PC Aur Consensus Mein Farq:** Yeh do rounds dekhne mein Two-Phase Commit (2PC) jaise lagte hain, lekin yeh bilkul alag hain. Consensus mein **koi bhi node** election shuru kar sakta hai aur faislay ke liye sirf **majority nodes (quorum)** ki haan chahiye. Jabke 2PC mein sirf **coordinator** hi request bhej sakta hai aur transaction bachane ke liye **har aik node ($100\%$)** ka 'yes' kehna lazmi hota hai.
+
+---
+
+### Subtleties of consensus
+
+Raft, Multi-Paxos, VR, aur Zab saare isi buniyadi dhabay par chalte hain: quorum vote se leader chuno, aur phir har naye entry ke liye dobara quorum vote lo. Har naye entry ko client ko "OK" kehne se pehle synchronous tareeqe se quorum nodes par copy kiya jata hai taake agar kal ko leader mar bhi jaye, toh data zaya na ho.
+
+Lekin asli shaitan is ki barikiyon (details) mein chhupa hota hai, jahan yeh algorithms alag alag tareeqe apnaate hain:
+
+* **Purane Data Ka Tahafuz:** Jab purana leader marta hai aur naya aata hai, toh naye leader ko purane leader ke confirm kiye hue data ka ehtram karna parta hai.
+* **Raft Ka Tareeqa:** Raft mein koi node leader ban hi nahi sakta jab tak uska apna log uski majority followers ke log se zyada naya ya up-to-date na ho.
+* **Paxos Ka Tareeqa:** Paxos mein koi bhi node leader ban jata hai, lekin naye entries likhne se PEHLE usay baqi nodes se data mangwa kar apne log ko up-to-date karna parta hai.
+
+
+
+---
+
+### Consistency Versus Availability in Leader Election
+
+Agar aap chahte hain ke consensus algorithm shared log ke rules ko strictly follow kare, toh naye leader ka bilkul up-to-date hona farz hai. Agar koi purane ya baasi (stale) data wala node leader ban gaya, toh woh purane leader ke confirmed data ke upar naya data likh dega, jis se log ka *append-only* rule toot jayega.
+
+Kuch mawaqe par log speed barhane ya jaldi recover karne ke liye in rules ko dheela kar dete hain:
+
+* **Kafka Ka Unclean Leader Election:** Kafka aap ko yeh option deta hai ke agar main leader mar jaye, toh jo bhi follower zinda hai usay leader bana do, chahe uska data lag (purana) hi kyun na ho.
+* **Asynchronous Replication:** Aise databases mein jab leader marta hai, toh is baat ki koi guarantee nahi hoti ke follower ke paas poora data tha.
+
+> **Khatray Ki Ghanti:** Agar aap leader ka up-to-date hona chhor dete hain, toh aap ki availability aur speed toh achi ho jayegi, lekin aap **bohot patli baraf (thin ice) par chal rahe hain**. Phir consensus ki theory ke rules apply nahi hote aur achanak aane wali kharabiyan aap ka data zaya ya corrupt (kharab) kar sakti hain.
+
+* **Linearizable Reads Ka Quorum Vote:** Agar database consensus use kar raha hai aur aap ko bilkul naya data parhna (**Linearizable Read**) hai, toh us read request ko bhi aik quorum vote se guzarna parta hai. Yeh check karne ke liye ke jo node khud ko leader samajh raha hai, kya asli mein abhi tak wahi leader hai ya badal chuka hai? **etcd** mein linearizable reads by default aise hi kaam karti hain.
+* **Reconfiguration (Nodes Badalna):** Shuruati consensus algorithms mein computers ki sankhya (nodes) fixed hoti thi. Lekin practical life mein hamein naye computers add karne parte hain ya purane nikalne parte hain (jaise naye region mein shift hona). Is ke liye modern algorithms mein reconfiguration features joray gaye hain.
+
+---
+
+### Pros and cons of consensus
+
+Consensus algorithms distributed systems ki duniya mein ek bohot bara karishmā (breakthrough) hain. Yeh asal mein **"Single-leader replication ka bilkul sahi aur perfect tareeqa"** hain, jahan failover automatically hota hai, data zaya nahi hota, aur split-brain ka sawal hi paida nahi hota.
+
+Jo system bina kisi proven consensus algorithm ke automatic failover ka daawa karta hai, woh pakka **unsafe (khatarnak)** hai.
+
+Lekin is jadu ki ek barri keemat (cost) chukani parti hai, jis ki wajah se yeh har jagah use nahi hota:
+
+* **Strict Majority Ki Shart:** Isay chalne ke liye hamesha aadhi se zyada nodes chahiye. 1 computer ki kharabi jhelne ke liye total 3 nodes, aur 2 kharabiyan jhelne ke liye total 5 nodes lagani parengi.
+* **Nodes Barhane Se Speed Kam:** Har kaam ke liye quorum se baat karni parti hai. Is liye aap naye nodes add kar ke system ki speed (throughput) nahi barha sakte, balkay jitne nodes zyada honge, voting mein utna zyada waqt lagega aur system slow ho jayega. Network partition ke waqt minority wala hissa block ho jata hai.
+* **Timeouts Ka Siyapa:** Nodes ke marne ka pata lagane ke liye timeouts use hote hain. Agar alag alag mulkon (regions) mein network delay badalta rahe, toh in timeouts ko tune karna azab ban jata hai. Timeout bara rakhein toh recovery slow hoti hai; chota rakhein toh khamkhah naye elections shuru ho jate hain, aur system kaam karne ke bajaye bas leader chunne mein hi busy rehta hai.
+* **Network Ki Sanjidgi (Vulnerabilities):** Raft mein aik aisi galti ho sakti hai ke agar poora network theek ho lekin sirf aik link kharab ho, toh leadership baar baar do nodes ke darmiyan ghoomti rehti hai aur system ka kaam ruk jata hai (Isay hal karne ke liye Raft mein **pre-vote phase** laya gaya). Paxos mein bhi aisi performance problems aati hain. Is ke ilawa **Egalitarian Paxos (EPaxos)** aik leaderless protocol hai jo kamzor network links ko behtar tarah jhelta hai.
+
+---
+
+### Coordination Services
+
+Consensus algorithms un saare distributed databases mein kaam aate hain jo linearizable operations dena chahte hain. Lekin systems ki aik makhsoos family is ka sab se zyada istemaal karti hai, jinhein hum **Coordination Services** kehte hain—jaise **ZooKeeper, etcd, aur Consul**.
+
+Yeh dekhne mein aam Key-Value stores (jaise Redis) lagte hain, lekin yeh heavy data storage ya bohot zyada writes ke liye **nahi bane hote**. Inka asal maqsad doosre distributed systems ke computers ke darmiyan **coordination (raabta aur discipline)** paida karna hota hai.
+
+* **Kubernetes etcd** par chalta hai.
+* **Spark aur Flink** background mein **ZooKeeper** par chalte hain.
+
+Yeh services chota sa data rakhti hain jo poora ka poora **Memory (RAM)** mein fit ho jata hai (halanqe safety ke liye disk par bhi likha jata hai) aur consensus ke zariye replicate hota hai. Yeh Google ke *Chubby* lock service ke tarz par bani hain aur in mein chaar (4) behtareen features hote hain:
+
+1. **Locks and leases:** Fault-tolerant CAS ki madad se distributed locks banaye jate hain. Agar bohot saare nodes aik sath lease pakarna chahein, toh consensus sirf aik ko kamyab karta hai.
+2. **Support for fencing:** Process ke achanak rukne (pause) se bachne ke liye yeh har log entry ko aik hamesha barhne wali ID dete hain (ZooKeeper mein `zxid`, etcd mein `revision`). Yeh IDs **Fencing Tokens** ka kaam karti hain.
+3. **Failure detection (Ephemeral Nodes):** Clients in services ke sath ek lambi session banate hain aur baar baar dil ki dharkan (**Heartbeats**) bhejte hain. Agar koi node marnay ke baad timeout tak heartbeat na bheje, toh coordination service usay murda samajh kar uske pakray hue locks/leases azaad kar deti hai. ZooKeeper mein aise nodes ko *Ephemeral Nodes* kehte hain.
+4. **Change notifications (Watches):** Client service ko keh sakta hai ke *"Jab bhi is key ka data badle, mujhe khud notification bhej dena"*. Is se client ko baar baar database se poochna (polling nahi karni) nahi parta. Jab koi naya computer cluster join karta hai ya fail hota hai, baqi sab ko notification se foran pata chal jata hai.
+
+---
+
+### Managing Configuration with Coordination Services
+
+Applications ke bohot se parameters hote hain jaise timeouts ka size ya thread pool ki ginti. Coordination services ko aksar is configuration data ko save karne ke liye use kiya jata hai.
+
+Jab bhi koi setting badalti hai, processes ko notification mil jati hai aur woh bina restart kiye foran nayi settings par kaam shuru kar dete hain. Is kaam ke liye consensus ka hona zaroori nahi hai, lekin chunke system mein pehle se coordination service chal rahi hoti hai, toh log is ke notification feature ka faida utha lete hain.
+
+---
+
+### Allocating work to nodes
+
+Agar aap ke paas ek hi service ke bohot saare computers chal rahe hain aur aap ne un mein se kisi aik ko **Main Leader / Primary** chunna hai, toh coordination service wahan bohot kaam aati hai. Agar main leader fail ho jaye, toh doosra node automatic uski jagah le leta hai.
+
+* **Shard Assignment:** Agar aap ke paas hazaron shards hain (database, streams, ya files) aur aap ne tay karna hai ke kaun sa shard kis computer ko dena hai, toh yeh kaam asani se atomic operations aur notifications ke zariye ho jata hai.
+* **Load Rebalancing:** Jab naye nodes aate hain, toh kuch shards unhein transfer kar diye jate hain. Jab koi node fail hota hai, toh uska kaam doosray nodes mein baant diya jata hai.
+
+Halanqe Apache Curator jaisi libraries ZooKeeper ke upar bani hui hain jo yeh kaam asan karti hain, lekin distributed locking khud se code karna abhi bhi mushkil hai. Phir bhi, yeh is se lakh darja behtar hai ke aap consensus algorithm khud zero se (from scratch) likhne baithay, kyunke us mein bugs aana pakka hai.
+
+> **Outsourcing Consensus:** Ek barri storage system mein hazaron nodes ho sakte hain. Agar aap hazaron nodes ke darmiyan consensus algorithm chalayenge, toh voting mein hi poora system baith jayega (terribly inefficient). Is ka hal yeh hai ke consensus ka kaam **Outsource** kar diya jaye—yani consensus ka zimma sirf 3 ya 5 nodes par chalne wali Coordination Service ko de diya jaye, aur baqi hazaron nodes bas un se faisla pooch kar kaam karein.
+
+Yad rahe ke coordination service ka data bohot aazadi aur aaram se badalta hai (jaise "IP 10.1.1.23 ab Shard 7 ka leader hai", yeh faisla ghantong tak nahi badlega). Yeh service aise data ke liye **hargiz nahi hai** jo aik hi second mein hazaron dafa badal raha ho. Tez badalney wale data ke liye Apache BookKeeper jaise tools use kiye jate hain.
+
+---
+
+### Service discovery
+
+ZooKeeper, etcd, aur Consul ko log **Service Discovery** (yani yeh maaloom karna ke kisi makhsoos service se baat karne ke liye kis IP address par connect karna hai) ke liye bhi use karte hain.
+
+Cloud environments mein virtual machines aati jati rehti hain, is liye IPs pehle se pata nahi hote. Jab koi service start hoti hai, toh woh apna IP Registry mein save kar deti hai taake doosri services usay dhoond sakein.
+
+* **Overkill (Zaroorat se zyada):** Service discovery ke liye consensus ka use karna aksar zaroorat se zyada (overkill) hota hai. Is kaam ke liye linearizability zaroori nahi hoti, balkay system ka **Highly Available aur Tez** hona zaroori hai. Agar service discovery hi slow ho gayi, toh poora system jam jayega.
+* **Cache Aur TTL Ka Istemaal:** Is liye behtar tareeqa yeh hota hai ke service discovery ki jankari ko cache (save) kar liya jaye. Agar connection fail ho, tab hi naya data manga jaye. DNS is ki behtareen misaal hai jo caching ke zariye chalta hai.
+* **ZooKeeper Observers:** Is zaroorat ko poora karne ke liye ZooKeeper mein **Observers** hote hain. Yeh aise replicas hote hain jo data ki copy toh apne paas rakhte hain lekin consensus ki voting mein hissa nahi lete. Un se parha hua data stale (purana) ho sakta hai, lekin network partition ke dauran bhi yeh available rehte hain aur reads ki speed bohot barha dete hain.
+
+
+---
