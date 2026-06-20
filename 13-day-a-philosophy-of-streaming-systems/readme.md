@@ -707,3 +707,121 @@ Jaisa is kitaab ke har chapter ne sabit kiya hai, distributed systems mein concu
 Isi wajah se, distributed systems ke future mein hum aisi naye fault-tolerance abstractions ko explore kar rahe hain jo applications ko custom end-to-end correctness bhi safely faraham karein, aur sath hi sath distributed environment mein unki speed, low-latency, aur scalability bhi kamaal rahay.
 
 ---
+
+
+## Enforcing Constraints
+
+Hum ne pehle dekha ke system mein duplicate requests (ek jaisay kaamo) ko dabane ke liye frontend se lekar database tak ek unique `request_id` paki jorr di jati hai, jis se poora end-to-end flow safe ho jata hai. Lekin sawal yeh paida hota hai ke database ke doosray rules aur pabandiyan (**Constraints**) hum is unbundled dataflow architecture mein kaise chalayenge?
+
+Khaas tor par, hum baat karenge **Uniqueness Constraints** (anokha hone ki shart) par, jaise hum ne Example 13-2 mein `request_id` ko unique rakhne ke liye use ki thi. Asli zindagi mein iski bohot si examples hain:
+
+* Ek unique username ya email address jo sirf aik hi user ka ho sake.
+* File storage service (jaise Google Drive) jahan aik hi folder mein aik naam ki do files na ho sakein.
+* Ek hi jahaz ya theater ki seat ko do alag log aik sath book na kar sakein.
+
+Duskray kism ke rules bhi bilkul isi tarah kaam karte hain—jaise yeh pakka karna ke bank account ka balance kabhi minus (negative) mein na jaye, ya godam (warehouse) mein para hua stock jitna hai us se zyada maal na bikay, ya aik hi meeting room mein do alag meetings ka waqt aprop mein na takraye (overlapping bookings). Jo tareeqay uniqueness constraint ko lagane ke liye use hote hain, wahi in saare baqi rules par bhi apply kiye jaate hain.
+
+---
+
+### Uniqueness constraints require consensus
+
+Chapter 10 mein hum ne bohot gehrai se parha tha ke distributed system (hazaron computers) mein agar aap ko uniqueness constraint chalani hai, toh is ke liye **Consensus (Itfaq-e-rai)** farz hai. Agar do alag users aik hi waqt mein bilkul same username claim karne ki request bhej dein, toh system ko har haal mein aprop mein faisla karna hoga ke kis ki request qubool (accept) karni hai aur kis ko rule tortne ki wajah se reject karna hai.
+
+* **Single Leader Ka Tareeqa:** Is consensus ko haasil karne ka sab se aam rasta yeh hai ke aik single computer ko leader (dictator) bana diya jaye aur saari chinta us par chorr di jaye. Yeh tab tak perfect chalta hai jab tak aap ko poori duniya ka load aik node se guzarne par koi aitraz na ho, aur jab tak woh leader node khud zinda rahay. Raft jaisay consensus algorithms tab kaam aate hain jab main leader mar jaye aur safely bina split-brain ke naya leader chunna ho.
+* **Scaling Out via Sharding:** Uniqueness checking ke bohot baray load ko sambhalne ke liye hum data ko keys ke mutabaq **Sharding (tukron)** mein baant sakte hain. Agar `request_id` unique rakhni hai, toh aik ID ke saare updates aik hi shard par bhejein. Agar username unique rakhna hai, toh username ka *Hash* nikal kar usay makhsoos shard par lock kar dein.
+
+> **The Hard Trade-off (Sakht pabandi):** Asynchronous multi-leader replication yahan poori tarah **fail** ho jati hai. Kyunke do alag mulkon mein baithe leaders aik hi waqt mein do alag logon ko same username de sakte hain, aur baad mein data sync karte waqt uniqueness toot chuki hogi. Is liye agar aap chahte hain ke galat write operation database mein dakhil hote hi foran reject ho jaye, toh **Synchronous Coordination** (computers ka aik sath raste mein ruk kar baat karna) na-guzeer (unavoidable) ho jata hai.
+
+---
+
+### Uniqueness in log-based messaging
+
+Ek shared log (jaise Kafka partition) ki sab se barri takat yeh hoti hai ke us ke andar saare consumers ko messages hamesha aik hi exact tarteeb (**Total Order Broadcast**) mein milte hain, jo ke consensus ke barabar hai. Unbundled database architecture mein hum isi log-based messaging ka use karke uniqueness constraints safely chala sakte hain.
+
+Ek stream processor computer aik partition (shard) ke saare messages ko sequentially **aik single thread** par line se parhta hai. Is liye agar hum log ko us makhsoos value ke mutabaq shard (partition) kar dein jise unique rakhna hai, toh stream processor bina kisi confusion ke bilkul pakka (deterministically) faisla kar sakta hai ke log ke andar kaun sa message pehle aaya tha aur winner kaun hai!
+
+Chalein username register karne ki misaal ko step-by-step bacho ki tarah asaan karke samajhte hain:
+
+1. **Step 1 (The Request Log):** Jab bhi koi bacha naya account banane ke liye username ki request bhejega, system us request ka aik message banayega. Username ka hash nikal kar usay makhsoos shard ke log ke aakhir mein append kar diya jaye ga.
+2. **Step 2 (The Processor Logic):** Stream processor us shard ke messages ko line se parhta hai. Uske paas aik chota sa local database (hash table) hota hai jahan taken (pehle se book hue) usernames ki list hoti hai.
+* *Case A (Khali hai):* Agar naya username list mein khali mila, processor usay local DB mein 'taken' mark karega aur output stream mein `Success` ka message phenk dega.
+* *Case B (Pehle se book hai):* Agar naya username pehle se list mein maujood hai, processor us request ko reject karega aur output stream mein `Rejection` ka message phenk dega.
+
+3. **Step 3 (Client Response):** Request bhejne wala client mobile app output stream par nazar (**Watch**) rakh kar betha hota hai. Jaise hi uski request ID ka success ya failure message aata hai, screen par response dikha diya jata hai.
+
+Yeh algorithm bilkul wahi shared-log consensus hai jo hum ne pehle parha tha. Partitions ki ginti barha kar aap is system ki speed (throughput) jitni chahein barha sakte hain, kyu ke har shard aik doosre se azaad chalta hai. Iska bunyadi asool yeh hai: **Har woh kaam jo aprop mein takraye (conflict kare), usay aik hi partition par route karke sequentially chalao.** Inside the processor, aap jo chahein custom validation logic (rules) likh sakte hain.
+
+---
+
+### Multishard request processing
+
+Rules ko safely chalana tab mazeed dilchasp aur complex ho jata hai jab aik hi kaam mein **aik se zyada alag alag shards (multishard)** shamil hon. Example 13-2 wale bank transfer ko hi dekh lein, wahan total teen alag shards shamil ho sakte hain:
+
+1. Aik shard jahan unique `request_id` ka table para hai.
+2. Aik shard jahan paise lene wale (`payee`) ka account para hai.
+3. Aik shard jahan paise bhejne wale (`payer`) ka account para hai.
+
+In teeno cheezon ka aik hi single computer shard par hona zaroori nahi hai kyu ke yeh teeno azaad entities hain.
+
+* **Traditional DB Ka Tareeqa:** Purane databases mein is transaction ko chalane ke liye teeno shards ke darmiyan cross-shard atomic commit (2PC) chalana parta hai, jo saare shards ko aik sath lock kar ke slow kar deta hai, jis se cluster ki overall speed (throughput) baith jati hai.
+* **Unbundled Dataflow Ka Tareeqa:** Lekin agar hum sharded logs aur stream processors ka use karein, toh hum bina kisi multi-shard transaction ya locks ke bilkul perfect atomicity haasil kar sakte hain.
+
+Hum background mein chalne wale is poore payment system ke dataflow ko, jo **Figure 13-2** mein dikhaya gaya hai, step-by-step bacho ki tarah breakdown karte hain ke kaise paise katte hain, fees jama hoti hai, aur checks lagte hain:
+
+#### Figure 13-2 Ka Step-by-Step Flow Breakdown
+
+<div align="center">
+  <img src="./images/02.png" width="700"/>
+</div>
+
+##### 1. Request Append (Payer Side Start)
+
+User ka client computer paise transfer karne ki request banata hai. Us request ke sath aik unique `request_id` jorrtay hain aur usay **Source Account (Payer) ke log shard** ke aakhir mein append kar dete hain. (Kyunke main check balance ka lagna hai, is liye request payer ke log mein gayi).
+
+##### 2. Balance Checking & Reservation (The Source Processor)
+
+**Source Account Event Processor** apny log se is request ko parhta hai. Yeh processor apne paas ek local database rakhta hai jahan source account ka balance aur purani processed request IDs save hoti hain.
+
+* Processor check karta hai ke kya yeh request ID pehle toh nahi aayi? (Deduplication). Phir check karta hai ke kya account mein **kafi paise (sufficient funds) maujood hain?**
+* **If Yes (Paise hain):** Processor apne local DB mein se utni raqam temporary lock (**Reserve**) kar leta hai. Phir woh aik sath teen alag alag output logs mein naye events emit (append) kar deta hai:
+1. Aik `Outgoing Payment Event` khud apne hi input log shard par bhejta hai.
+2. Aik `Incoming Payment Event` paise lene wale (Destination Account) ke log shard par bhejta hai.
+3. Aik `Incoming Fees Event` bank ki fees wale account ke log shard par bhejta hai.
+
+
+* *Note:* In teeno naye events ke andar asli `request_id` paki jorhi hoti hai.
+
+
+
+##### 3. Outgoing Execution (Confirming Payer State)
+
+Kuch dair baad, woh `Outgoing Payment Event` ghoom phir kar wapis isi Source Account Processor ke paas deliver hota hai. Processor request ID dekh kar samajh jata hai ke *"Haan, yeh wahi payment hai jiske paise main ne step 2 mein reserve kiye the"*. Woh transaction ko final execute karta hai aur balance permanent minus kar deta hai. Agar network crash ki wajah se duplicate message aaye, request ID dekh kar usay ignore kar diya jata hai.
+
+##### 4. Destination & Fees Credit (The Consumers)
+
+Doosri taraf, **Destination Account Event Processor** aur **Fees Account Event Processor** azaadana apne apne log shards ko parh rahe hote hain. Jaise hi unhein `Incoming Payment` ka event milta hai, woh request ID se duplicate check karte hain aur apny local state balance mein paise plus (credit) kar dete hain.
+
+---
+
+#### Crash Handling Aur Atomicity Ka Asal Sach (The Magic)
+
+Sochein agar Step 2 par kaam karte waqt Source Account Processor ne teen output messages hawa mein phenke hi the ke **achanak computer crash (tabah) ho gaya!** Ab distributed transaction ke bina system sahi kaise rahega?
+
+* **At-Least-Once Semantics Se Recovery:** Jab computer restart ho kar wapis zinda hoga, toh chunk checkpoint piche tha, woh us payment request message ko **dobara parhay ga**.
+* **Determinism Ka Faida:** Chunke processor ka dimaagh deterministic hai (yani same input par hamesha same faisla karta hai), woh dobara check karega aur dubara kahega ke *"Haan, paise hain"*. Woh **wahi teeno output messages bilkul same request ID ke sath dobara emit kar dega**.
+* **Deduplication Se Bachao:** Jab downstream processors (Destination/Fees) ke paas woh duplicate messages pohanchengi, toh unke tables kahein ge ke *"Bhai! Is request ID ka paisa hum pehle hi jama kar chuke hain"*, aur woh us naye duplicate message ko safely **ignore (drop)** kar dain ge.
+
+Is poore system mein atomicity kisi mehangay transaction protocol se nahi aayi, balkay is unique asool se aayi hai ke **shuruati request ko source log mein append karna aik atomic action tha.** Ek dafa request agar main log mein likhi gayi, toh aage chalne wale saare distributed steps aakhir-kar (eventually) har haal mein mukammal ho kar hi rahein ge—chahe beech mein computers crash hon ya messages duplicate hon. Nateeja hamesha perfect rahe گا۔
+
+Agar user check karna chahe ke meri payment pass hui ya fail, toh woh source log shard ko subscribe karke baith jaye. Agar balance kam hoga, toh processor stream mein `Declined Payment` ka event phenk dega jo user ko screen par dikh jaye ga. Is tarah multishard transaction ko chote stages mein tor kar bina locks ke $100\%$ correctness haasil ki ja sakti hai.
+
+---
+
+### Revision Hints (Fast Recall Rules)
+
+* **Constraints $\implies$ Consensus:** Distributed environment mein uniqueness constraint chalane ke liye hamesha consensus (itfaq) chahiye, jise sharding aur single-threaded log processors se asani se scale kiya ja sakta hai.
+* **The Shared-Log Power:** Agar partition unique key ke mutabaq sharded ho, toh single-threaded consumer deterministically pehle aane wale write ko winner aur baad wale ko reject kar deta hai.
+* **Multishard Without Locks:** Multi-shard transactions ko distributed systems mein independent streaming stages mein tor kar, end-to-end `request_id` ke zariye bina kisi distributed lock (2PC) ke safely chalaaya jata hai.
+* **Atomicity via Append:** Atomicity log ke pehle slot mein write insert karne se aati hai. Ek dafa event log mein chala gaya, downstream systems use eventually safely process kar hi letay hain.
+
+---
