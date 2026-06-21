@@ -77,7 +77,7 @@ Is chapter mein agay hum inhi cheezon ko gehrai mein parhenge:
 
 Duniya ke taqreeban tamaam relational databases (jaise MySQL, PostgreSQL) aur kuch non-relational databases aaj transactions ko support karte hain. Yeh koi naya concept nahi hai. Is style ki shuruat **1975 mein IBM System R** ne ki thi, jo ke duniya ka sab se pehla SQL database tha. Pichle 50 saalon mein is ke andar ke chote-mote badlao zaroor aaye hain, lekin buniyadi idea bilkul wahi hai jo System R ka tha.
 
-* **NoSQL Ka Daur (Late 2000s):** Jab NoSQL databases bohot mashhoor hone lage, to unhon ne shuruat mein transactions ko bilkul khatam kar diya ya phir un ki guarantees ko bohot kamzoor kar diya. Un ka maqsad naye data models lana aur **replication** (data ki copies banana) aur **sharding** (data ko alag alag hisson mein baantna) ko aam banana تھا.
+* **NoSQL Ka Daur (Late 2000s):** Jab NoSQL databases bohot mashhoor hone lage, to unhon ne shuruat mein transactions ko bilkul khatam kar diya ya phir un ki guarantees ko bohot kamzoor kar diya. Un ka maqsad naye data models lana aur **replication** (data ki copies banana) aur **sharding** (data ko alag alag hisson mein baantna) ko aam banana tha.
 * **Aik Purani Ghalat Fehmi (The Hype):** Log samajhne lage ke transactions aur scalability (bohot bade scale par chalna) aik sath nahi chal sakte. Logon ka khayal tha ke agar system ko bohot tez (high performance) aur har waqt chalta hua (high availability) rakhna hai, to transactions ko chorna parega.
 * **NewSQL Ka Aana (The Comeback):** Lekin waqt ke sath yeh khayal ghalat sabit hua. Naye databases jaise **CockroachDB, TiDB, Spanner, FoundationDB,** aur **YugabyteDB** ne yeh sabit kiya ke transactions ko bohot bade scale par chalaya ja sakta hai. Yeh databases **sharding** aur **consensus protocols** (aik aisi taknik jahan bohot saari machines mil kar aik faisle par raazi hoti hain) ka istemal kar ke bohot bade scale par bhi sakht ACID guarantees dete hain.
 
@@ -101,12 +101,12 @@ BASE ki definition itni ajeeb aur khuli hai ke is ka aasan matlab sirf yeh banta
 
 ---
 
-### Atomicity
+### Atomicity (adəˈmisədē)
 
 Aam tor par "Atomic" ka matlab hota hai aik aisi cheez jis ke mazeed tukde na kiye ja sakein. Lekin computer science ki alag alag branches mein is ka matlab thoda badal jata hai:
 
 * **Multithreaded Programming Mein:** Agar aik thread koi atomic kaam kar rahi hai, to doosri thread usay aadha naya aur aadha purana nahi dekh sakti. System ya to kaam se pehle wali haalat mein hoga ya kaam ke baad wali haalat mein, beech mein kuch nahi hoga.
-* **ACID Transactions Mein:** Yahan atomicity ka concurrency (aik sath kaam hone) se koi taluq nahi hai! (Concurrency ko 'I' yaani Isolation handle karta hai). ACID mein Atomicity ka matlab hai: **Agar client bohot saare writes (data save) kar raha hai aur beech mein koi ghalti (fault) aa jaye, to kya hoga?** * **The Abortability Feature:** Farz karein computer crash ho jaye, network kat jaye, ya hard drive full ho jaye. Agar wo saare kaam aik "Atomic Transaction" ke andar hain, to database us transaction ko **Abort (cancel)** kar dega. Aur ab tak jitna bhi aadha-adhura kaam hua tha, database usay **discard (khatam)** ya **undo (wapas pehle jaisa)** kar dega.
+* **ACID Transactions Mein:** Yahan atomicity ka concurrency (aik sath kaam hone) se koi taluq nahi hai! (Concurrency ko 'I' yaani Isolation handle karta hai). ACID mein Atomicity ka matlab hai: **Agar client bohot saare writes (data save) kar raha hai aur beech mein koi ghalti (fault) aa jaye, to kya hoga?**  **The Abortability Feature:** Farz karein computer crash ho jaye, network kat jaye, ya hard drive full ho jaye. Agar wo saare kaam aik "Atomic Transaction" ke andar hain, to database us transaction ko **Abort (cancel)** kar dega. Aur ab tak jitna bhi aadha-adhura kaam hua tha, database usay **discard (khatam)** ya **undo (wapas pehle jaisa)** kar dega.
 
 > **Bacchon ki Tarah Asaan Samjhein:** Socho aap computer par aik bada folder copy kar rahe ho jis mein 100 photos hain. 50 photos copy huin aur achanak light chali gayi. Agar system atomic nahi hai, to agli baar light aane par wahan sirf 50 photos parhi hongi aur aap ko samajh nahi aayega ke kaunsi bachi hain (Duplicate hone ka khatra). Lekin agar system Atomic hai, to light aane par wo un 50 photos ko bhi mita dega, taake aap sukoon se dobara zero se shuru kar sakein. Isay kehte hain "Ya to poora kaam, ya kuch bhi nahi!"
 
@@ -132,7 +132,7 @@ Aam tor par "Atomic" ka matlab hota hai aik aisi cheez jis ke mazeed tukde na ki
 Chalein ab is di gayi image (Figure 8-1) ka aik aik step bohot detail mein break down karte hain ke kaise bina safety ke data kharab hota hai.
 
 <div align="center">
-  <img src="./images/01.png" width="700"/>
+  <img src="./images/01.png" width="800"/>
 </div>
 
 * **The Setup:** Database mein aik counter save hai jis ki shuruati value **42** hai. Do alag alag users (User 1 aur User 2) aik hi waqt mein is counter ko 1 number se barhana (increment karna) chahte hain. Agar dono ka kaam sahi ho, to final value **44** honi chahiye (42 + 1 + 1).
@@ -199,7 +199,7 @@ Yeh definitions yeh tasawwur karti hain ke aap aik sath bohot saare **objects (r
 Chalein is image (Figure 8-2) ke poore flow ko step-by-step bohot detail mein samajhte hain ke jab database Isolation ke rule ko torta hai, to kya ajeeb masla peda hota hai:
 
 <div align="center">
-  <img src="./images/02.png" width="700"/>
+  <img src="./images/02.png" width="800"/>
 </div>
 
 * **The Scenario:** Writer ne email application ki misal di hai. Agar humein kisi user ke unread emails count karne hon, to aam query yeh hoti hai: `SELECT COUNT(*) FROM emails WHERE recipient_id = 2 AND unread_flag = true`. Lekin agar emails hazaron mein hon, to yeh count lagana slow ho sakta hai. Is se bachne ke liye developers **Denormalization** karte hain—yaani aik alag table/field mein unread emails ka counter save kar dete hain (jaise `mailboxes` table mein `unread` ka column).
@@ -218,7 +218,7 @@ Chalein is image (Figure 8-2) ke poore flow ko step-by-step bohot detail mein sa
 Chalein ab is doosri image (Figure 8-3) ke step-by-step flow ko samajhte hain jo Atomicity ki zaroorat ko dikhati hai:
 
 <div align="center">
-  <img src="./images/03.png" width="700"/>
+  <img src="./images/03.png" width="800"/>
 </div>
 
 * **Step 1:** User 1 ne successfully email insert kar diya: `insert into emails...`. Database ne kaha **"OK"**.
@@ -239,7 +239,7 @@ Multi-object transactions mein database ko kaise pata chalta hai ke kaun kaun si
 
 ### Single-object writes
 
-Atomicity aur Isolation sirf bohot saare records par hi nahi, balke **aik akele record/object** ko badalte waqt bhi utni ہی zaroori hain. Farz karein aap database mein aik bada **20 kB ka JSON document** save kar rahe hain:
+Atomicity aur Isolation sirf bohot saare records par hi nahi, balke **aik akele record/object** ko badalte waqt bhi utni hey zrori hain. Farz karein aap database mein aik bada **20 kB ka JSON document** save kar rahe hain:
 
 1. Agar 10 kB data transfer hone ke baad internet connection kat jaye, to kya database us aadhe-adhure kharab JSON ko save kar ke baith jayega?
 2. Agar database disk par purane data ke upar naya data likh raha ho aur achanak light chali jaye, to kya purana aur naya data aapas mein khichdi (spliced/corrupt) ban jayega?
@@ -380,7 +380,7 @@ Read-Committed isolation level ka sab se bada kaam hi yeh hai ke wo dirty reads 
 Chalein is image (Figure 8-4) ke aik aik step ko timeline ke mutabaq break down karte hain ke Read-Committed level dirty reads ko kaise rokta hai:
 
 <div align="center">
-  <img src="./images/04.png" width="700"/>
+  <img src="./images/04.png" width="800"/>
 </div>
 
 * **Initial State:** Database mein aik variable `x` hai jis ki shuruati value **2** hai.
@@ -417,7 +417,7 @@ Lekin socho agar pehla write chalane wali transaction abhi tak commit nahi hui t
 Chalein is used-car sales website wali dilchasp misal (Figure 8-5) ko step-by-step break down karte hain ke jab dirty writes hote hain, to data ka kachra kaise banta hai:
 
 <div align="center">
-  <img src="./images/05.png" width="700"/>
+  <img src="./images/05.png" width="800"/>
 </div>
 
 * **The Goal:** Aik purani gari bik rahi hai (id = 1234). Is ko khareedne ke liye database mein do kaam karne hain: pehla `listings` table mein khareedne wale ka naam likhna hai, aur doosra `invoices` table mein usay bill (invoice) bhejna hai.
@@ -449,7 +449,7 @@ Dirty writes se bachne ke liye databases taqreeban hamesha **Row-level locks** (
 
 Dirty reads ko rokne ke do tarike ho sakte hain:
 
-* **Tarika A (Read Locks):** Aik tarika yeh ho sakta hai ke jab kisi ko data parhna ho, to wo bhi thodi der ke liye us row par lock lagaye aur parhte ہی tala khol de. Is se koi bhi adhoori value parh nahi sakega kyunke write transaction ne pehle hi tala lagaya hoga.
+* **Tarika A (Read Locks):** Aik tarika yeh ho sakta hai ke jab kisi ko data parhna ho, to wo bhi thodi der ke liye us row par lock lagaye aur parhte hey tala khol de. Is se koi bhi adhoori value parh nahi sakega kyunke write transaction ne pehle hi tala lagaya hoga.
 * *Nuksan:* Yeh tarika asli zindagi mein bohot bura sabit hota hai. Agar koi aik lambi write transaction chal rahi hai, to wo saare parhne wale (read-only) users ko block kar ke bitha degi, bhale hi unhon ne database mein kuch badalna na ho. Is se pooray software ki speed slow ho jati hai.
 * *Kahan use hota hai?* Phir bhi kuch databases isay use karte hain jaise **IBM Db2** aur **MS SQL Server** (agar us mein `read_committed_snapshot=off` set kiya gaya ho).
 
@@ -484,7 +484,7 @@ Lekin, Read-Committed isolation use karte hue bhi **Concurrency Bugs** (aik sath
 Chalein is image (Figure 8-6) ki timeline ko step-by-step bohot gehri detail mein break down karte hain ke kaise paise hawa mein gayab hote hue dikhte hain:
 
 <div align="center">
-  <img src="./images/06.png" width="700"/>
+  <img src="./images/06.png" width="800"/>
 </div>
 
 * **The Setup:** Aaliyah ke bank mein total **$1,000** save hain, jo do alag alag accounts (Account 1 aur Account 2) mein **$500** aur **$500** kar ke rakhe hue hain. Background mein aik doosri transaction chal rahi hai (Transfer Transaction) jo Account 2 se $100 nikaal kar Account 1 mein transfer kar rahi hai.
@@ -532,7 +532,7 @@ Chalein ab **Figure 8-7** ko poori bareeki se dekhte hain ke PostgreSQL is MVCC 
 2. `deleted_by`: Kis transaction ne is row ko delete karne ki request ki (shuru mein yeh empty hoti hai).
 
 <div align="center">
-  <img src="./images/07.png" width="700"/>
+  <img src="./images/07.png" width="800"/>
 </div>
 
 * **Step 1 (Transaction IDs):** Jab bhi koi transaction shuru hoti hai, usay aik unique aur hamesha barhne wala number milta hai jisay **Transaction ID (txid)** kehte hain. Yahan Aaliyah ki transaction ka `txid = 12` hai aur Transfer transaction ka `txid = 13` hai.
