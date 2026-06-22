@@ -1039,6 +1039,8 @@ Chalein ab aap ki bheji gayi image (Figure 8-9) ke dono patterns ko step-by-step
   <img src="./images/09.png" width="700"/>
 </div>
 
+---
+
 * **Interactive Transaction Flow:**
 1. **Step 1:** Application machine se request nikalti hai: `select count(*) from doctors where on_call = true and shift_id = 1234`. Yeh network par travel kar ke database ke Query Processor tak pahunchegi.
 2. **Step 2:** Query processor storage se data nikalega aur wapas network ke zariye count **2** application ko bhejega. (Yahan 2 network hops lag gaye).
@@ -1046,10 +1048,7 @@ Chalein ab aap ki bheji gayi image (Figure 8-9) ke dono patterns ko step-by-step
 4. **Step 4:** Code faisla karta hai aur naya write bhejta hai: `update doctors set on_call = false where name = 'Bryce'`. Yeh teesra network hop hai.
 5. **Step 5:** Database update kar ke wapas **OK** ka signal bhejta hai (Chautha network hop).
 
-
 * **Natija:** 4 alag network round-trips huin aur database beech mein idle raha. Agar single-thread ho to system block ho jayega.
-
-
 
 ```
 Stored Procedure:
@@ -1068,11 +1067,12 @@ Application                Query Processor            Storage
 
 ```
 
+---
+
 * **Stored Procedure Flow:**
 1. **Step 1:** Application sirf aik hi baar net par aik single command bhejt hai: `execute stored procedure take_doctor_off_call_if_safe with name='Bryce', shift_id=1234`.
 2. **Step 2 (Database Ke Andar):** Chunke procedure ka poora code pehle se hi database ke query processor ke paas para tha, wo bina kisi network delay ke foran storage se select chalata hai (count milta hai 2), database ke memory ke andar hi instant `if` check condition chalti hai, aur foran update query chala kar kaam khatam kar deta hai.
 3. **Step 3:** Poore process ka aakhri final result (**OK**) aik hi jhatke mein network par wapas application ko bhej diya jata hai.
-
 
 * **Natija:** Koi fuzool network delay nahi hua. Data RAM mein hone ki wajah se stored procedure kuch hi micro-seconds mein execute ho kar thread ko agli transaction ke liye khali kar deta hai.
 
