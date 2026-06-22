@@ -230,9 +230,13 @@ Real life mein gaari chalate huay travel time kyun badhta hai? Traffic jam (cong
 
 Aap ne jo diagram share ki hai, woh network switch ke andar ka traffic jam dikhati hai. Isko step-by-step samajhte hain:
 
+----
+
 <div align="center">
   <img src="./images/02.png" width="700"/>
 </div>
+
+----
 
 1. **Input Links (Port 1, 2, 3, 4):** Baayein (left) taraf se chaar alag-alag ports se data ke chhote blocks (packets) switch ke andar aa rahe hain. Har port ke packets ka rang alag hai (Port 1 ke kaale hain, Port 2 ke grey hain, Port 4 ke safaid hain).
 2. **Switch Fabric:** Yeh switch ka andaruni rasta hai jo packets ko sahi disha mein bhejta hai.
@@ -299,7 +303,7 @@ Yeh network **Synchronous** hota hai. Data bhale hi kai routers se guzre, usay k
 
 Yaad rakhein ke telephone network ka ek **Circuit** aur computer network ka ek **TCP Connection** do bilkul alag cheezein hain. Circuit mein bandwidth ka ek fixed hissa pakka book hota hai jisay koi doosra banda use nahi kar sakta jab tak call chal rahi hai, jabke TCP connection ke packets aapas mein dhakka-pel karke jo bhi bandwidth milti hai usay opportunistically (moka parast tarike se) istemal karte hain. Aap TCP ko kisi bhi size ka data de dein (jaise ek email ya web page), woh usay kam se kam waqt mein pohnchane ki koshish karega. Aur jab TCP khaali betha ho, to woh koi bandwidth zaya nahi karta (siwaye kabhi kabhar ek chote se keepalive packet ke).
 
-Agar hamare data centers aur internet bhi telephone ki tarah circuit-switched networks hote, to jab circuit banta tabhi hum ek guaranteed maximum round-trip time (delay) set kar sakte تھے. Lekin aisa nahi hai. Ethernet aur IP protocols **Packet-switched** hote hain, jahan data queues mein phans jata hai aur isi wajah se network mein delay **Unbounded** (bina kisi aakhri had ke) ho jata hai. In protocols mein circuit ka koi concept hi nahi hota.
+Agar hamare data centers aur internet bhi telephone ki tarah circuit-switched networks hote, to jab circuit banta tabhi hum ek guaranteed maximum round-trip time (delay) set kar sakte thy Lekin aisa nahi hai. Ethernet aur IP protocols **Packet-switched** hote hain, jahan data queues mein phans jata hai aur isi wajah se network mein delay **Unbounded** (bina kisi aakhri had ke) ho jata hai. In protocols mein circuit ka koi concept hi nahi hota.
 
 **Hum data centers aur internet mein packet switching kyun use karte hain?**
 Iska jawab yeh hai ke computer networks ko **Bursty Traffic** ke liye optimize kiya gaya hai. Ek circuit us kaam ke liye behtar hai jahan har second barabar data (bits) bhejna ho, jaise audio ya video call. Lekin jab aap koi web page kholte hain, email bhejte hain, ya koi file download karte hain, to koi constant bandwidth ki shart nahi hoti—hum bas chahte hain ke jo bhi kaam ho, woh jaldi se jaldi khatam ho jaye.
