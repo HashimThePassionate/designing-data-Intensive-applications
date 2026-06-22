@@ -1,16 +1,21 @@
 /* Linux Terminal Pro Style - Crisp & Technical */
-
 body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
     line-height: 1.7;
-    color: #1a1a1a; /* Almost black for better reading */
+    color: #1a1a1a;
     max-width: 850px;
     margin: 0 auto;
     padding: 40px 20px;
     background-color: #ffffff;
 }
 
-/* Headings: Bold, Pure Black aur Structure ke sath */
+/* Fix: Markdown Preview mein yellow highlight */
+::selection {
+    background: #FFFF0066;
+    color: black;
+}
+
+/* Headings */
 h1, h2, h3 {
     color: #000000;
     font-weight: 800;
@@ -18,40 +23,23 @@ h1, h2, h3 {
     margin-bottom: 0.5em;
 }
 
-h1 {
-    font-size: 2.4em;
-    border-bottom: 3px solid #000000; /* Bold black line */
-    padding-bottom: 5px;
-}
-
-h2 {
-    font-size: 1.8em;
-    border-bottom: 1px solid #e5e5e5;
-    padding-bottom: 5px;
-}
+h1 { font-size: 2.4em; border-bottom: 3px solid #000000; padding-bottom: 5px; }
+h2 { font-size: 1.8em; border-bottom: 1px solid #e5e5e5; padding-bottom: 5px; }
 
 /* Notes & Warnings */
 blockquote {
     background: #f8f9fa;
-    border-left: 5px solid #000000; /* Black solid accent */
+    border-left: 5px solid #000000;
     padding: 15px 20px;
     margin: 20px 0;
     font-weight: 500;
     color: #333;
 }
 
-blockquote p {
-    margin: 0;
-}
-
-/* ========================================= */
-/* THE MAGIC: ASLI TERMINAL WALE CODE BLOCKS */
-/* ========================================= */
-
-/* Inline Code (Jo lines ke darmiyan hota hai) */
+/* Inline Code */
 code {
     background-color: #f1f3f5;
-    color: #eb0000; /* Dark red for commands in text */
+    color: #eb0000;
     padding: 3px 6px;
     border-radius: 4px;
     font-family: 'Consolas', 'Courier New', monospace;
@@ -59,24 +47,38 @@ code {
     font-size: 0.9em;
 }
 
-/* Big Code/Output Blocks - Terminal Look */
+/* Big Code/Output Blocks */
 pre {
-    background-color: #1e1e1e; /* Deep Dark Background */
-    color: #d4d4d4; /* Light Grey Text */
-    padding: 20px; /* Top padding 45px se 20px kar di kyunke dots ab nahi hain */
+    background-color: #1e1e1e;
+    color: #d4d4d4;
+    padding: 20px;
     border-radius: 8px;
-    border: 2px solid #555555; /* Gird border add kar diya gaya hai */
-    box-shadow: 0 10px 20px rgba(0,0,0,0.2); /* Sleek depth */
+    border: 2px solid #555555;
+    box-shadow: 0 10px 20px rgba(0,0,0,0.2);
     position: relative;
     overflow: auto;
 }
 
-/* Terminal ke 3 dots wala (pre::before) code yahan se remove kar diya gaya hai */
+/* Custom Scrollbar for Terminal Blocks */
+pre::-webkit-scrollbar { height: 8px; }
+pre::-webkit-scrollbar-thumb { background: #555; border-radius: 4px; }
 
 pre code {
     background-color: transparent;
     color: inherit;
     padding: 0;
-    font-weight: normal; /* Terminal output regular font mein */
+    font-weight: normal;
 }
 
+/* Table Styling (Bonus) */
+table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 20px 0;
+}
+th, td {
+    border: 1px solid #ddd;
+    padding: 8px 12px;
+    text-align: left;
+}
+th { background-color: #f2f2f2; font-weight: bold; }
