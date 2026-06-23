@@ -537,9 +537,29 @@ while (true) {
 1. **Synchronized Clocks Par Bharosa:** Lease khatam hone ka waqt (`expiryTimeMillis`) doosri machine ne set kiya tha, aur aap usay apni local ghardi (`System.currentTimeMillis()`) se compare kar rahe hain. Agar ghardiyan aage peeche huayin to bera ghaark!
 2. **The Execution Pause Trap:** Farz karein ghardiyan bilkul sahi hain. Code ne line `if (lease.isValid())` par check kiya aur lease bilkul valid thi. Lekin agli hi line `process(request)` chalne se pehle, **aap ka program achanak 15 seconds ke liye so gaya (pause ho gaya)!** Jab program 15 seconds baad hosh mein aayega, to lease kab ki expire ho chuki hogi aur cluster ne kisi naye node ko leader bana diya hoga. Lekin is be-khabar purane leader ka thread wahin se shuru hoga aur request ko process kar dega (galat data database mein likh dega) kyunke usay pata hi nahi ke woh 15 seconds tak soya hua tha!
 
+### Solution: Fencing Tokens (The Judge approach)
+
+Fencing token ka concept yeh hai ke tum leader ko aur database ko majboor karte ho ke woh ek **"Incrementing Counter"** (Number) use karein.
+
+#### Yeh Kaam Kaise Karta Hai?
+
+Har dafa jab koi node "Leader" banta hai, toh usey ek naya aur bara **Token Number** diya jata hai.
+
+1. **Leader 1 (Puraana):** Lease mili, token mila **33**. Leader ne data write karne ka socha, lekin achanak pause (GC pause) ho gaya.
+2. **Leader 2 (Naya):** Leader 1 ka lease expire hua, Cluster ne naya leader elect kiya. Usey token mila **34**.
+3. **Conflict:** Leader 2 ne apna kaam kiya aur database mein `x=2` likh diya, aur database ko bata diya ke "Mera token **34** hai." Database ab janta hai ke "Latest kaam token 34 wale ne kiya hai."
+4. **The Pause Ends:** Leader 1 jaagta hai (15 seconds baad). Usay lagta hai woh abhi bhi leader hai. Woh database ko request bhejta hai: `x=1` (Token **33** ke sath).
+5. **The Check (Fencing):** Database ab sirf data nahi dekhta, woh **Token** check karta hai.
+* DB: "Mere paas toh pehle hi Token **34** ka kaam aa chuka hai. Tumhara token **33** hai? Yeh toh purana hai! **REJECTED!**"
+
+
+
+---
+
+
 ### Computers Mein Program Itna Lamba Kyun So Jata Hai? (7 Badi Wajahat)
 
-* **Garbage Collection (GC) Pauses:** Java (JVM) jaise runtimes mein jab Garbage Collector chalta hai, to woh kabhi kabhi poore program ke saare threads ko rok deta hai (**Stop-the-world pause**). Purane zamane mein yeh pauses minutes tak chale jaate تھے!
+* **Garbage Collection (GC) Pauses:** Java (JVM) jaise runtimes mein jab Garbage Collector chalta hai, to woh kabhi kabhi poore program ke saare threads ko rok deta hai (**Stop-the-world pause**). Purane zamane mein yeh pauses minutes tak chale jaate thay!
 * **Thread Contention:** Jab bohot saare threads ek hi lock ya queue par aapas mein larr rahe hon, to kuch threads ko lambe arsay tak baari ka intezar karna parta hai.
 * **Virtual Machine (VM) Suspension:** Cloud mein hypervisor aap ki poori VM ko zameen par utaar kar disk par save kar sakta hai aur doosre host par shift kar sakta hai (**Live Migration**). Is dauran aap ka poora system kuch milliseconds se lekar seconds tak sunn ho jata hai.
 * **CPU Steal Time:** Agar ek hi physical machine par chalne wali doosri VMs bohot heavy load daal dein, to aap ki VM ko CPU milna band ho jata hai jisay steal time kehte hain.
@@ -549,9 +569,42 @@ while (true) {
 
 Distributed system ke node ko hamesha yeh maan kar chalna chahiye ke uski execution kisi bhi function ke darmiyan kitni bhi der ke liye ruk sakti hai. Jab tak woh hosh mein aayega, baqi duniya aage nikal chuki hogi. Akele computer par to hum mutex ya semaphore se threads ko safe kar lete hain kyunke memory share hoti hai, par distributed system mein sirf network messages hote hain, isliye yahan timing par koi andaza nahi lagaya ja sakta.
 
+### Minimizing the pausing
+
+1. Garbage Collection (GC) Pauses
+* **Solution:** * **Modern GC:** Agar Java/JVM use kar rahe ho, toh "G1GC" ya "ParallelGC" ke bajaye **"ZGC"** ya **"Shenandoah"** use karo. Yeh collectors pauses ko sub-millisecond (1ms se kam) par le aate hain.
+* **Memory Management:** Heap size ko itna bada rakho ke GC ko baar baar na chalna pare.
+* **Object Allocation:** Code mein `new Object()` kam se kam karo, taake garbage hi kam paida ho.
+
+2. Thread Contention
+* **Solution:** * **Lock-free Data Structures:** Mutex aur Semaphores ke bajaye "Lock-free" structures (jaise Disruptor pattern) use karo.
+* **Actor Model/Event Loop:** Threads ke bajaye "Event Loop" (Node.js ya Go Channels) use karo, jahan context switching ka overhead nahi hota.
+
+3. VM Suspension / Live Migration / Steal Time
+* **Solution:**
+* **Dedicated Resources:** Cloud providers (AWS/GCP/Azure) par **"Dedicated Hosts"** ya **"Reserved Instances"** lo. Is se tumhari VM kisi aur ke "noisy neighbour" ke sath share nahi hoti.
+* **Affinity Settings:** K8s mein `podAffinity` aur `nodeAffinity` use karo taake tumhare critical processes (Leader Node) hamesha powerful aur stable nodes par hi chalein.
+* **Resource Limits:** Cgroups (K8s limits) ko sahi tarah configure karo taake process ko limit se zyada CPU na mile aur woh dusron ko steal na kare.
+
+4. Synchronous Disk I/O
+* **Solution:**
+* **Non-blocking I/O:** `epoll` (Linux) ya `io_uring` (Modern Linux) use karo.Yeh threads ko disk ke jawab ke intezar mein "block" nahi hone deta.
+* **Buffering/Caching:** Disk par likhne se pehle data ko memory (Redis/Memcached) mein buffer karo.
+* **Network-attached storage:** Cloud mein EBS (network disk) ke bajaye **"Local NVMe SSDs"** use karo agar performance bohot critical hai.
+
+5. Paging / Thrashing (Memory Management)
+* **Solution:**
+* **mlockall():** Linux mein system call `mlockall()` use karo, jo tumhare process ki memory ko RAM mein "lock" kar deta hai taake OS usay disk (swap) par na bheje.
+* **Disable Swap:** Database nodes par `swapoff -a` command chala do. Swap disable hona chahiye, kyunke DB ka disk par swap hona performance ka qatal hai.
+
+6. Unix SIGSTOP/Human Errors
+* **Solution:**
+* **Process Management:** Kabhi bhi process ko manually terminal par run mat karo. Hamesha **`systemd`** ya **`Kubernetes`** ke control mein chalao.
+* **Monitoring:** `SIGSTOP` aane par process crash nahi hota, bas ruk jata hai. Monitoring tool (Prometheus) mein "Process Status" ka alert lagao. Agar process `T` (Stopped) state mein jaye, toh foran alert mile.
+
 ---
 
-## Provididng response time guarantees
+## Providing response time guarantees
 
 Agar aap bohot zyada mehnat aur paisa kharch karein, to aap in pauses ko khatam kar sakte hain. Aise systems jinhein har haal mein ek makhsoos deadline ke andar respond karna hota hai, unhein **Hard Real-Time Systems** kehte hain (jaise hawai jahaz, rockets, robots, aur gaariyon ke control systems).
 
@@ -571,7 +624,7 @@ Yeh kaam bohot **Mehenga (Expensive)** hota hai aur is mein aap aam programming 
 
 Purane zamane mein Garbage Collection sab se badi dushman thi, par ab naye algorithms (jaise Java ke **ZGC**, **Shenandoah**, **G1** aur Go ka concurrent collector) pauses ko sirf kuch milliseconds tak mehdood kar dete hain.
 
-Agar GC pauses se bilkul jaan chhudani ho, to log ab aisi languages use karte hain jin mein garbage collector hota ہی nahi, jaise **Rust** (jo compiler level par object lifetimes track karti hai), **Swift** (Automatic Reference Counting), ya **Mojo**.
+Agar GC pauses se bilkul jaan chhudani ho, to log ab aisi languages use karte hain jin mein garbage collector hota hey nahi, jaise **Rust** (jo compiler level par object lifetimes track karti hai), **Swift** (Automatic Reference Counting), ya **Mojo**.
 
 Garbage-collected languages mein rehte huay bhi in pauses ke asar ko kam karne ke **3 bade tareeqay** hain:
 
