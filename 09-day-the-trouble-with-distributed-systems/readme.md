@@ -691,7 +691,7 @@ Lekin agar process pause ki wajah se do alag-alag nodes achanak yeh samajhne lag
 Yeh diagram dikhati hai ke agar hum distributed lock ko ghalat tarike se implement karein to data kaise corrupt hota hai (HBase database mein asal mein yeh bug aa chuka hai):
 
 <div align="center">
-  <img src="./images/04.png" width="700"/>
+  <img src="./images/04.png" width="800"/>
 </div>
 
 1. **Client 1 Request:** Client 1 lock service se kehta hai ke mujhe file par likhne ke liye chabi do (**Get lease**).
@@ -709,14 +709,14 @@ Yeh diagram dikhati hai ke agar hum distributed lock ko ghalat tarike se impleme
 Yeh diagram batati hai ke agar process pause na bhi ho, tab bhi sirf network packet ke der se pahonchne se bilkul same tabaahi mach sakti hai:
 
 <div align="center">
-  <img src="./images/05.png" width="700"/>
+  <img src="./images/05.png" width="800"/>
 </div>
 
 1. **Client 1 Sends Write:** Client 1 ke paas valid lease thi. Usne apna data storage ko bhej diya (**Write data**).
 2. **The Crash & Delay:** Request bhejne ke foran baad Client 1 crash ho gaya (**Process crashed**). Lekin jo packet usne network par bheja tha, woh network ke traffic jam mein phans gaya aur bohot der tak raste mein hi rha.
 3. **Lease Expires:** Jab tak woh packet raste mein tha, Client 1 ka lease time khatam ho gaya.
 4. **Client 2 Writes:** Lock service ne naya lease Client 2 ko de diya. Client 2 ne sukoon se apna data storage mein likha aur storage ne usay `OK` keh diya.
-5. **The Ghost Packet Arrives:** Ab achanak Client 1 ka woh purana delayed packet jo raste mein phansa hua تھا, storage tak pahonch jata hai. Storage bina soche samajh us purane packet ka data upar likh deti hai, jis se Client 2 ka naya data badal jata hai aur file dobara corrupt ho jati hai (**File corrupted**).
+5. **The Ghost Packet Arrives:** Ab achanak Client 1 ka woh purana delayed packet jo raste mein phansa hua tha. storage tak pahonch jata hai. Storage bina soche samajh us purane packet ka data upar likh deti hai, jis se Client 2 ka naya data badal jata hai aur file dobara corrupt ho jati hai (**File corrupted**).
 
 ---
 
@@ -735,7 +735,7 @@ Iska sab se solid hal **Fencing Token** hai. Asol yeh hai ke jab bhi lock servic
 ### Figure 9-6 Ka Mukammal Breakdown (Safe Fencing)
 
 <div align="center">
-  <img src="./images/06.png" width="700"/>
+  <img src="./images/06.png" width="800"/>
 </div>
 
 1. **Token 33:** Client 1 ko lease milti hai sath mein token milta hai = **33**. Iske baad Client 1 so jata hai (**Process paused**).
@@ -759,7 +759,7 @@ Iska hal yeh hai ke hum client ke bheje gaye timestamp ke **shuru wale hisse (Mo
 ### Figure 9-7 Ka Mukammal Breakdown (Multi-Replica Fencing)
 
 <div align="center">
-  <img src="./images/07.png" width="700"/>
+  <img src="./images/07.png" width="800"/>
 </div>
 
 1. **Client 2 Writes:** Client 2 ke paas token 34 hai, isliye uske writes ka timestamp `340000851` banta hai. Woh Replica 1 aur Replica 2 par data likh deta hai (`OK`). Lekin uski pahonch Replica 3 tak nahi hoti kyunke woh down hai (**Node offline**).
