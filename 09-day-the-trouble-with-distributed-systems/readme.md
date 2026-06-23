@@ -1,5 +1,71 @@
 # The Trouble with Distributed Systems
 
+<details>
+<summary><strong>📑 Table of Contents</strong></summary>
+
+## Quick Navigation
+
+### Part 1: Network Failures
+- [Happy Path Trap aur Mindset ka Badalna](#happy-path-trap-aur-mindset-ka-badalna)
+- [Faults and Partial Failures](#faults-and-partial-failures)
+  - [Single Computer Ka Behavior](#single-computer-ka-behavior-predictable-aur-deterministic)
+  - [Distributed Systems Ka Behavior](#distributed-systems-ka-behavior-the-messy-physical-world)
+  - [Partial Failure Kya Hai?](#partial-failure-kya-hai)
+  - [Unreliable Components Se Reliable System](#unreliable-components-se-reliable-system-banana)
+- [Unreliable Networks](#unreliable-networks)
+- [The Limitations of TCP](#the-limitations-of-tcp)
+- [Network Faults in Practice](#network-faults-in-practice)
+
+### Part 2: Fault Detection & Timeouts
+- [Fault Detection](#fault-detection)
+- [Timeouts and Unbounded Delays](#timeouts-and-unbounded-delays)
+  - [Ek Farzi Perfect System Ka Timeout](#ek-farzi-perfect-system-ka-timeout-2d--r)
+- [Network Congestion and Queueing](#network-congestion-and-queueing)
+- [TCP Versus UDP](#tcp-versus-udp)
+- [Variability of Network Delays](#variability-of-network-delays)
+
+### Part 3: Synchronization & Clocks
+- [Synchronous Versus Asynchronous Networks](#synchronous-versus-asynchronous-networks)
+  - [Can We Not Simply Make Network Delays Predictable?](#can-we-not-simply-make-network-delays-predictable)
+  - [Latency and Resource Utilization](#latency-and-resource-utilization)
+  - [Combining Circuit and Packet Switching](#combining-circuit-switching-and-packet-switching)
+- [Unreliable Clocks](#unreliable-clocks)
+- [Monotonic Versus Time-of-Day Clocks](#monotonic-versus-time-of-day-clocks)
+- [Clock Synchronization and Accuracy](#clock-synchronization-and-accuracy)
+- [Relying on Synchronized Clocks](#relying-on-synchronized-clocks)
+  - [Timestamps for Ordering Events](#timestamps-for-ordering-events)
+  - [Clock Readings with Confidence Interval](#clock-readings-with-a-confidence-interval)
+  - [Synchronized Clocks for Global Snapshots](#synchronized-clocks-for-global-snapshots)
+
+### Part 4: Process Failures & System Resilience
+- [Process Pauses](#process-pauses)
+  - [Computers Mein Program Itna Lamba Kyun So Jata Hai?](#computers-mein-program-itna-lamba-kyun-so-jata-hai-7-badi-wajahat)
+  - [Minimizing the Pausing](#minimizing-the-pausing)
+- [Providing Response Time Guarantees](#providing-response-time-guarantees)
+- [Limiting the Impact of Garbage Collection](#limiting-the-impact-of-garbage-collection)
+
+### Part 5: Consensus & Byzantine Faults
+- [Knowledge, Truth, and Lies](#knowledge-truth-and-lies)
+- [The Majority Rules](#the-majority-rules)
+  - [Quorum (Aksariyat Ka Faisla)](#quorum-aksariyat-ka-faisla)
+- [Distributed Locks and Leases](#distributed-locks-and-leases)
+  - [Fencing off Zombies and Delayed Requests](#fencing-off-zombies-and-delayed-requests)
+  - [Fencing with Multiple Replicas](#fencing-with-multiple-replicas)
+- [Byzantine Faults](#byzantine-faults)
+  - [The Byzantine Generals Problem](#the-byzantine-generals-problem)
+  - [Uses of Byzantine Fault Tolerance](#uses-of-byzantine-fault-tolerance)
+  - [Weak Forms of Lying](#weak-forms-of-lying)
+
+### Part 6: System Models & Testing
+- [System Model and Reality](#system-model-and-reality)
+- [Formal Methods and Randomized Testing](#formal-methods-and-randomized-testing)
+- [The Power of Determinism](#the-power-of-determinism)
+- [Summary](#summary)
+
+</details>
+
+---
+
 A.A. Milne ki book *The House at Pooh Corner* ka ek bohot pyaara quote hai: **"Accidents bohot ajeeb cheezein hain. Jab tak aapke sath accident ho nahi jata, tab tak aapko lagta hai ke yeh nahi hoga."**
 
 Isi tarah software engineering mein bhi jab tak system crash nahi hota, hum samajhte hain ke sab theek chal raha hai. Chalein ab is text ke har ek point aur concept ko bohot hi aasan aur dilchasp tarike se break down karte hain.
