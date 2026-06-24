@@ -440,8 +440,10 @@ Autoincrementing IDs ka aik aur sab se bara faida yeh hai ke **IDs ki tarteeb (o
 Writer ne **Figure 10-8** mein aik chat app ki example di hai jahan ek single-node ID generator messages ko auto-incrementing numbers assign kar raha hai taake chat ki baatein tarteeb mein rahein.
 
 <div align="center">
-  <img src="./images/08.png" width="700"/>
+  <img src="./images/08.png" width="800"/>
 </div>
+
+---
 
 **Step-by-Step Breakdown:**
 
