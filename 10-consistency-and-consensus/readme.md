@@ -106,8 +106,10 @@ Is baat ko mazeed achi tarah samajhne ke liye, hum aik aise system ki misaal dek
 Writer ne **Figure 10-1** mein ek match ke live score ki misaal di hai. Sochein do dost hain, **Aaliyah** aur **Bryce**, jo aik hi kamray mein baithay apne phones par match ka score dekh rahe hain.
 
 <div align="center">
-  <img src="./images/01.png" width="700"/>
+  <img src="./images/01.png" width="800"/>
 </div>
+
+---
 
 **Step-by-Step Breakdown:**
 
@@ -150,8 +152,10 @@ Is system mein do tarah ke kaam (operations) ho rahe hain:
 #### Figure 10-2 Ka Breakdown: Concurrent Reads Aur Writes
 
 <div align="center">
-  <img src="./images/02.png" width="700"/>
+  <img src="./images/02.png" width="800"/>
 </div>
+
+---
 
 **Figure 10-2** mein clients ke point of view se requests ko horizontal bars (lambay ڈبوں) ki shakal mein dikhaya gaya hai.
 
@@ -173,8 +177,10 @@ Lekin sirf itna hona hi linearizability ke liye kaafi nahi hai. Agar concurrent 
 Is maslay ko hal karne ke liye hum aik aur rule lagate hain jo **Figure 10-3** mein dikhaya gaya hai.
 
 <div align="center">
-  <img src="./images/03.png" width="700"/>
+  <img src="./images/03.png" width="800"/>
 </div>
+
+---
 
 * **The Magic Point:** Linearizable system mein hum yeh maante hain ke poore write operation ke dauran aik aisa achanak lamha (point in time) aata hai jahan $x$ ki value jhatkay se $0$ se $1$ ho jati hai.
 * **The Arrow Constraint:** Agar kisi aik client ke read ne nayi value **1** dekh li, toh uske baad shuru hone wale **saare ke saare reads** ko har haal mein **1** hi milna chahiye, chahe abhi main write operation poori tarah khatam na bhi hua ho!
@@ -187,9 +193,10 @@ Is maslay ko hal karne ke liye hum aik aur rule lagate hain jo **Figure 10-3** m
 Ab hum mazeed complex operations dekhte hain jo **Figure 10-4** mein hain. Yahan aik naya operation use hua hai:
 
 <div align="center">
-  <img src="./images/04.png" width="700"/>
+  <img src="./images/04.png" width="800"/>
 </div>
 
+---
 
 $$\text{CAS}(x, v_{\text{old}}, v_{\text{new}}) \implies r$$
 
@@ -203,7 +210,7 @@ Chalein is mushkil diagram ke saare points ko asaan karke breakdown karte hain:
 * **B Ka Pehla Read Aur Concurrency:** Client B ne pehle read bheja, phir Client D ne `Write(x, 0)` bheja, aur Client A ne `Write(x, 1)` bheja. Lekin Client B ke read ko **1** mil raha hai. Yeh bilkul sahi hai! Iska matlab hai network ke delay ki wajah se database ne pehle D ka write chalaya, phir A ka write chalaya, aur aakhir mein B ka read chalaya. Order aage piche ho sakta hai kyunke yeh teeno kaam aik hi waqt mein (concurrently) ho rahe the.
 * **OK Se Pehle Data Milna:** Client B ko value **1** mil gayi, jabke Client A ko abhi tak database se "OK" ka response nahi mila tha. Yeh bhi bilkul normal hai, kyunke database ne data write kar diya tha, bas A tak kamyabi ka message network line mein thoda slow aa raha tha.
 * **Client C Ke Do Reads:** Client C pehle read karta hai toh usay **1** milta hai. Phir Client B aik operation chalata hai: `CAS(x, 1, 2) => OK`. Chunke value 1 thi, toh B ne usay badal kar 2 kar diya. Is liye jab Client C doosri baar read karta hai, toh usay **2** milta hai.
-* **Client D Ka Fail Operation:** Client D aik request bhejta hai: `CAS(x, 0, 3) => Error`. D ko error is liye mila kyunke jab database ne is request ko pakra, us waqt tak value 0 nahi rahi thi balkay badal kar 2 ho chuki تھی۔
+* **Client D Ka Fail Operation:** Client D aik request bhejta hai: `CAS(x, 0, 3) => Error`. D ko error is liye mila kyunke jab database ne is request ko pakra, us waqt tak value 0 nahi rahi thi balkay badal kar 2 ho chuki thi.
 * **The Non-Linearizable Error (Grey Bar):** Diagram ke aakhir mein Client B ka aakhri read (jo grey rang ke dabbe mein hai aur upar khatray ka nishan $\triangle$ bana hai) **linearizable nahi hai!** Kyun? Kyunke Client C ne ek operation chalaya tha `CAS(x, 2, 4)` jis se value 4 ho gayi thi. Client A ne us 4 value ko parh bhi liya tha. Ab jab Client A up-to-date value (4) parh chuka hai, toh uske BAAD shuru hone wale B ke read ko purani value **2** nahi mil sakti! Yeh time travelling jaisa gunah hai distributed systems mein, is liye yeh linearizability ki sarii sharton ko tor raha hai.
 
 ---
