@@ -236,7 +236,7 @@ Agar koi database in dono guarantees ko aik sath faraham kare (yani transactions
 
 ---
 
-## Relying on Linearizability
+### Relying on Linearizability
 
 Hum ne yeh toh dekh liya ke **Linearizability** kya hoti hai, lekin sawal yeh paida hota hai ke hamein is ki zaroorat kahan parti hai? Agar koi sports website score dikhane mein do-chaar seconds late bhi ho jaye, toh koi aatish-fashan nahi phat parega. Lekin kuch jagahain aisi hain jahan agar linearizability na ho, toh poora system tabah ho sakta hai. Chalein un mawaqe ko deeply samajhte hain:
 
@@ -285,8 +285,10 @@ Computer systems mein bhi yeh masla bohot aata hai. Writer ne **Figure 10-5** me
 Sochein aik system hai jahan user video upload karta hai, aur background mein aik processor (Transcoder) us video ka size chota karta hai taake slow internet par bhi video chal sakay.
 
 <div align="center">
-  <img src="./images/05.png" width="700"/>
+  <img src="./images/05.png" width="800"/>
 </div>
+
+---
 
 **Step-by-Step Dataflow:**
 
