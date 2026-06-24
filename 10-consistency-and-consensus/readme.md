@@ -1,5 +1,40 @@
 # Consistency and Consensus
 
+<details>
+<summary><strong>📑 Table of Contents</strong></summary>
+
+### 📖 Main Sections
+
+1. **[Introduction: Fault Tolerance Aur Replication Ka Masla](#introduction-fault-tolerance-aur-replication-ka-masla)**
+   - Eventual consistency
+   - Strong consistency
+   - Kaun Sa Tareeqa Behtar Hai? (The Decision Factor)
+   - Three Areas of Focus in This Chapter
+   - Distributed Systems Kyun Mushkil Hain? (The Challenge)
+
+2. **[Linearizability](#linearizability)**
+   - What Makes a System Linearizable?
+   - Linearizability Versus Serializability
+   - Relying on Linearizability
+   - Implementing Linearizable Systems
+   - The Cost of Linearizability
+
+3. **[ID Generators and Logical Clocks](#id-generators-and-logical-clocks)**
+   - Logical Clocks
+   - Linearizable ID Generators
+   - Enforcing constraints using logical clocks
+
+4. **[Consensus](#consensus)**
+   - The Impossibility of Consensus
+   - The Many Faces of Consensus
+   - Consensus in Practice
+   - Using shared logs
+
+</details>
+
+---
+
+
 An ancient adage warns, “Never go to sea with two chronometers; take one or three.”
 —Frederick P. Brooks Jr., The Mythical Man-Month: Essays on Software Engineering (1995)
 
