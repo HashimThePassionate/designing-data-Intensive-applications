@@ -574,8 +574,10 @@ Agar generator linearizable na ho, toh kitna bara hadsa ho sakta hai, yeh **Figu
 Sochein aik social media website (jaise Facebook ya Instagram) hai jahan ek User A apni aik embarrassment (sharminda karne wali) photo sirf apne doston ke sath share karna chahta hai.
 
 <div align="center">
-  <img src="./images/10.png" width="700"/>
+  <img src="./images/10.png" width="800"/>
 </div>
+
+---
 
 **Step-by-Step Scenario:**
 
