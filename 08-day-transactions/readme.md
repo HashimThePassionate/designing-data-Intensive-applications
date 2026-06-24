@@ -1036,7 +1036,7 @@ Is liye single-threaded databases interactive transactions allow nahi kartay. Un
 Chalein ab aap ki bheji gayi image (Figure 8-9) ke dono patterns ko step-by-step timeline ke mutabaq break down karte hain ke stored procedure network ka waqt kaise bachata hai:
 
 <div align="center">
-  <img src="./images/09.png" width="700"/>
+  <img src="./images/09.png" width="800"/>
 </div>
 
 ---
