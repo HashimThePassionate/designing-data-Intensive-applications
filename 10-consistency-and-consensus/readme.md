@@ -502,8 +502,10 @@ Leslie Lamport ne 1978 mein aik bohot hi sasta aur simple tareeqa diya jo causal
 **Figure 10-9** mein dikhaya gaya hai ke Lamport clock isi chat wali example mein kaise chalegi.
 
 <div align="center">
-  <img src="./images/09.png" width="700"/>
+  <img src="./images/09.png" width="800"/>
 </div>
+
+---
 
 * **Timestamp Ki Shakal:** Lamport timestamp do cheezon ka jora (pair) hota hai: `(counter, node ID)`. Misaal ke tor par `(1, "Aaliyah")`. Agar do alag computers ka counter same ho bhi jaye, toh unke naam (node ID) alag hone ki wajah se poora timestamp unique ho jata hai.
 * **Algorithm Ke Do Rules (Bacho ki tarah samajhein):**
