@@ -339,8 +339,10 @@ Dynamo-style systems (jaise Cassandra) mein log kehte hain ke agar aap Quorum ru
 Sochein hamare paas total teen replicas hain ($n=3$). Aik Writer computer $x$ ki value ko $0$ se badal kar $1$ karna chahta hai aur woh teeno nodes par write bhejta hai ($w=3$).
 
 <div align="center">
-  <img src="./images/06.png" width="700"/>
+  <img src="./images/06.png" width="800"/>
 </div>
+
+---
 
 **Step-by-Step Execution:**
 
@@ -369,8 +371,10 @@ Ab jab hum ne dekh liya ke kuch tareeqe linearizability de sakte hain aur kuch n
 #### Figure 10-7 Ka Breakdown: Network Partition Aur Qurbani
 
 <div align="center">
-  <img src="./images/07.png" width="700"/>
+  <img src="./images/07.png" width="800"/>
 </div>
+
+---
 
 Sochein hamare paas do regions hain: **Region 1** aur **Region 2**. Dono ke darmiyan internet ki tar achanak kat jati hai ya communication block ho jati hai. Distributed systems mein is achanak aane wali aafat ko **Network Partition** kehte hain.
 
@@ -412,7 +416,6 @@ Distributed databases bhi linearizability ko fault tolerance se zyada **Speed (L
 
 ```
 Linearizable Storage Ki Response Time ∝ Network Delay Ki Unpredictability (Ghair-yakeeni surat-e-haal)
-
 ```
 
 **Attiya aur Welch Ka Proof:**
